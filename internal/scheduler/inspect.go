@@ -8,6 +8,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -40,12 +41,14 @@ const (
 	ReasonCredentialWeightZero      ReasonCode = "credential_weight_zero"
 	ReasonCredentialNotAllowed      ReasonCode = "credential_not_allowed"
 	ReasonNoAvailableCredential     ReasonCode = "no_available_credential"
+	ReasonPolicyExcluded            ReasonCode = "policy_excluded"
 )
 
 type Inspection struct {
 	ClientProtocol   protocol.Protocol
 	Operation        execution.Operation
 	RouteRequirement execution.RouteRequirement
+	RequestModel     *string
 	ExternalModel    *string
 	Routable         bool
 	Reason           ReasonCode
@@ -272,6 +275,8 @@ func inspectCredential(
 	now time.Time,
 	model string,
 	operation execution.Operation,
+	policies *policy.RuntimeView,
+	requestModel *string,
 ) CredentialInspection {
 	result := CredentialInspection{
 		CredentialID: credential.ID,
@@ -298,6 +303,31 @@ func inspectCredential(
 	if credential.WeightManual != nil && *credential.WeightManual == 0 {
 		result.Reason = ReasonCredentialWeightZero
 		return result
+	}
+	if policies != nil {
+		ctx := &policy.EvalContext{
+			Now:           now,
+			RequestModel:  policy.StringFact{State: policy.FactStateUnknown},
+			UpstreamModel: policy.StringFact{State: policy.FactStateUnknown},
+			QuotaWindows:  credential.QuotaWindows,
+		}
+		if requestModel != nil && *requestModel != "" {
+			ctx.RequestModel = policy.StringFact{
+				Value: *requestModel,
+				State: policy.FactStateMeasured,
+			}
+		}
+		if model != "" {
+			ctx.UpstreamModel = policy.StringFact{
+				Value: model,
+				State: policy.FactStateMeasured,
+			}
+		}
+		if excluded, _ := policies.EvalCandidate(group.ID, credential.ID, ctx); excluded {
+			result.Reason = ReasonPolicyExcluded
+			result.Available = false
+			return result
+		}
 	}
 	switch credential.RuntimeState(now) {
 	case state.CredentialRuntimeBlacklisted:
@@ -333,6 +363,7 @@ func Inspect(
 		ClientProtocol:   normalized.clientProtocol,
 		Operation:        normalized.operation,
 		RouteRequirement: normalized.routeRequirement,
+		RequestModel:     cloneString(normalized.requestModel),
 		ExternalModel:    cloneString(normalized.externalModel),
 		Groups:           []GroupInspection{},
 	}
@@ -372,6 +403,10 @@ func Inspect(
 	if err != nil {
 		return Inspection{}, err
 	}
+	policies := query.Policies
+	if policies == nil && snapshot != nil {
+		policies = snapshot.Policies
+	}
 	for _, decision := range decisions {
 		groupResult := GroupInspection{
 			GroupID: decision.group.ID, GroupName: decision.group.Name,
@@ -398,6 +433,8 @@ func Inspect(
 				now,
 				decision.target.UpstreamModelID,
 				normalized.operation,
+				policies,
+				normalized.requestModel,
 			)
 			groupResult.Credentials = append(groupResult.Credentials, credentialResult)
 		}

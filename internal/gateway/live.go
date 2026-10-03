@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -219,7 +220,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 	}
 	defer handler.liveSessions.release()
 	query := scheduler.Query{ClientProtocol: protocol.CodexLive, Operation: execution.OperationLiveCall,
-		RouteRequirement: execution.RouteRequirementNative, ExternalModel: &model, AccessKey: request.accessKey,
+		RouteRequirement: execution.RouteRequirementNative, RequestModel: &model, ExternalModel: &model, AccessKey: request.accessKey,
 		AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
 	groups := scheduler.CandidateGroupIDsForQuery(request.snapshot, query)
 	for _, ref := range handler.registry.CaptureActiveCredentialRefs(groups) {
@@ -501,6 +502,31 @@ func liveMediaProxyURL(effective outboundproxy.Effective) (string, error) {
 	}
 }
 
+func (handler *Handler) isLiveCallPolicyAdmitted(call *liveCallSession) bool {
+	if handler == nil || handler.manager == nil || call == nil {
+		return false
+	}
+	snapshot := handler.manager.Current()
+	if snapshot == nil || snapshot.Policies == nil {
+		return true
+	}
+	now := handler.now()
+	var quotaWindows []policy.QuotaWindowFact
+	if handler.registry != nil {
+		if windows, ok := handler.registry.CredentialQuotaWindows(call.ref.ID, call.ref.IdentityGeneration); ok {
+			quotaWindows = windows
+		}
+	}
+	ctx := &policy.EvalContext{
+		Now:           now,
+		RequestModel:  policy.StringFact{Value: call.clientModel, State: policy.FactStateMeasured},
+		UpstreamModel: policy.StringFact{Value: call.model, State: policy.FactStateMeasured},
+		QuotaWindows:  quotaWindows,
+	}
+	excluded, _ := snapshot.Policies.EvalCandidate(call.groupID, call.ref.ID, ctx)
+	return !excluded
+}
+
 func (handler *Handler) liveCallAuthorized(keyID uint, call *liveCallSession) bool {
 	snapshot := handler.manager.Current()
 	key, exists := snapshot.AccessKeysByHash[call.keyHash]
@@ -515,7 +541,7 @@ func (handler *Handler) liveCallAuthorized(keyID uint, call *liveCallSession) bo
 	}
 	model := call.clientModel
 	query := scheduler.Query{ClientProtocol: protocol.CodexLive, Operation: execution.OperationLiveCall,
-		RouteRequirement: execution.RouteRequirementNative, ExternalModel: &model, AccessKey: key}
+		RouteRequirement: execution.RouteRequirementNative, RequestModel: &model, ExternalModel: &model, AccessKey: key}
 	for _, groupID := range scheduler.CandidateGroupIDsForQuery(snapshot, query) {
 		if groupID == call.groupID {
 			for _, current := range handler.registry.CaptureActiveCredentialRefs([]uint{groupID}) {
@@ -546,6 +572,11 @@ func (handler *Handler) connectCodexLive(c *gin.Context, request *dataPlaneReque
 	}
 	if !handler.liveCallAuthorized(request.accessKey.ID, call) {
 		handler.liveSessions.finishCall(call, "key_revoked")
+		_ = handler.writeReason(c, reasonLiveSession)
+		return
+	}
+	if !handler.isLiveCallPolicyAdmitted(call) {
+		handler.liveSessions.unclaim(call, nil)
 		_ = handler.writeReason(c, reasonLiveSession)
 		return
 	}

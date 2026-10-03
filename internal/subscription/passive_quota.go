@@ -230,6 +230,7 @@ func cloneQuotaWindows(windows []providerobservation.QuotaWindow) []providerobse
 		window.Utilization = cloneFloat(window.Utilization)
 		window.ResetAtMS = cloneInt64(window.ResetAtMS)
 		window.WindowSeconds = cloneInt64(window.WindowSeconds)
+		window.ObservedAtMS = cloneInt64(window.ObservedAtMS)
 		window.ModelIDs = append([]string(nil), window.ModelIDs...)
 		cloned = append(cloned, window)
 	}

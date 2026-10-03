@@ -205,31 +205,32 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 		return
 	}
 
-	// This callback follows Manager publishMu -> coordinator stripe ->
+	// This callback follows coordinator stripe -> Manager publishMu ->
 	// Registry/Stats locks. Keep it to current reads, pure signature work, and
 	// coordinated recover/reset; decrypt, probe, DB/network, and logging stay
 	// outside the publication boundary.
-	recovered := worker.snapshots.WithCurrentSnapshot(func(current *state.ConfigSnapshot) bool {
-		if current == nil {
-			return false
-		}
-		currentGroup, exists := current.Groups[ref.GroupID]
-		if !exists {
-			return false
-		}
-		currentTarget, valid := buildGroupValidationTarget(currentGroup)
-		if !valid || currentTarget.signature != target.signature {
-			return false
-		}
+	var recovered bool
+	worker.mutations.Do(ref.ID, func() {
+		recovered = worker.snapshots.WithCurrentSnapshot(func(current *state.ConfigSnapshot) bool {
+			if current == nil {
+				return false
+			}
+			currentGroup, exists := current.Groups[ref.GroupID]
+			if !exists {
+				return false
+			}
+			currentTarget, valid := buildGroupValidationTarget(currentGroup)
+			if !valid || currentTarget.signature != target.signature {
+				return false
+			}
 
-		var matched bool
-		worker.mutations.Do(ref.ID, func() {
+			var matched bool
 			matched = worker.registry.RecoverIfMatch(ref)
 			if matched {
 				worker.stats.Reset(ref.ID)
 			}
+			return matched
 		})
-		return matched
 	})
 	if !recovered && ctx.Err() == nil {
 		logValidationFailure(ref, string(executed.protocol), "conditional_recover")

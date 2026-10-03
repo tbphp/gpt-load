@@ -153,6 +153,30 @@ export const zhCN = {
     empty_response_retry: '空回检测',
     responses_websocket_enabled: 'Responses WebSocket',
   },
+  policy: {
+    entry: '策略配置',
+    title: '分组策略配置',
+    sectionTitle: '分组继承策略',
+    fromGroup: '来自分组',
+    accountRules: '账号规则',
+    description: '按条件限制账号使用或调整计价倍率。',
+    loadFailed: '策略配置加载失败',
+    saveFailed: '策略保存失败',
+    invalidJson: 'JSON 格式非法，请检查语法后重试',
+    conflict:
+      '策略版本已变化，草稿已保留。请先完成字段编辑并复制 JSON，再确认取消、重开最新配置，粘贴或合并后保存。',
+    invalidDraftBlockJson: '编辑器中存在未提交或非法的草稿，请先修正后再切换为 JSON 模式或保存',
+    saveLabel: '保存',
+    rawJson: '策略 JSON 正文',
+    credentialTitle: '账号策略配置',
+    credentialDescription: '为此账号设置使用条件与计价倍率。',
+    modeVisual: '可视化模式',
+    modeJson: 'JSON 源码',
+    exported: '策略已复制到剪贴板',
+    downloadJson: '下载 JSON',
+    copyJson: '复制 JSON',
+    clipboardUnavailable: '复制失败，请手动复制',
+  },
 }
 
 export const enUS: typeof zhCN = {
@@ -319,6 +343,31 @@ export const enUS: typeof zhCN = {
     empty_response_retry: 'Empty response detection',
     responses_websocket_enabled: 'Responses WebSocket',
   },
+  policy: {
+    entry: 'Policy',
+    title: 'Group Policy',
+    sectionTitle: 'Group Policy Inheritance',
+    fromGroup: 'From Group',
+    accountRules: 'Account Rules',
+    description: 'Restrict account usage or adjust pricing multipliers based on conditions.',
+    loadFailed: 'Failed to load policy configuration',
+    saveFailed: 'Failed to save policy configuration',
+    invalidJson: 'Invalid JSON format. Please check the syntax and try again.',
+    conflict:
+      'The policy version changed; your draft is preserved. Finish field edits and copy JSON, confirm cancellation, then reopen the latest configuration, paste or merge your changes, and save.',
+    invalidDraftBlockJson:
+      'The editor contains uncommitted or invalid drafts. Please correct them before switching to JSON mode or saving.',
+    saveLabel: 'Save',
+    rawJson: 'Policy JSON',
+    credentialTitle: 'Credential policy configuration',
+    credentialDescription: 'Set usage conditions and pricing multipliers for this account.',
+    modeVisual: 'Visual',
+    modeJson: 'JSON Source',
+    exported: 'Policy copied to clipboard',
+    downloadJson: 'Download JSON',
+    copyJson: 'Copy JSON',
+    clipboardUnavailable: 'Failed to copy, please copy manually',
+  },
 }
 
 export const jaJP: typeof zhCN = {
@@ -481,5 +530,30 @@ export const jaJP: typeof zhCN = {
     affinity_enabled: 'セッションアフィニティ',
     empty_response_retry: '空応答の検出',
     responses_websocket_enabled: 'Responses WebSocket',
+  },
+  policy: {
+    entry: 'ポリシー設定',
+    title: 'グループポリシー設定',
+    sectionTitle: 'グループポリシー継承',
+    fromGroup: 'グループから',
+    accountRules: 'アカウントルール',
+    description: '条件に基づいてアカウントの使用を制限したり、価格乗数を調整したりします。',
+    loadFailed: 'ポリシー設定の読み込みに失敗しました',
+    saveFailed: 'ポリシーの保存に失敗しました',
+    invalidJson: 'JSONの形式が無効です。構文を確認してもう一度お試しください',
+    conflict:
+      'ポリシーのバージョンが変わりました。下書きは保持されています。入力を確定して JSON をコピーし、キャンセルを確認して最新の設定を開き直し、変更を貼り付けるか統合して保存してください。',
+    invalidDraftBlockJson:
+      'エディターに未コミットまたは無効なドラフトがあります。JSONモードに切り替えるか保存する前に修正してください。',
+    saveLabel: '保存',
+    rawJson: 'ポリシーJSON',
+    credentialTitle: 'アカウントポリシー設定',
+    credentialDescription: 'このアカウントの使用条件と価格乗数を設定します。',
+    modeVisual: 'ビジュアル',
+    modeJson: 'JSON ソース',
+    exported: 'ポリシーをクリップボードにコピーしました',
+    downloadJson: 'JSONをダウンロード',
+    copyJson: 'JSONをコピー',
+    clipboardUnavailable: 'コピーに失敗しました。手動でコピーしてください',
   },
 }

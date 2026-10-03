@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"gpt-load/internal/policy"
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
@@ -48,6 +49,7 @@ type CredentialEntry struct {
 	ProxyFingerprint        string
 	quotaRemaining          *float64
 	quotaResetAt            time.Time
+	quotaFacts              []policy.QuotaWindowFact
 }
 
 type CredentialMeta struct {
@@ -57,6 +59,14 @@ type CredentialMeta struct {
 	IdentityGeneration uint64
 	WeightManual       *int
 	ModelCooldowns     map[string]time.Time
+	QuotaWindows       []policy.QuotaWindowFact
+}
+
+func (meta CredentialMeta) Clone() CredentialMeta {
+	meta.WeightManual = cloneWeight(meta.WeightManual)
+	meta.ModelCooldowns = cloneModelCooldowns(meta.ModelCooldowns)
+	meta.QuotaWindows = policy.CloneQuotaWindows(meta.QuotaWindows)
+	return meta
 }
 
 type CredentialRef struct {
@@ -554,6 +564,7 @@ func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState
 	if entry.AuthState != CredentialAuthStateReady {
 		entry.quotaRemaining = nil
 		entry.quotaResetAt = time.Time{}
+		entry.quotaFacts = nil
 	}
 	return true
 }
@@ -629,6 +640,28 @@ func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []Cred
 		return refs[i].ID < refs[j].ID
 	})
 	return refs
+}
+
+// CredentialQuotaWindows returns a detached clone of the normalized quota facts for a credential.
+// It verifies credential existence, strict identity generation match, active status, and
+// auth-ready state, but evaluates independently of scheduling cooldown or runtime availability.
+func (r *CredentialRegistry) CredentialQuotaWindows(id uint, generation uint64) ([]policy.QuotaWindowFact, bool) {
+	if r == nil || id == 0 || generation == 0 {
+		return nil, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(id)
+	if !ok {
+		return nil, false
+	}
+	if entry.IdentityGeneration != generation {
+		return nil, false
+	}
+	if entry.Status != CredentialStatusActive || entry.AuthState.normalize() != CredentialAuthStateReady {
+		return nil, false
+	}
+	return policy.CloneQuotaWindows(entry.quotaFacts), true
 }
 
 func (r *CredentialRegistry) ActiveEncryptedCredentialDataIfMatch(ref CredentialRef) (string, bool) {
@@ -731,6 +764,7 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
 				WeightManual:   cloneWeight(view.WeightManual),
 				ModelCooldowns: view.ModelCooldowns,
+				QuotaWindows:   view.QuotaWindows,
 			}
 			metas = append(metas, meta)
 		}
@@ -761,6 +795,7 @@ func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	entry.quotaRemaining = cloneFloat(remaining)
 	if remaining == nil {
 		entry.quotaResetAt = time.Time{}
+		entry.quotaFacts = nil
 		return true
 	}
 	entry.quotaResetAt = resetAt
@@ -770,12 +805,30 @@ func (r *CredentialRegistry) SetCredentialQuotaObservation(
 // ApplyQuotaWindows publishes the tightest account-scope remaining ratio
 // derived from windows to the management-plane health display, or clears it
 // when no account-scope window carries both a usable ratio and a reset time.
+// It also publishes normalized, immutable full quota facts for policy runtime evaluation.
 // It is shared by the active and passive credential observation writers so
 // both pick the same bottleneck window using one rule.
-func (r *CredentialRegistry) ApplyQuotaWindows(credentialID uint, windows []providerobservation.QuotaWindow) bool {
+func (r *CredentialRegistry) ApplyQuotaWindows(credentialID uint, identityGeneration uint64, windows []providerobservation.QuotaWindow) bool {
 	if r == nil || credentialID == 0 {
 		return false
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return false
+	}
+	if entry.IdentityGeneration != identityGeneration {
+		return false
+	}
+
+	if len(windows) == 0 {
+		entry.quotaRemaining = nil
+		entry.quotaResetAt = time.Time{}
+		entry.quotaFacts = nil
+		return true
+	}
+
 	var remaining *float64
 	var resetAtMS int64
 	for _, window := range windows {
@@ -795,10 +848,15 @@ func (r *CredentialRegistry) ApplyQuotaWindows(credentialID uint, windows []prov
 			resetAtMS = *window.ResetAtMS
 		}
 	}
+	entry.quotaFacts = NormalizeQuotaWindows(windows, identityGeneration)
 	if remaining == nil || resetAtMS == 0 {
-		return r.SetCredentialQuotaObservation(credentialID, nil, time.Time{})
+		entry.quotaRemaining = nil
+		entry.quotaResetAt = time.Time{}
+		return true
 	}
-	return r.SetCredentialQuotaObservation(credentialID, remaining, time.UnixMilli(resetAtMS).UTC())
+	entry.quotaRemaining = cloneFloat(remaining)
+	entry.quotaResetAt = time.UnixMilli(resetAtMS).UTC()
+	return true
 }
 
 func quotaWindowRemainingRatio(window providerobservation.QuotaWindow) (float64, bool) {
@@ -1048,6 +1106,7 @@ func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.FailureGeneration = 0
 	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)
+	entry.quotaFacts = policy.CloneQuotaWindows(entry.quotaFacts)
 	return entry
 }
 
@@ -1072,6 +1131,7 @@ func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)
+	entry.quotaFacts = policy.CloneQuotaWindows(entry.quotaFacts)
 	return entry
 }
 

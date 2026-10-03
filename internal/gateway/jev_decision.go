@@ -145,7 +145,7 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		return decision, result
 	}
 	defer release()
-	frozenPricing := handler.freezeAttemptPricing(selection, metadata, true, key.PriceMultiplier)
+	frozenPricing := handler.freezeAttemptPricing(snapshot, selection, metadata, true, key.PriceMultiplier, model)
 	result = handler.forwarder.Forward(decisionCtx, ForwardInput{
 		Dialect: decisionDialect, ObserveUsage: true,
 		Group: selection.Group, APIKey: credential.apiKey,

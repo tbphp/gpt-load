@@ -271,6 +271,10 @@ func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credential
 		if err := tx.Delete(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
+		if err := tx.Where("scope = ? AND group_id = ? AND credential_id = ?", models.PolicyScopeCredential, groupID, credentialID).
+			Delete(&models.PolicyBinding{}).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
 		return nil
 	}, func() error {
 		if !s.registry.RemoveCredential(credentialID) {
@@ -393,22 +397,25 @@ func (s *Service) restoreGroupCredential(
 		if s.manager == nil || s.mutations == nil {
 			return CredentialItemResponse{}, app_errors.ErrInternalServer
 		}
-		matched := s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
-			if snapshot == nil {
-				return false
-			}
-			currentGroup, exists := snapshot.Groups[groupID]
-			if !exists {
-				restoreErr = app_errors.ErrCredentialVersionConflict
-				return false
-			}
-			currentTarget, valid := buildGroupValidationTarget(currentGroup)
-			if !valid {
-				restoreErr = app_errors.ErrCredentialVersionConflict
-				return false
-			}
-			coordinateRestore(&currentTarget.signature)
-			return restoreErr == nil
+		var matched bool
+		s.mutations.Do(credentialID, func() {
+			matched = s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
+				if snapshot == nil {
+					return false
+				}
+				currentGroup, exists := snapshot.Groups[groupID]
+				if !exists {
+					restoreErr = app_errors.ErrCredentialVersionConflict
+					return false
+				}
+				currentTarget, valid := buildGroupValidationTarget(currentGroup)
+				if !valid {
+					restoreErr = app_errors.ErrCredentialVersionConflict
+					return false
+				}
+				restore(&currentTarget.signature)
+				return restoreErr == nil
+			})
 		})
 		if !matched && restoreErr == nil {
 			return CredentialItemResponse{}, app_errors.ErrInternalServer
@@ -647,6 +654,13 @@ func (s *Service) BatchGroupCredentials(
 					})
 				case CredentialBatchDelete:
 					result = query.Delete(&models.Credential{})
+					if result.Error == nil {
+						policyResult := tx.Where("scope = ? AND group_id = ? AND credential_id IN ?", models.PolicyScopeCredential, groupID, ids).
+							Delete(&models.PolicyBinding{})
+						if policyResult.Error != nil {
+							return app_errors.ParseDBError(policyResult.Error)
+						}
+					}
 				}
 				if result.Error != nil {
 					return app_errors.ParseDBError(result.Error)

@@ -59,6 +59,7 @@ type QuotaWindow struct {
 	ModelIDs      []string `json:"model_ids,omitempty"`
 	State         string   `json:"state"`
 	IsPrimary     bool     `json:"is_primary,omitempty"`
+	ObservedAtMS  *int64   `json:"observed_at_ms,omitempty"`
 }
 
 type ResetCredit struct {

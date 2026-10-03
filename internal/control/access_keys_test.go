@@ -593,6 +593,7 @@ func TestConcurrentAccessKeyCRUDPublishesDatabaseTruth(t *testing.T) {
 	}
 	got := fixture.manager.Current()
 	want.Revision = got.Revision
+	want.AffinityRevision = got.AffinityRevision
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("published snapshot differs from DB compile\ngot=%#v\nwant=%#v", got, want)
 	}

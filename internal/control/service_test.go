@@ -449,6 +449,7 @@ func TestWriteConfigRuntimeFailureReloadsCommittedDatabaseTruth(t *testing.T) {
 		t.Fatal(compileErr)
 	}
 	want.Revision = afterSnapshot.Revision
+	want.AffinityRevision = afterSnapshot.AffinityRevision
 	if !reflect.DeepEqual(afterSnapshot, want) {
 		t.Fatalf("recovered snapshot differs from database\ngot=%#v\nwant=%#v", afterSnapshot, want)
 	}
@@ -600,6 +601,7 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 	}
 	got := fixture.manager.Current()
 	want.Revision = got.Revision
+	want.AffinityRevision = got.AffinityRevision
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("published snapshot differs from DB compile\ngot=%#v\nwant=%#v", got, want)
 	}

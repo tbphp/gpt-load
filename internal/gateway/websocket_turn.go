@@ -258,7 +258,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	}
 	requestCtx := s.ctx
 	if _, automatic := snapshot.AutoModels.Lookup(model); automatic {
-		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required}
+		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required, RequestModel: &model}
 		if requiredRef != nil {
 			autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{requiredRef.ID: *requiredRef}
 		}
@@ -283,7 +283,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 		original = effective
 	}
-	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
+	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, RequestModel: &model, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
 	query.ResponsesWebsocket = &original.required
 	groups := scheduler.CandidateGroupIDsForQuery(snapshot, query)
 	for _, ref := range h.registry.CaptureActiveCredentialRefs(groups) {
@@ -317,6 +317,8 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	affinity := h.resolveRequestAffinity(snapshot, key.ID, protocol.OpenAIResponses, original.metadata.AffinityPrefix, query.AllowedCredentialRefs, original.metadata.PromptCacheKey)
 	if requiredRef == nil {
 		query.PreferredCredentialID = affinity.preferredCredentialID
+	} else {
+		query.PreferredCredentialID = requiredRef.ID
 	}
 	iterator := scheduler.New(snapshot, h.registry, query)
 	redactionCipher, err := h.encryption.NewRedactionCipher(key.ID)
@@ -529,7 +531,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		recorder.setUsageApplicable(effective.metadata.ObserveUsage)
 		recorder.setPricingMode(effective.metadata.PricingMode)
 		recorder.setUsageDiagnostics(effective.metadata.UsageDiagnostics)
-		recorder.freezeNextAttemptPricing(h.freezeAttemptPricing(selection, effective.metadata, true, key.PriceMultiplier))
+		clientModel := turn.model
+		if clientModel == "" {
+			clientModel = optionalModelValue(effective.metadata.Model)
+		}
+		recorder.freezeNextAttemptPricing(h.freezeAttemptPricing(snapshot, selection, effective.metadata, true, key.PriceMultiplier, clientModel))
 		if sequence == 1 {
 			kind := affinity.kind
 			if requiredRef != nil {

@@ -34,6 +34,9 @@ export default {
         'Multiplied by the selected Group multiplier. Logs, statistics, and cost limits use adjusted amounts. Default 1; 0 zeroes priced amounts. Future requests only.',
       invalid: 'Enter a multiplier from 0 to 1000 with at most 6 decimals',
     },
+    policyRules: {
+      applied: 'Applied policy rules',
+    },
     appName: 'GPT-Load',
     retry: 'Retry',
     modelDiscoveryFailed: 'Discovery failed; draft unchanged',

@@ -95,6 +95,7 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.auditMutation(newMutationDescriptor("credential_stage_cancel", "credential_stage", credentialStageMutationLocator)),
 				s.handleCancelCredentialStage,
 			),
+			controlRoute("control.policy.discovery", http.MethodGet, "/policy/discovery", s.handleGetPolicyDiscovery),
 			controlRoute("control.channels.list", http.MethodGet, "/channels", s.handleListChannels),
 			controlRoute("control.models.list", http.MethodGet, "/models", s.handleListProjectModels),
 			controlRoute("control.models.profile.get", http.MethodGet, "/models/profile", s.handleGetClientModelProfile),
@@ -220,6 +221,29 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.groups.get", http.MethodGet, "/groups/:group_id", s.handleGetGroupSummary),
 			controlRoute(
+				"control.groups.policy.get",
+				http.MethodGet,
+				"/groups/:group_id/policy",
+				s.handleGetGroupPolicy,
+			),
+			controlRoute(
+				"control.groups.policy.update",
+				http.MethodPut,
+				"/groups/:group_id/policy",
+				s.auditMutation(newMutationDescriptor(
+					"group_policy_update",
+					"group",
+					groupMutationLocator,
+				)),
+				s.handleUpdateGroupPolicy,
+			),
+			controlRoute(
+				"control.groups.policy.preview",
+				http.MethodPost,
+				"/groups/:group_id/policy/preview",
+				s.handlePreviewGroupPolicy,
+			),
+			controlRoute(
 				"control.groups.settings.get",
 				http.MethodGet,
 				"/groups/:group_id/settings",
@@ -316,6 +340,29 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleGetGroupCredential,
 			),
 			controlRoute("control.group-credentials.quota-history", http.MethodGet, "/groups/:group_id/credentials/:credential_id/quota-history", s.handleCredentialQuotaHistory),
+			controlRoute(
+				"control.group-credentials.policy.get",
+				http.MethodGet,
+				"/groups/:group_id/credentials/:credential_id/policy",
+				s.handleGetCredentialPolicy,
+			),
+			controlRoute(
+				"control.group-credentials.policy.update",
+				http.MethodPut,
+				"/groups/:group_id/credentials/:credential_id/policy",
+				s.auditMutation(newMutationDescriptor(
+					"credential_policy_update",
+					"credential",
+					groupCredentialMutationLocator,
+				)),
+				s.handleUpdateCredentialPolicy,
+			),
+			controlRoute(
+				"control.group-credentials.policy.preview",
+				http.MethodPost,
+				"/groups/:group_id/credentials/:credential_id/policy/preview",
+				s.handlePreviewCredentialPolicy,
+			),
 			controlRoute(
 				"control.group-credentials.observation-refresh",
 				http.MethodPost,

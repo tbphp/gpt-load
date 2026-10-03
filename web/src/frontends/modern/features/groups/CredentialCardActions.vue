@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Eye, KeyRound, RotateCcw, Stethoscope, Trash2 } from '@lucide/vue'
+import { Download, Eye, KeyRound, RotateCcw, Scale, Stethoscope, Trash2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -24,6 +24,7 @@ const actions = computed(() => [
   props.row.modelCooldowns.length
     ? [{ id: 'restore', label: t('credentialCards.restore'), icon: RotateCcw }]
     : []),
+  { id: 'policy', label: t('credentialCards.policy'), icon: Scale },
   { id: 'delete', label: t('groupDetail.deleteCredential'), icon: Trash2, danger: true },
 ])
 </script>

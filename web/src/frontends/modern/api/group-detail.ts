@@ -10,6 +10,11 @@ import { readObservation, type CredentialObservation } from './credential-observ
 import { readGroupBasics, type GroupBasics } from './groups'
 
 export const groupSettingsKey = (id: number) => ['modern', 'group-settings', id] as const
+export const groupPolicyKey = (id: number) => ['modern', 'group-policy', id] as const
+export const credentialPolicyKey = (groupId: number, credentialId: number) =>
+  ['modern', 'credential-policy', groupId, credentialId] as const
+export const policyDiscoveryKey = (groupId?: number, credentialId?: number) =>
+  ['modern', 'policy-discovery', groupId, credentialId] as const
 export const groupModelsKey = (id: number) => ['modern', 'group-models', id] as const
 export const groupCredentialsKey = (id: number) => ['modern', 'group-credentials', id] as const
 export const credentialStates = ['available', 'cooldown', 'blacklisted', 'disabled'] as const
@@ -451,4 +456,102 @@ export async function batchAllGroupCredentials(
     }),
   )
   return list(data.affected_credential_ids).map((id) => integer(id, 1))
+}
+
+export interface PolicyConfig {
+  revisionText: string
+  configText: string
+}
+
+const MAX_CANONICAL_UINT64 = 18446744073709551615n
+
+function isValidCanonicalUint64(s: string): boolean {
+  if (typeof s !== 'string') return false
+  if (!/^(?:0|[1-9]\d{0,19})$/.test(s)) return false
+  try {
+    const b = BigInt(s)
+    return b >= 0n && b <= MAX_CANONICAL_UINT64
+  } catch {
+    return false
+  }
+}
+
+export function readPolicy(raw: unknown, groupId: number, credentialId?: number): PolicyConfig {
+  const data = record(raw)
+  oneOf(data.scope, [credentialId === undefined ? 'group' : 'credential'])
+  if (integer(data.group_id, 1) !== groupId || integer(data.id, 1) !== (credentialId ?? groupId)) {
+    throw new InvalidResponseError()
+  }
+  if (credentialId !== undefined && integer(data.credential_id, 1) !== credentialId) {
+    throw new InvalidResponseError()
+  }
+  const revisionText = text(data.revision_text)
+  if (!isValidCanonicalUint64(revisionText)) throw new InvalidResponseError()
+  return { revisionText, configText: text(data.config_text) }
+}
+
+export async function getPolicy(
+  client: ApiClient,
+  groupId: number,
+  signal: AbortSignal,
+  credentialId?: number,
+): Promise<PolicyConfig> {
+  const path: `/api/${string}` =
+    credentialId === undefined
+      ? `/api/groups/${groupId}/policy`
+      : `/api/groups/${groupId}/credentials/${credentialId}/policy`
+  return readPolicy(await client.request(path, { signal }), groupId, credentialId)
+}
+
+export async function savePolicy(
+  client: ApiClient,
+  groupId: number,
+  expectedRevisionText: string,
+  rawConfigJsonString: string,
+  signal: AbortSignal,
+  credentialId?: number,
+): Promise<PolicyConfig> {
+  const path: `/api/${string}` =
+    credentialId === undefined
+      ? `/api/groups/${groupId}/policy`
+      : `/api/groups/${groupId}/credentials/${credentialId}/policy`
+  const body = `{"expected_revision":"${expectedRevisionText}","config":${rawConfigJsonString.trim()}}`
+  return readPolicy(
+    await client.request(path, {
+      method: 'PUT',
+      body,
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+    }),
+    groupId,
+    credentialId,
+  )
+}
+
+export interface PolicyDiscovery {
+  quota_windows: number[]
+}
+
+export function readPolicyDiscovery(raw: unknown): PolicyDiscovery {
+  return {
+    quota_windows: list(record(raw).quota_windows)
+      .map((w) => integer(w))
+      .filter((w) => Number.isSafeInteger(w) && w > 0),
+  }
+}
+
+export async function getPolicyDiscovery(
+  client: ApiClient,
+  signal: AbortSignal,
+  groupId?: number,
+  credentialId?: number,
+): Promise<PolicyDiscovery> {
+  const queryParts: string[] = []
+  if (groupId !== undefined) queryParts.push(`group_id=${encodeURIComponent(String(groupId))}`)
+  if (credentialId !== undefined)
+    queryParts.push(`credential_id=${encodeURIComponent(String(credentialId))}`)
+  const qs = queryParts.join('&')
+  const path: `/api/${string}` = qs ? `/api/policy/discovery?${qs}` : '/api/policy/discovery'
+  const raw = await client.request<unknown>(path, { signal })
+  return readPolicyDiscovery(raw)
 }

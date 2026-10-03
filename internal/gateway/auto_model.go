@@ -57,7 +57,8 @@ func allowedAutoPresets(snapshot *state.ConfigSnapshot, key state.AccessKeyView,
 	fallback := false
 	for _, preset := range entry.Presets {
 		model := preset.Model
-		query.ExternalModel, query.AccessKey = &model, key
+		entryName := entry.Name
+		query.RequestModel, query.ExternalModel, query.AccessKey = &entryName, &model, key
 		query.Operation, query.RouteRequirement = metadata.Operation, metadata.RouteRequirement
 		query.ResponsesStorePreference = metadata.ResponsesStorePreference
 		if !hasAutoModelCandidates(snapshot, query) {
@@ -154,7 +155,8 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if bound != nil && (reuse || !fallbackAllowed) {
 		// 只有无新任务的工具续接沿用上一档；新任务会重新判断。
 		model := bound.TargetModel
-		query.ExternalModel = &model
+		entryName := entry.Name
+		query.RequestModel, query.ExternalModel = &entryName, &model
 		if len(key.Filters.Models) > 0 {
 			if _, allowed := key.Filters.Models[entry.Name]; !allowed {
 				return parsed, metadata, nil, &reasonAutoModelForbidden

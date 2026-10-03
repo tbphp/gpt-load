@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
-import { Info } from '@lucide/vue'
+import { Info, Scale } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
@@ -34,7 +34,7 @@ import RPMTrend from '../rpm/RPMTrend.vue'
 import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
-const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
+const emit = defineEmits<{ close: []; saved: [row: CredentialRow]; policy: [] }>()
 const { t, n, locale, te } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
@@ -285,6 +285,14 @@ useMessageSource(() =>
             credentialTime(cooldown.until, locale)
           }}</small>
         </div>
+      </section>
+      <section class="modern-credential-detail-section">
+        <div class="modern-credential-detail-settings-title">
+          <h3>{{ t('groupDetail.policy.credentialTitle') }}</h3>
+        </div>
+        <AppButton variant="outline" :icon="Scale" @click="emit('policy')">
+          {{ t('credentialCards.managePolicy') }}
+        </AppButton>
       </section>
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-settings-title">

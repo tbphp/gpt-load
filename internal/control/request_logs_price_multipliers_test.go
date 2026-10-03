@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"testing"
 
+	"gpt-load/internal/automodel"
+	"gpt-load/internal/jev"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/requestaudit"
+	"gpt-load/internal/requestlog"
 )
 
 func TestMapRequestLogReceiptIncludesFrozenPriceMultipliers(t *testing.T) {
@@ -72,5 +76,104 @@ func TestMapRequestLogReceiptIncludesFrozenPriceMultipliers(t *testing.T) {
 				t.Fatalf("receipt reinterpreted original lines: %s", encoded)
 			}
 		})
+	}
+}
+
+func TestMapRequestLogReceiptIncludesSchema7PolicyFactors(t *testing.T) {
+	rawJSON := `{
+		"schema_version":7,"method":"unit_rate_sum","method_version":1,
+		"currency":"USD","pricing_mode":"standard",
+		"rule":{"channel_id":"openai","model_id":"gpt-4o"},
+		"price_multipliers":{"group":"1","access_key":"1"},
+		"base_total_nano_usd":100,"total_nano_usd":200,
+		"line_items":[{"code":"input","quantity":1000000,"rate_nano_usd_per_million":100,
+		"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":100}],
+		"policy_factors":[{"rule_id":"p","name_snapshot":"Admin billing rule","binding_scope":"group","revision":42,"factor":"2","multiplier":"2"}]
+	}`
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(rawJSON), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	response, err := mapRequestLogPricingReceipt(&receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual struct {
+		SchemaVersion int                              `json:"schema_version"`
+		PolicyFactors []requestLogPolicyFactorResponse `json:"policy_factors"`
+	}
+	if err := json.Unmarshal(encoded, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if actual.SchemaVersion != 7 || len(actual.PolicyFactors) != 1 {
+		t.Fatalf("unexpected mapped receipt: %s", encoded)
+	}
+	factor := actual.PolicyFactors[0]
+	if factor.RuleID != "p" || factor.NameSnapshot != "Admin billing rule" ||
+		factor.BindingScope != "group" || factor.Revision != "42" ||
+		factor.Factor != "2" || factor.Multiplier != "2" {
+		t.Fatalf("unexpected mapped policy factor: %+v", factor)
+	}
+}
+
+func TestMapRequestLogReceiptFullUint64RevisionAndNonCanonicalFactor(t *testing.T) {
+	rawJSON := `{
+		"schema_version":7,"method":"unit_rate_sum","method_version":1,
+		"currency":"USD","pricing_mode":"standard",
+		"rule":{"channel_id":"openai","model_id":"gpt-4o"},
+		"price_multipliers":{"group":"1","access_key":"1"},
+		"base_total_nano_usd":100,"total_nano_usd":200,
+		"line_items":[{"code":"input","quantity":1000000,"rate_nano_usd_per_million":100,
+		"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":100}],
+		"policy_factors":[{"rule_id":"p","name_snapshot":"Admin billing rule","binding_scope":"group","revision":18446744073709551615,"factor":"02.000000","multiplier":"2"}]
+	}`
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(rawJSON), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	var rejected pricing.Receipt
+	if err := json.Unmarshal([]byte(`{"schema_version":7,"method":"unit_rate_sum","method_version":1,"currency":"USD","pricing_mode":"standard","rule":{"channel_id":"openai","model_id":"gpt-4o"},"price_multipliers":{"group":"1","access_key":"1"},"base_total_nano_usd":100,"total_nano_usd":200,"line_items":[],"policy_factors":[{"rule_id":"p","name_snapshot":"p","binding_scope":"group","revision":"1","factor":"2","multiplier":"2"}]}`), &rejected); err == nil {
+		t.Fatal("string policy factor revision must be rejected")
+	}
+	if err := pricing.ValidateReceipt(receipt); err != nil {
+		t.Fatal(err)
+	}
+	response, err := mapRequestLogPricingReceipt(&receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.PolicyFactors) != 1 {
+		t.Fatalf("unexpected policy factors: %+v", response.PolicyFactors)
+	}
+	f := response.PolicyFactors[0]
+	if f.Revision != "18446744073709551615" {
+		t.Fatalf("revision corrupted: %s", f.Revision)
+	}
+	if f.Factor != "02.000000" {
+		t.Fatalf("original noncanonical factor syntax changed: %s", f.Factor)
+	}
+	if f.Multiplier != "2" {
+		t.Fatalf("multiplier mismatch: %s", f.Multiplier)
+	}
+}
+
+func TestSanitizeAccessKeyRequestLogStripsAllPolicyReceipts(t *testing.T) {
+	rawReceipt := []byte(`{"schema_version":7,"method":"unit_rate_sum","method_version":1,"currency":"USD","pricing_mode":"standard","rule":{"channel_id":"openai","model_id":"gpt-4o"},"price_multipliers":{"group":"1","access_key":"1"},"base_total_nano_usd":100,"total_nano_usd":200,"line_items":[],"policy_factors":[{"rule_id":"p","name_snapshot":"p","binding_scope":"group","revision":1,"factor":"2","multiplier":"2"}]}`)
+	var r pricing.Receipt
+	if err := json.Unmarshal(rawReceipt, &r); err != nil {
+		t.Fatal(err)
+	}
+	record := requestlog.Record{
+		Attempts:     []requestlog.Attempt{{Sequence: 1, PricingReceipt: &r}},
+		AutoDecision: &automodel.Decision{Receipt: rawReceipt},
+		RequestAudit: &requestaudit.Result{Calls: []jev.Observation{{Receipt: rawReceipt}}},
+	}
+	got := sanitizeAccessKeyRequestLog(record)
+	if len(got.Attempts) != 0 || len(got.AutoDecision.Receipt) != 0 || len(got.RequestAudit.Calls[0].Receipt) != 0 {
+		t.Fatalf("nonadmin access key request log leaked receipt: %+v", got)
 	}
 }

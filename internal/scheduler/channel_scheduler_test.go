@@ -63,7 +63,7 @@ func TestIteratorExhaustsNativeTierBeforeConvertedTier(t *testing.T) {
 	}
 }
 
-func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
+func TestIteratorPrefersEligibleConvertedAcrossRouteTiers(t *testing.T) {
 	t.Parallel()
 
 	iterator := New(channelSchedulerSnapshot(t), fakeCredentialSource{keys: []state.CredentialMeta{
@@ -77,12 +77,12 @@ func TestIteratorDoesNotLetConvertedPreferenceBypassNativeTier(t *testing.T) {
 	})
 
 	first, err := iterator.Next()
-	if err != nil || first.CredentialID != 21 || first.RouteMode != channel.RouteNative {
-		t.Fatalf("first Next() = (%#v, %v), want native credential 21", first, err)
+	if err != nil || first.CredentialID != 11 || first.RouteMode != channel.RouteConverted {
+		t.Fatalf("first Next() = (%#v, %v), want preferred converted credential 11", first, err)
 	}
 	second, err := iterator.Next()
-	if err != nil || second.CredentialID != 11 || second.RouteMode != channel.RouteConverted {
-		t.Fatalf("second Next() = (%#v, %v), want preferred converted credential 11", second, err)
+	if err != nil || second.CredentialID != 21 || second.RouteMode != channel.RouteNative {
+		t.Fatalf("second Next() = (%#v, %v), want native credential 21", second, err)
 	}
 }
 
@@ -106,7 +106,6 @@ func TestImagesGenerationPrefersNativeBeforeGeminiConversions(t *testing.T) {
 	}}, Query{
 		ClientProtocol: protocol.OpenAIImages, Operation: execution.OperationImagesGenerate,
 		RouteRequirement: execution.RouteRequirementAny, ExternalModel: modelPointer("public"),
-		PreferredCredentialID: 11,
 	})
 	first, err := iterator.Next()
 	if err != nil || first.GroupID != 2 || first.RouteMode != channel.RouteNative {

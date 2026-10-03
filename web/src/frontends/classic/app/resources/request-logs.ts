@@ -11,6 +11,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { projectChannelID } from '@/app/resources/channels'
 
 import { normalizeRequestLogFilters, requestLogFilterFields } from './request-log-filters'
+import { isValidPriceMultiplier, normalizePriceMultiplier } from '@/lib/price-multiplier'
 
 import {
   assertNoSecretLikeFields,
@@ -21,6 +22,7 @@ import {
   projectEnum,
   projectInt64String,
   projectNonNegativeInt64String,
+  projectPositiveUint64String,
   projectPriceMultiplier,
   projectRecord,
   projectSafeInteger,
@@ -129,13 +131,23 @@ export interface RequestLogPricingLineDto {
   amount_nano_usd: string | null
 }
 
+export interface RequestLogPolicyFactorDto {
+  rule_id: string
+  name_snapshot: string
+  binding_scope: string
+  revision: string
+  factor: string
+  multiplier: string
+}
+
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1 | 2 | 3 | 4 | 5 | 6
+  schema_version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
   pricing_mode: string
   price_multipliers?: { group: string; access_key: string }
+  policy_factors?: RequestLogPolicyFactorDto[]
   rule: { scope_key?: string; channel_id?: string; model_id: string }
   context_threshold_tokens: string | null
   line_items: RequestLogPricingLineDto[]
@@ -430,6 +442,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     'currency',
     'pricing_mode',
     'price_multipliers',
+    'policy_factors',
     'rule',
     'context_threshold_tokens',
     'line_items',
@@ -469,8 +482,8 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
-  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 6 }) as
-    1 | 2 | 3 | 4 | 5 | 6
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 7 }) as
+    1 | 2 | 3 | 4 | 5 | 6 | 7
   let priceMultipliers: RequestLogPricingReceiptDto['price_multipliers']
   if (schemaVersion >= 5) {
     const multipliers = projectRecord(record.price_multipliers)
@@ -483,9 +496,51 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     invalidResponse()
   }
   let baseTotal: string | undefined
-  if (schemaVersion === 6) {
+  if (schemaVersion >= 6) {
     baseTotal = projectNonNegativeInt64String(record.base_total_nano_usd)
   } else if (record.base_total_nano_usd !== undefined) {
+    invalidResponse()
+  }
+  let policyFactors: RequestLogPolicyFactorDto[] | undefined
+  if (schemaVersion >= 7) {
+    if (!Array.isArray(record.policy_factors) || record.policy_factors.length === 0) {
+      invalidResponse()
+    }
+    const requiredFactorKeys = [
+      'rule_id',
+      'name_snapshot',
+      'binding_scope',
+      'revision',
+      'factor',
+      'multiplier',
+    ] as const
+    policyFactors = projectArray(record.policy_factors, (factorVal) => {
+      const factorObj = projectRecord(factorVal)
+      for (const k of requiredFactorKeys) {
+        if (!Object.prototype.hasOwnProperty.call(factorVal, k)) invalidResponse()
+      }
+      if (Object.keys(factorVal as Record<string, unknown>).length !== requiredFactorKeys.length) {
+        invalidResponse()
+      }
+      const scope = projectNonBlankString(factorObj.binding_scope)
+      if (scope !== 'group' && scope !== 'credential') invalidResponse()
+
+      const factorStr = projectString(factorObj.factor)
+      if (!isValidPriceMultiplier(factorStr)) invalidResponse()
+
+      const multStr = projectPriceMultiplier(factorObj.multiplier)
+      if (normalizePriceMultiplier(factorStr) !== multStr) invalidResponse()
+
+      return {
+        rule_id: projectNonBlankString(factorObj.rule_id),
+        name_snapshot: projectNonBlankString(factorObj.name_snapshot),
+        binding_scope: scope,
+        revision: projectPositiveUint64String(factorObj.revision),
+        factor: factorStr,
+        multiplier: multStr,
+      }
+    })
+  } else if (record.policy_factors !== undefined) {
     invalidResponse()
   }
   const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
@@ -504,6 +559,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     currency: projectEnum(record.currency, ['USD'] as const),
     pricing_mode: projectPricingMode(record.pricing_mode),
     ...(priceMultipliers === undefined ? {} : { price_multipliers: priceMultipliers }),
+    ...(policyFactors === undefined ? {} : { policy_factors: policyFactors }),
     rule: {
       ...(scopeKey === undefined ? {} : { scope_key: scopeKey }),
       ...(channelID === undefined ? {} : { channel_id: channelID }),
