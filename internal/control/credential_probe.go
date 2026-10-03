@@ -543,40 +543,42 @@ func (s *Service) currentCredentialProbeRestoreProof(
 		return nil
 	}
 	var proof *string
-	s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
-		if snapshot == nil {
-			return false
-		}
-		group, exists := snapshot.Groups[tested.ref.GroupID]
-		if !exists {
-			return false
-		}
-		currentTarget, valid := buildGroupValidationTarget(group)
-		if !valid || currentTarget.signature != testedSignature {
-			return false
-		}
-		capture := func() {
-			entries, err := s.registry.SnapshotGroupCredentialEntriesExact(
-				tested.ref.GroupID,
-				[]uint{tested.ref.ID},
-			)
-			if err != nil || len(entries) != 1 {
-				return
+	s.mutations.Do(tested.ref.ID, func() {
+		s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
+			if snapshot == nil {
+				return false
 			}
-			current := entries[0]
-			currentCredential := credentialProbeCredentialFromEntry(current)
-			if current.Status != state.CredentialStatusActive || !current.Blacklisted ||
-				currentCredential.ref != tested.ref ||
-				!currentCredential.cooldownUntil.Equal(tested.cooldownUntil) {
-				return
+			group, exists := snapshot.Groups[tested.ref.GroupID]
+			if !exists {
+				return false
 			}
-			value, ok := s.credentialProbeRestoreProof(tested, testedSignature)
-			if ok {
-				proof = &value
+			currentTarget, valid := buildGroupValidationTarget(group)
+			if !valid || currentTarget.signature != testedSignature {
+				return false
 			}
-		}
-		s.mutations.Do(tested.ref.ID, capture)
-		return proof != nil
+			capture := func() {
+				entries, err := s.registry.SnapshotGroupCredentialEntriesExact(
+					tested.ref.GroupID,
+					[]uint{tested.ref.ID},
+				)
+				if err != nil || len(entries) != 1 {
+					return
+				}
+				current := entries[0]
+				currentCredential := credentialProbeCredentialFromEntry(current)
+				if current.Status != state.CredentialStatusActive || !current.Blacklisted ||
+					currentCredential.ref != tested.ref ||
+					!currentCredential.cooldownUntil.Equal(tested.cooldownUntil) {
+					return
+				}
+				value, ok := s.credentialProbeRestoreProof(tested, testedSignature)
+				if ok {
+					proof = &value
+				}
+			}
+			capture()
+			return proof != nil
+		})
 	})
 	return proof
 }

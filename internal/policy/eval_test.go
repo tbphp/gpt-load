@@ -590,3 +590,60 @@ func TestQuotaNowSeparation(t *testing.T) {
 		t.Fatalf("expected rule to be skipped_unknown, got %+v", inspectPast.Rules)
 	}
 }
+
+func TestQuotaConflictCases(t *testing.T) {
+	cfg, err := Compile([]byte(`{"schema_version":1,"rules":[{
+		"id":"quota-conflict","name":"Quota Conflict","domain":"scheduling","enabled":true,
+		"when":{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.1},
+		"then":{"type":"exclude_candidate"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	base := QuotaWindowFact{Scope: "account", WindowSeconds: 18000, Ratio: 0.05,
+		State: FactStateMeasured, ObservedAt: now.Add(-5 * time.Minute), ResetAt: now.Add(5 * time.Hour),
+		SourceID: "codex", IdentityGeneration: 1}
+	for _, tc := range []struct {
+		name           string
+		firstRatio     float64
+		secondRatio    float64
+		secondSource   string
+		secondObserved time.Time
+		secondWindow   int
+		single         bool
+		want           TruthValue
+	}{
+		{"same_sample_boundary", 0.099, 0.101, "codex", base.ObservedAt, 18000, false, TruthUnknown},
+		{"different_sources", 0.20, 0.05, "probe", base.ObservedAt, 18000, false, TruthTrue},
+		{"different_sample_timing", 0.30, 0.05, "codex", now.Add(-30 * time.Minute), 18000, false, TruthTrue},
+		{"different_period", 0.05, 0.99, "codex", base.ObservedAt, 604800, false, TruthTrue},
+		{"blank_source_single", 0.05, 0.05, "", base.ObservedAt, 18000, true, TruthTrue},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first, second := base, base
+			first.Ratio = tc.firstRatio
+			second.Ratio = tc.secondRatio
+			second.SourceID = tc.secondSource
+			second.ObservedAt = tc.secondObserved
+			second.WindowSeconds = tc.secondWindow
+			windows := []QuotaWindowFact{first, second}
+			if tc.single {
+				first.SourceID = ""
+				windows = []QuotaWindowFact{first}
+			}
+			ctx := &EvalContext{Now: now, QuotaWindows: windows}
+			if got := cfg.EvalScheduling(ctx).Excluded; got != (tc.want == TruthTrue) {
+				t.Fatalf("scheduling excluded=%v, want truth=%s", got, tc.want)
+			}
+			wantStatus := RuleStatusHit
+			if tc.want == TruthUnknown {
+				wantStatus = RuleStatusSkippedUnknown
+			}
+			diag := cfg.Inspect(ctx).Rules[0]
+			if diag.Condition.Truth != tc.want || diag.Status != wantStatus {
+				t.Fatalf("inspect=%+v, want truth=%s status=%s", diag, tc.want, wantStatus)
+			}
+		})
+	}
+}

@@ -10,49 +10,25 @@ import (
 
 // Registry 保存参数、谓词与动作的元数据描述
 type Registry struct {
-	mu         sync.RWMutex
-	params     map[string]ParamDescriptor
-	predicates map[string]PredicateDescriptor
-	actions    map[ActionType]ActionDescriptor
+	mu     sync.RWMutex
+	params map[string]ParamDescriptor
 }
 
-// NewEmptyRegistry 创建不包含任何内置元数据的空注册表
-func NewEmptyRegistry() *Registry {
-	return &Registry{
-		params:     make(map[string]ParamDescriptor),
-		predicates: make(map[string]PredicateDescriptor),
-		actions:    make(map[ActionType]ActionDescriptor),
-	}
-}
-
-func registerBuiltins(r *Registry) {
-	_ = r.RegisterAction(ActionDescriptor{
-		Type:        ActionExcludeCandidate,
-		Domain:      DomainScheduling,
-		Label:       "action.exclude_candidate.label",
-		Description: "action.exclude_candidate.desc",
-		Fields:      []string{"type"},
-	})
-	_ = r.RegisterAction(ActionDescriptor{
-		Type:        ActionMultiplyPrice,
-		Domain:      DomainPricing,
-		Label:       "action.multiply_price.label",
-		Description: "action.multiply_price.desc",
-		Fields:      []string{"type", "factor"},
-	})
-	_ = r.RegisterPredicate(PredicateDescriptor{
-		Name:        "time_window",
-		Label:       "predicate.time_window.label",
-		Description: "predicate.time_window.desc",
-		Domains:     []Domain{DomainScheduling, DomainPricing},
-	})
-}
-
-// NewRegistry 创建包含引擎内置动作与内置谓词的基础注册表，便于在此基础上注册扩展参数
+// NewRegistry 创建支持扩展普通参数的注册表；谓词和动作固定为引擎内置实现。
 func NewRegistry() *Registry {
-	r := NewEmptyRegistry()
-	registerBuiltins(r)
-	return r
+	return &Registry{params: make(map[string]ParamDescriptor)}
+}
+
+var builtinActions = []ActionDescriptor{
+	{Type: ActionExcludeCandidate, Domain: DomainScheduling,
+		Label: "action.exclude_candidate.label", Description: "action.exclude_candidate.desc", Fields: []string{"type"}},
+	{Type: ActionMultiplyPrice, Domain: DomainPricing,
+		Label: "action.multiply_price.label", Description: "action.multiply_price.desc", Fields: []string{"type", "factor"}},
+}
+
+var builtinPredicates = []PredicateDescriptor{
+	{Name: "time_window", Label: "predicate.time_window.label", Description: "predicate.time_window.desc",
+		Domains: []Domain{DomainScheduling, DomainPricing}},
 }
 
 func cloneParamDescriptor(d ParamDescriptor) ParamDescriptor {
@@ -179,97 +155,41 @@ func (r *Registry) ListParams() []ParamDescriptor {
 	return list
 }
 
-// RegisterPredicate 注册谓词描述
-func (r *Registry) RegisterPredicate(desc PredicateDescriptor) error {
-	if desc.Name == "" {
-		return errors.New("predicate name cannot be empty")
-	}
-	if len(desc.Domains) == 0 {
-		return fmt.Errorf("predicate %q must declare at least one domain", desc.Name)
-	}
-	for _, d := range desc.Domains {
-		if !d.Valid() {
-			return fmt.Errorf("predicate %q declares invalid domain %q", desc.Name, d)
+// FindPredicate 查询内置谓词的独立描述副本。
+func (r *Registry) FindPredicate(name string) (PredicateDescriptor, bool) {
+	for _, desc := range builtinPredicates {
+		if desc.Name == name {
+			return clonePredicateDescriptor(desc), true
 		}
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.predicates[desc.Name]; exists {
-		return fmt.Errorf("duplicate predicate %q", desc.Name)
-	}
-	r.predicates[desc.Name] = clonePredicateDescriptor(desc)
-	return nil
+	return PredicateDescriptor{}, false
 }
 
-// FindPredicate 查询谓词描述（返回深拷贝副本）
-func (r *Registry) FindPredicate(name string) (PredicateDescriptor, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	desc, ok := r.predicates[name]
-	if !ok {
-		return PredicateDescriptor{}, false
-	}
-	return clonePredicateDescriptor(desc), true
-}
-
-// ListPredicates 列出所有谓词描述（按 Name 字典序稳定排序并深拷贝）
+// ListPredicates 按名字序返回内置谓词的独立描述副本。
 func (r *Registry) ListPredicates() []PredicateDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	list := make([]PredicateDescriptor, 0, len(r.predicates))
-	for _, desc := range r.predicates {
-		list = append(list, clonePredicateDescriptor(desc))
+	list := make([]PredicateDescriptor, len(builtinPredicates))
+	for i, desc := range builtinPredicates {
+		list[i] = clonePredicateDescriptor(desc)
 	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].Name < list[j].Name
-	})
 	return list
 }
 
-// RegisterAction 注册动作描述
-func (r *Registry) RegisterAction(desc ActionDescriptor) error {
-	if desc.Type == "" {
-		return errors.New("action type cannot be empty")
-	}
-	if !desc.Domain.Valid() {
-		return fmt.Errorf("invalid action domain %q", desc.Domain)
-	}
-	if len(desc.Fields) == 0 {
-		return fmt.Errorf("action %q must declare at least one field", desc.Type)
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, exists := r.actions[desc.Type]; exists {
-		return fmt.Errorf("duplicate action %q", desc.Type)
-	}
-	r.actions[desc.Type] = cloneActionDescriptor(desc)
-	return nil
-}
-
-// FindAction 查询动作描述（返回深拷贝副本）
+// FindAction 查询内置动作的独立描述副本。
 func (r *Registry) FindAction(actionType ActionType) (ActionDescriptor, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	desc, ok := r.actions[actionType]
-	if !ok {
-		return ActionDescriptor{}, false
+	for _, desc := range builtinActions {
+		if desc.Type == actionType {
+			return cloneActionDescriptor(desc), true
+		}
 	}
-	return cloneActionDescriptor(desc), true
+	return ActionDescriptor{}, false
 }
 
-// ListActions 列出所有动作描述（按 Type 字典序稳定排序并深拷贝）
+// ListActions 按类型序返回内置动作的独立描述副本。
 func (r *Registry) ListActions() []ActionDescriptor {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	list := make([]ActionDescriptor, 0, len(r.actions))
-	for _, desc := range r.actions {
-		list = append(list, cloneActionDescriptor(desc))
+	list := make([]ActionDescriptor, len(builtinActions))
+	for i, desc := range builtinActions {
+		list[i] = cloneActionDescriptor(desc)
 	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].Type < list[j].Type
-	})
 	return list
 }
 

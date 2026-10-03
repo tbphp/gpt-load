@@ -29,6 +29,7 @@ import {
   type PolicyIssueCode,
   type VisualDocumentResult,
 } from './policy-model'
+import { providePolicyDraftCollector } from './use-policy-draft'
 import { usePolicyMessages } from './use-policy-messages'
 import PolicyRuleCard from './PolicyRuleCard.vue'
 
@@ -38,15 +39,21 @@ const props = withDefaults(
     modelValue: string
     defaultDomain?: PolicyDomain
     disabled?: boolean
+    quotaWindows?: readonly number[]
   }>(),
-  { defaultDomain: 'scheduling', disabled: false },
+  { defaultDomain: 'scheduling', disabled: false, quotaWindows: () => [] },
 )
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: string]
+  draftStatus: [status: { valid: boolean; pending: boolean; hasInvalid: boolean }]
+}>()
 const { t } = usePolicyMessages()
+const { summary: draftSummary } = providePolicyDraftCollector()
 
 const root = ref<JsonObjectNode>()
 const rules = ref<VisualDocumentResult['rules']>([])
 const issues = ref<PolicyIssue[]>([])
+const editIssue = ref<PolicyIssue>()
 let lastEmitted: string | undefined
 
 function applyResult(result: VisualDocumentResult): void {
@@ -60,6 +67,8 @@ watch(
   (text) => {
     // 自主提交产生的回传不再重新解析，避免覆盖正在编辑的草稿；初始空白不会被误判为已提交。
     if (text === lastEmitted) return
+    lastEmitted = undefined
+    editIssue.value = undefined
     applyResult(readVisualDocument(text))
   },
   { immediate: true },
@@ -89,7 +98,7 @@ const ruleIds = computed(() =>
 const ruleKeys = computed(() => {
   const seen = new Map<string, number>()
   return rules.value.map((rule) => {
-    const base = rule.id || `invalid-${rule.index}`
+    const base = literalString(getField(rule.node, 'id')) || `invalid-${rule.index}`
     const occurrence = (seen.get(base) ?? 0) + 1
     seen.set(base, occurrence)
     return occurrence > 1 ? `${base}#${occurrence}` : base
@@ -110,8 +119,16 @@ function issueText(issue: PolicyIssue): string {
 function commit(next: JsonObjectNode): void {
   if (props.disabled) return
   const text = serializeJson(next)
+  const candidate = readVisualDocument(text)
+  const candidateFatal = candidate.issues.find((issue) => issue.fatal)
+  if (candidateFatal && !isBlank.value) {
+    // 预算超限候选拒绝提交，保留当前视觉树，避免101条规则等预算致命错误导致规则树被隐藏无法视觉撤销
+    editIssue.value = candidateFatal
+    return
+  }
+  editIssue.value = undefined
   lastEmitted = text
-  applyResult(readVisualDocument(text))
+  applyResult(candidate)
   emit('update:modelValue', text)
 }
 
@@ -122,6 +139,7 @@ function updateRule(index: number, node: JsonNode): void {
 
 function addRule(): void {
   if (props.disabled) return
+  if (totalRules.value >= policyLimits.maxRulesPerConfig) return
   const base = root.value ?? emptyDocument()
   commit(insertRule(base, newRule(newRuleId(ruleIds.value), props.defaultDomain)))
 }
@@ -133,11 +151,11 @@ function moveRuleTo(index: number, delta: number): void {
 
 function duplicateRuleAt(index: number): void {
   if (props.disabled) return
+  if (totalRules.value >= policyLimits.maxRulesPerConfig) return
   // 可视化列表已过滤掉非对象项，必须按原始 JSON 索引定位，不能按下标取。
   const rule = rules.value.find((item) => item.index === index)
   if (!root.value || !rule) return
-  const copy = duplicateRule(rule, ruleIds.value)
-  if (copy) commit(insertRuleAfter(root.value, index, copy))
+  commit(insertRuleAfter(root.value, index, duplicateRule(rule, ruleIds.value)))
 }
 
 function removeRule(index: number): void {
@@ -146,25 +164,43 @@ function removeRule(index: number): void {
 }
 
 const limitActive = computed(() => hasFatalIssue(issues.value))
+
+watch(
+  [
+    () => draftSummary.value.valid,
+    () => draftSummary.value.pending,
+    () => draftSummary.value.hasInvalid,
+  ],
+  ([valid, pending, hasInvalid]) => {
+    emit('draftStatus', {
+      valid,
+      pending,
+      hasInvalid,
+    })
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <div class="policy-editor">
-    <div class="policy-editor-heading">
-      <div>
-        <h4>{{ t('policyEditor.title') }}</h4>
-        <p>{{ t('policyEditor.description') }}</p>
-      </div>
+    <div v-if="!disabled" class="policy-editor-toolbar">
       <AppButton
         variant="outline"
-        size="sm"
+        size="xs"
         :icon="Plus"
-        :disabled="disabled || (limitActive && !isBlank)"
+        :disabled="
+          disabled || (limitActive && !isBlank) || totalRules >= policyLimits.maxRulesPerConfig
+        "
         @click="addRule"
       >
         {{ t('policyEditor.addRule') }}
       </AppButton>
     </div>
+
+    <AppNotice v-if="editIssue" tone="danger" class="policy-editor-notice">
+      <span>{{ issueText(editIssue) }}</span>
+    </AppNotice>
 
     <AppNotice v-if="fatalIssue && !isBlank" tone="danger" class="policy-editor-notice">
       <strong>{{ t('policyEditor.limitsTitle') }}</strong>
@@ -194,13 +230,13 @@ const limitActive = computed(() => hasFatalIssue(issues.value))
           :index="rule.index"
           :total="totalRules"
           :disabled="disabled"
+          :quota-windows="quotaWindows"
           @update="(node) => updateRule(rule.index, node)"
           @move="(delta) => moveRuleTo(rule.index, delta)"
           @duplicate="duplicateRuleAt(rule.index)"
           @remove="removeRule(rule.index)"
         />
       </div>
-      <p v-else class="policy-editor-empty">{{ t('policyEditor.emptyRules') }}</p>
     </template>
   </div>
 </template>
@@ -211,24 +247,12 @@ const limitActive = computed(() => hasFatalIssue(issues.value))
   gap: var(--modern-space-3);
   min-width: 0;
 }
-.policy-editor-heading {
+.policy-editor-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
-  gap: var(--modern-space-3);
-}
-.policy-editor-heading > div {
-  flex: 1;
-  min-width: 0;
-}
-.policy-editor-heading h4 {
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-semibold);
-}
-.policy-editor-heading p {
-  margin-top: var(--modern-space-1);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
+  justify-content: flex-end;
+  gap: var(--modern-space-2);
 }
 .policy-editor-notice {
   flex-direction: column;
@@ -252,9 +276,5 @@ const limitActive = computed(() => hasFatalIssue(issues.value))
 .policy-editor-rules {
   display: grid;
   gap: var(--modern-space-3);
-}
-.policy-editor-empty {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
 }
 </style>

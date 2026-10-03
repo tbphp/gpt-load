@@ -2,14 +2,10 @@
 // 组件通过 useI18n({ messages: policyEditorMessages, useScope: 'local' }) 使用，
 // 因而不需要改动既有 locales 聚合文件；若将来要全局注册，可直接复用下方 zhCN/enUS/jaJP。
 export const zhCN = {
-  title: '策略可视化编辑',
-  description: '规则按列表顺序应用；同层规则全部生效，后面的规则叠加在之前结果之上。',
   ruleCount: '共 {count} 条规则',
   addRule: '新增规则',
-  emptyRules: '暂无规则。新增规则默认关闭，确认内容后再启用。',
   unsupportedTitle: '包含仅支持 JSON 编辑的结构',
   unsupportedHint: '以下结构会原样保留，可视化编辑不会修改或删除它们：',
-  unsupportedCount: '{count} 处',
   limitsTitle: '配置超出编辑器上限',
   errors: {
     empty: '空白正文不表示清空规则。请输入或粘贴合法 JSON。',
@@ -29,22 +25,11 @@ export const zhCN = {
     namePlaceholder: '简短名称',
     nameInvalid: '名称不能为空，且不超过 {max} 个字符。',
     enabled: '启用',
-    disabledHint: '新建、复制与导入的规则默认关闭。',
-    domain: '执行类别',
-    domainScheduling: '调度限制',
-    domainPricing: '价格倍率',
+    disabledHint: '新建与复制的规则默认关闭。',
     moveUp: '上移',
     moveDown: '下移',
-    moved: '已移动到第 {position} 条',
     duplicate: '复制',
-    duplicateHint: '复制生成新 ID，默认关闭。',
     remove: '删除',
-    removeConfirm: '删除规则“{name}”？保存前不影响线上。',
-    cancel: '取消',
-    confirmRemove: '确认删除',
-    condition: '条件',
-    action: '动作',
-    unsupportedRule: '此规则包含暂不能可视化编辑的结构，已原样保留。',
   },
   condition: {
     title: '条件',
@@ -57,18 +42,23 @@ export const zhCN = {
     moveDown: '下移',
     remove: '移除此条件',
     jsonLabel: 'JSON',
-    empty: '尚未添加条件。',
     unsupported: '结构暂不支持可视化编辑，已保留 JSON。',
   },
   fact: {
     key: '参数',
     operator: '操作符',
     value: '比较值',
-    valuePlaceholder: '例如 gpt-*',
+    valuePlaceholder: '例如：gpt-*',
     facts: {
-      requestModel: '请求模型（客户端名称）',
-      upstreamModel: '上游模型（候选路由后的模型）',
-      quotaRemainingRatio: '账号额度剩余比例',
+      requestModel: '请求模型',
+      upstreamModel: '上游模型',
+      quotaRemainingRatio: '账号额度比例',
+    },
+    descriptions: {
+      requestModel: '客户端请求的模型名。',
+      upstreamModel: '候选路由后实际使用的模型名。',
+      quotaRemainingRatio: '账号在所选时间窗口内的额度剩余比例。',
+      quotaRetained: '当前未观测到该时间窗口，保留原有取值。',
     },
     operators: {
       eq: '等于',
@@ -77,12 +67,8 @@ export const zhCN = {
       gt: '大于',
       gte: '大于等于',
     },
-    quota: {
-      windowSeconds: '窗口秒数',
-    },
     errors: {
-      ratioInvalid: '请输入 0 到 1 之间的 JSON 数字，例如 0.1。',
-      windowInvalid: '窗口秒数必须是正整数。',
+      ratioInvalid: '请输入 0 到 1 之间的 JSON 数字，例如：0.1。',
     },
   },
   timeWindow: {
@@ -114,8 +100,8 @@ export const zhCN = {
     excludeCandidate: '排除候选',
     multiplyPrice: '价格乘数',
     factor: '倍率',
-    factorPlaceholder: '例如 2 或 0.5',
-    factorInvalid: '倍率为 0 到 1000 的十进制，最多六位小数，如 2 或 0.5。',
+    factorPlaceholder: '例如：2 或 0.5',
+    factorInvalid: '倍率为 0 到 1000 的十进制，最多六位小数，例如：2 或 0.5。',
     help: {
       excludeCandidate: '此请求不使用该账号。',
       multiplyPrice: '原价 × 倍率。',
@@ -124,16 +110,11 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
-  title: 'Visual policy editor',
-  description:
-    'Rules apply in list order. All rules at the same level take effect and stack on earlier results.',
   ruleCount: '{count} rules',
   addRule: 'Add rule',
-  emptyRules: 'No rules yet. New rules start disabled; enable them after reviewing.',
   unsupportedTitle: 'Contains structures editable only as JSON',
   unsupportedHint:
     'The following structures are preserved verbatim; visual editing will not change or delete them:',
-  unsupportedCount: '{count} places',
   limitsTitle: 'Configuration exceeds editor limits',
   errors: {
     empty: 'Blank text does not clear rules. Enter or paste valid JSON.',
@@ -153,23 +134,11 @@ export const enUS: typeof zhCN = {
     namePlaceholder: 'Short name',
     nameInvalid: 'Name cannot be empty and must be at most {max} characters.',
     enabled: 'Enabled',
-    disabledHint: 'New, duplicated and imported rules start disabled.',
-    domain: 'Execution category',
-    domainScheduling: 'Scheduling limit',
-    domainPricing: 'Price multiplier',
+    disabledHint: 'New and duplicated rules start disabled.',
     moveUp: 'Move up',
     moveDown: 'Move down',
-    moved: 'Moved to position {position}',
     duplicate: 'Duplicate',
-    duplicateHint: 'Duplicating assigns a new ID and starts disabled.',
     remove: 'Delete',
-    removeConfirm: 'Delete rule “{name}”? Nothing changes online before saving.',
-    cancel: 'Cancel',
-    confirmRemove: 'Delete',
-    condition: 'Condition',
-    action: 'Action',
-    unsupportedRule:
-      'This rule contains structures that cannot be visually edited yet; they are preserved.',
   },
   condition: {
     title: 'Condition',
@@ -182,18 +151,23 @@ export const enUS: typeof zhCN = {
     moveDown: 'Move down',
     remove: 'Remove this condition',
     jsonLabel: 'JSON',
-    empty: 'No conditions yet.',
     unsupported: 'This structure cannot be visually edited yet; its JSON is preserved.',
   },
   fact: {
     key: 'Parameter',
     operator: 'Operator',
     value: 'Value',
-    valuePlaceholder: 'e.g. gpt-*',
+    valuePlaceholder: 'Example: gpt-*',
     facts: {
-      requestModel: 'Request model (client name)',
-      upstreamModel: 'Upstream model (after routing)',
-      quotaRemainingRatio: 'Account quota remaining ratio',
+      requestModel: 'Request model',
+      upstreamModel: 'Upstream model',
+      quotaRemainingRatio: 'Account quota ratio',
+    },
+    descriptions: {
+      requestModel: 'Model name requested by the client.',
+      upstreamModel: 'Model actually used after candidate routing.',
+      quotaRemainingRatio: 'Remaining quota ratio of the account in the selected window.',
+      quotaRetained: 'This window is currently unobserved; the saved value is kept.',
     },
     operators: {
       eq: 'Equals',
@@ -202,12 +176,8 @@ export const enUS: typeof zhCN = {
       gt: 'Greater than',
       gte: 'Greater than or equal',
     },
-    quota: {
-      windowSeconds: 'Window seconds',
-    },
     errors: {
-      ratioInvalid: 'Enter a JSON number between 0 and 1, for example 0.1.',
-      windowInvalid: 'Window seconds must be a positive integer.',
+      ratioInvalid: 'Enter a JSON number between 0 and 1, for example: 0.1.',
     },
   },
   timeWindow: {
@@ -239,9 +209,9 @@ export const enUS: typeof zhCN = {
     excludeCandidate: 'Exclude candidate',
     multiplyPrice: 'Price multiplier',
     factor: 'Factor',
-    factorPlaceholder: 'e.g. 2 or 0.5',
+    factorPlaceholder: 'Example: 2 or 0.5',
     factorInvalid:
-      'Factor must be a decimal from 0 to 1000 with at most six decimal places, e.g. 2 or 0.5.',
+      'Factor must be a decimal from 0 to 1000 with at most six decimal places, e.g.: 2 or 0.5.',
     help: {
       excludeCandidate: "This request won't use this account.",
       multiplyPrice: 'Original price × factor.',
@@ -250,15 +220,10 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
-  title: 'ポリシービジュアルエディタ',
-  description:
-    'ルールは一覧順に適用されます。同じ階層のルールはすべて有効で、前の結果に重なります。',
   ruleCount: '全 {count} 件のルール',
   addRule: 'ルールを追加',
-  emptyRules: 'ルールはまだありません。新規ルールは無効で作成され、確認後に有効化します。',
   unsupportedTitle: 'JSON でのみ編集できる構造が含まれています',
   unsupportedHint: '以下の構造はそのまま保持され、ビジュアル編集では変更・削除しません：',
-  unsupportedCount: '{count} 箇所',
   limitsTitle: '設定がエディタの上限を超えています',
   errors: {
     empty: '空白の本文はルールの消去を意味しません。有効な JSON を入力してください。',
@@ -278,22 +243,11 @@ export const jaJP: typeof zhCN = {
     namePlaceholder: '短い名前',
     nameInvalid: '名前は必須で、{max} 文字以内にしてください。',
     enabled: '有効',
-    disabledHint: '新規・複製・インポートしたルールは無効で作成されます。',
-    domain: '実行カテゴリ',
-    domainScheduling: 'スケジューリング制限',
-    domainPricing: '価格倍率',
+    disabledHint: '新規・複製したルールは無効で作成されます。',
     moveUp: '上へ',
     moveDown: '下へ',
-    moved: '{position} 番目へ移動しました',
     duplicate: '複製',
-    duplicateHint: '複製は新しい ID を割り当て、無効で作成されます。',
     remove: '削除',
-    removeConfirm: 'ルール「{name}」を削除しますか？保存前はオンラインに影響しません。',
-    cancel: 'キャンセル',
-    confirmRemove: '削除する',
-    condition: '条件',
-    action: 'アクション',
-    unsupportedRule: 'このルールには未対応の構造が含まれますが、そのまま保持されます。',
   },
   condition: {
     title: '条件',
@@ -306,18 +260,23 @@ export const jaJP: typeof zhCN = {
     moveDown: '下へ移動',
     remove: 'この条件を削除',
     jsonLabel: 'JSON',
-    empty: '条件はまだありません。',
     unsupported: 'この構造は未対応のため、JSON を保持しています。',
   },
   fact: {
     key: 'パラメータ',
     operator: '演算子',
     value: '比較値',
-    valuePlaceholder: '例: gpt-*',
+    valuePlaceholder: '例：gpt-*',
     facts: {
-      requestModel: 'リクエストモデル（クライアント名）',
-      upstreamModel: '上流モデル（ルーティング後）',
-      quotaRemainingRatio: 'アカウント割り当ての残り比率',
+      requestModel: 'リクエストモデル',
+      upstreamModel: '上流モデル',
+      quotaRemainingRatio: 'アカウント割り当て比率',
+    },
+    descriptions: {
+      requestModel: 'クライアントが要求したモデル名。',
+      upstreamModel: '候補ルーティング後に実際に使われるモデル名。',
+      quotaRemainingRatio: '選択した時間枠におけるアカウントの残り割り当て比率。',
+      quotaRetained: 'この時間枠は現在観測されていないため、保存済みの値を保持します。',
     },
     operators: {
       eq: '等しい',
@@ -326,12 +285,8 @@ export const jaJP: typeof zhCN = {
       gt: 'より大きい',
       gte: '以上',
     },
-    quota: {
-      windowSeconds: 'ウィンドウ秒数',
-    },
     errors: {
-      ratioInvalid: '0 から 1 の JSON 数値（例: 0.1）を入力してください。',
-      windowInvalid: 'ウィンドウ秒数は正の整数である必要があります。',
+      ratioInvalid: '0 から 1 の JSON 数値（例：0.1）を入力してください。',
     },
   },
   timeWindow: {
@@ -363,8 +318,8 @@ export const jaJP: typeof zhCN = {
     excludeCandidate: '候補を除外',
     multiplyPrice: '価格乗数',
     factor: '倍率',
-    factorPlaceholder: '例: 2 または 0.5',
-    factorInvalid: '倍率は 0〜1000、小数点以下最大 6 桁の十進数（例: 2、0.5）です。',
+    factorPlaceholder: '例：2 または 0.5',
+    factorInvalid: '倍率は 0〜1000、小数点以下最大 6 桁の十進数（例：2、0.5）です。',
     help: {
       excludeCandidate: 'このリクエストではこのアカウントを使用しません。',
       multiplyPrice: '元の価格 × 倍率。',

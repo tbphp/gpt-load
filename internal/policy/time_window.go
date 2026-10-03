@@ -63,9 +63,8 @@ func evaluateTimeWindow(weekdays []int, ranges []TimeRange, now time.Time) Truth
 	}
 
 	// 2. 检查跨午夜区间次日凌晨部分 [00:00, end)
-	// 起始日必须是本地日历的前一天
-	yesterday := now.AddDate(0, 0, -1)
-	yesterdayWeekday := int(yesterday.Weekday())
+	// 起始日必须是本地日历的前一天（按模 7 递减，避免 AddDate 在 DST 跳时导致的日历漂移）
+	yesterdayWeekday := (todayWeekday + 6) % 7
 	if containsInt(weekdays, yesterdayWeekday) {
 		for _, r := range ranges {
 			if r.StartMin > r.EndMin {

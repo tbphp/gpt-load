@@ -642,6 +642,28 @@ func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []Cred
 	return refs
 }
 
+// CredentialQuotaWindows returns a detached clone of the normalized quota facts for a credential.
+// It verifies credential existence, strict identity generation match, active status, and
+// auth-ready state, but evaluates independently of scheduling cooldown or runtime availability.
+func (r *CredentialRegistry) CredentialQuotaWindows(id uint, generation uint64) ([]policy.QuotaWindowFact, bool) {
+	if r == nil || id == 0 || generation == 0 {
+		return nil, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(id)
+	if !ok {
+		return nil, false
+	}
+	if entry.IdentityGeneration != generation {
+		return nil, false
+	}
+	if entry.Status != CredentialStatusActive || entry.AuthState.normalize() != CredentialAuthStateReady {
+		return nil, false
+	}
+	return policy.CloneQuotaWindows(entry.quotaFacts), true
+}
+
 func (r *CredentialRegistry) ActiveEncryptedCredentialDataIfMatch(ref CredentialRef) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -742,7 +764,7 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
 				WeightManual:   cloneWeight(view.WeightManual),
 				ModelCooldowns: view.ModelCooldowns,
-				QuotaWindows:   policy.CloneQuotaWindows(entry.quotaFacts),
+				QuotaWindows:   view.QuotaWindows,
 			}
 			metas = append(metas, meta)
 		}

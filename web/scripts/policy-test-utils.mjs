@@ -85,7 +85,15 @@ export function compileSfc(filename, sourceText, requireFn, { transform, extra }
 
 // 极简自定义渲染器宿主：节点记录 props/events，供交互断言复用。
 export function createHost() {
-  const make = (tag) => ({ tag, text: '', children: [], parent: null, props: {}, events: {} })
+  const make = (tag) => ({
+    tag,
+    text: '',
+    children: [],
+    parent: null,
+    props: {},
+    events: {},
+    style: {},
+  })
   const host = {
     createElement: make,
     createText: (text) => Object.assign(make('#text'), { text }),
@@ -94,10 +102,19 @@ export function createHost() {
     setElementText: (node, text) => Object.assign(node, { text, children: [] }),
     parentNode: (node) => node.parent,
     nextSibling: (node) => node.parent?.children[node.parent.children.indexOf(node) + 1] ?? null,
-    patchProp: (el, key, prev, next) =>
-      key.startsWith('on') && typeof next === 'function'
-        ? (el.events[key] = next)
-        : (el.props[key] = next),
+    patchProp: (el, key, prev, next) => {
+      if (key.startsWith('on')) {
+        if (typeof next === 'function') {
+          el.events[key] = next
+        } else {
+          delete el.events[key]
+        }
+      } else if (key === 'style') {
+        el.style = typeof next === 'object' && next !== null ? Object.assign(el.style, next) : {}
+      } else {
+        el.props[key] = next
+      }
+    },
     remove(node) {
       const at = node.parent?.children.indexOf(node) ?? -1
       if (at >= 0) node.parent.children.splice(at, 1)

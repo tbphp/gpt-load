@@ -406,3 +406,40 @@ func TestCompileCloneAndImmutability(t *testing.T) {
 		t.Fatal("modifying cloned AST mutated original CompiledConfig")
 	}
 }
+
+func TestCompileGroupPolicyField(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		json string
+		mode GroupPolicyMode
+	}{
+		{"default inherit", `{"schema_version":1,"rules":[]}`, GroupPolicyInherit},
+		{"explicit inherit", `{"schema_version":1,"group_policy":"inherit","rules":[]}`, GroupPolicyInherit},
+		{"explicit override", `{"schema_version":1,"group_policy":"override","rules":[]}`, GroupPolicyOverride},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Compile([]byte(tc.json))
+			if err != nil {
+				t.Fatalf("Compile error: %v", err)
+			}
+			if cfg.GroupPolicyMode() != tc.mode {
+				t.Fatalf("mode = %q, want %q", cfg.GroupPolicyMode(), tc.mode)
+			}
+			if cloned := cfg.Clone(); cloned.GroupPolicyMode() != tc.mode {
+				t.Fatalf("clone mode = %q, want %q", cloned.GroupPolicyMode(), tc.mode)
+			}
+		})
+	}
+
+	// null/未知值/非字符串类型均严格拒绝
+	for _, invalid := range []string{
+		`{"schema_version":1,"group_policy":"standard","rules":[]}`,
+		`{"schema_version":1,"group_policy":null,"rules":[]}`,
+		`{"schema_version":1,"group_policy":1,"rules":[]}`,
+		`{"schema_version":1,"group_policy":true,"rules":[]}`,
+	} {
+		if _, err := Compile([]byte(invalid)); err == nil {
+			t.Fatalf("expected error for %s", invalid)
+		}
+	}
+}

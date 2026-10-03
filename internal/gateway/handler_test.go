@@ -29,6 +29,7 @@ import (
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/state"
@@ -1965,6 +1966,10 @@ func (panicRuntimeRegistry) CredentialRef(uint) (state.CredentialRef, bool) {
 
 func (panicRuntimeRegistry) ActiveEncryptedCredentialDataIfMatch(state.CredentialRef) (string, bool) {
 	panic("model endpoint matched an upstream key")
+}
+
+func (panicRuntimeRegistry) CredentialQuotaWindows(uint, uint64) ([]policy.QuotaWindowFact, bool) {
+	panic("model endpoint read quota windows")
 }
 
 func (panicRuntimeRegistry) SetCooldown(uint, time.Time) bool {

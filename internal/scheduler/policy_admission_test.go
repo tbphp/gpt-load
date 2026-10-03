@@ -3,6 +3,7 @@ package scheduler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,166 +14,82 @@ import (
 	"gpt-load/internal/state"
 )
 
-func TestPolicyAdmission_EnabledModelExclusion_RequestModel(t *testing.T) {
-	groupJSON := []byte(`{
-		"schema_version": 1,
-		"rules": [
-			{
-				"id": "rule-block-req-gpt4o",
-				"name": "Block request gpt-4o",
-				"domain": "scheduling",
-				"enabled": true,
-				"when": {"fact": "request.model", "op": "eq", "value": "gpt-4o"},
-				"then": {"type": "exclude_candidate"}
+func TestPolicyAdmission_ModelConditions(t *testing.T) {
+	for _, tc := range []struct {
+		name, fact, value, requestModel, upstreamModel string
+		groupID                                        uint
+		explicitRequest, enabled, denied               bool
+	}{
+		{"request model fallback", "request.model", "gpt-4o", "gpt-4o", "gpt-4o", 1, false, true, true},
+		{"upstream model", "upstream.model", "provider-gpt-4o", "gpt-4o", "provider-gpt-4o", 2, false, true, true},
+		{"disabled rule", "request.model", "gpt-4o", "gpt-4o", "gpt-4o", 1, false, false, false},
+		{"logical model excluded", "request.model", "smart", "smart", "gpt-4o", 1, true, true, true},
+		{"logical model allowed", "request.model", "smart", "other", "gpt-4o", 1, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := []byte(fmt.Sprintf(`{
+				"schema_version": 1,
+				"rules": [{
+					"id": "block-model", "name": "Block model", "domain": "scheduling",
+					"enabled": %t,
+					"when": {"fact": %q, "op": "eq", "value": %q},
+					"then": {"type": "exclude_candidate"}
+				}]
+			}`, tc.enabled, tc.fact, tc.value))
+			view, err := policy.CompileRuntimeView([]policy.BindingConfig{{Scope: "group", GroupID: tc.groupID, Config: config}})
+			if err != nil {
+				t.Fatal(err)
 			}
-		]
-	}`)
-
-	policyView, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "group", GroupID: 1, Config: groupJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
-	snapshot := schedulerSnapshot()
-	snapshot.Policies = policyView
-
-	credentials := fakeCredentialSource{
-		keys: []state.CredentialMeta{
-			{ID: 101, GroupID: 1, IdentityGeneration: 1},
-		},
-	}
-
-	reqModel := "gpt-4o"
-	query := Query{
-		ClientProtocol: protocol.OpenAICompletions,
-		Operation:      execution.OperationChatCompletion,
-		ExternalModel:  &reqModel,
-	}
-
-	// 1. Next() must reject because candidate is excluded by policy
-	iterator := New(snapshot, credentials, query)
-	_, err = iterator.Next()
-	if !errors.Is(err, ErrExhausted) {
-		t.Fatalf("expected ErrExhausted due to policy exclusion, got %v", err)
-	}
-
-	// 2. Inspect() must report policy exclusion reason
-	inspection, err := Inspect(snapshot, []CredentialRuntimeView{
-		{ID: 101, GroupID: 1, Status: state.CredentialStatusActive, IdentityGeneration: 1},
-	}, query, time.Now())
-	if err != nil {
-		t.Fatalf("Inspect error = %v", err)
-	}
-	if inspection.Routable {
-		t.Fatalf("expected Routable=false due to policy exclusion")
-	}
-	if len(inspection.Groups) == 0 || len(inspection.Groups[0].Credentials) == 0 {
-		t.Fatalf("expected inspection groups and credentials to be populated")
-	}
-	if inspection.Groups[0].Credentials[0].Reason != ReasonPolicyExcluded {
-		t.Fatalf("expected ReasonPolicyExcluded, got %q", inspection.Groups[0].Credentials[0].Reason)
-	}
-}
-
-func TestPolicyAdmission_EnabledModelExclusion_UpstreamModel(t *testing.T) {
-	groupJSON := []byte(`{
-		"schema_version": 1,
-		"rules": [
-			{
-				"id": "rule-block-upstream",
-				"name": "Block provider-gpt-4o",
-				"domain": "scheduling",
-				"enabled": true,
-				"when": {"fact": "upstream.model", "op": "eq", "value": "provider-gpt-4o"},
-				"then": {"type": "exclude_candidate"}
+			snapshot := schedulerSnapshot()
+			snapshot.Policies = view
+			id := tc.groupID*100 + 1
+			credentials := fakeCredentialSource{keys: []state.CredentialMeta{{ID: id, GroupID: tc.groupID, IdentityGeneration: 1}}}
+			query := Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")}
+			if tc.explicitRequest {
+				query.RequestModel = &tc.requestModel
 			}
-		]
-	}`)
-
-	policyView, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "group", GroupID: 2, Config: groupJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
-	snapshot := schedulerSnapshot()
-	snapshot.Policies = policyView
-
-	// Group 2 upstream model is "provider-gpt-4o"
-	credentials := fakeCredentialSource{
-		keys: []state.CredentialMeta{
-			{ID: 201, GroupID: 2, IdentityGeneration: 1},
-		},
-	}
-
-	reqModel := "gpt-4o"
-	query := Query{
-		ClientProtocol: protocol.OpenAICompletions,
-		Operation:      execution.OperationChatCompletion,
-		ExternalModel:  &reqModel,
-	}
-
-	iterator := New(snapshot, credentials, query)
-	_, err = iterator.Next()
-	if !errors.Is(err, ErrExhausted) {
-		t.Fatalf("expected ErrExhausted due to upstream model exclusion, got %v", err)
-	}
-}
-
-func TestPolicyAdmission_DisabledRule_DoesNotExclude(t *testing.T) {
-	disabledJSON := []byte(`{
-		"schema_version": 1,
-		"rules": [
-			{
-				"id": "rule-disabled",
-				"name": "Disabled exclusion",
-				"domain": "scheduling",
-				"enabled": false,
-				"when": {"fact": "request.model", "op": "eq", "value": "gpt-4o"},
-				"then": {"type": "exclude_candidate"}
+			it := New(snapshot, credentials, query)
+			sel, err := it.Next()
+			if tc.denied {
+				if !errors.Is(err, ErrExhausted) {
+					t.Fatalf("Next() = %v, want ErrExhausted", err)
+				}
+			} else if err != nil || sel.CredentialID != id {
+				t.Fatalf("Next() = %+v, %v, want credential %d", sel, err, id)
 			}
-		]
-	}`)
-
-	policyView, err := policy.CompileRuntimeView([]policy.BindingConfig{
-		{Scope: "group", GroupID: 1, Config: disabledJSON},
-	})
-	if err != nil {
-		t.Fatalf("CompileRuntimeView error = %v", err)
-	}
-
-	snapshot := schedulerSnapshot()
-	snapshot.Policies = policyView
-
-	credentials := fakeCredentialSource{
-		keys: []state.CredentialMeta{
-			{ID: 101, GroupID: 1, IdentityGeneration: 1},
-		},
-	}
-
-	reqModel := "gpt-4o"
-	query := Query{
-		ClientProtocol: protocol.OpenAICompletions,
-		Operation:      execution.OperationChatCompletion,
-		ExternalModel:  &reqModel,
-	}
-
-	iterator := New(snapshot, credentials, query)
-	selection, err := iterator.Next()
-	if err != nil {
-		t.Fatalf("expected selection to succeed with disabled rule, got error = %v", err)
-	}
-	if selection.CredentialID != 101 {
-		t.Fatalf("expected Credential 101, got %d", selection.CredentialID)
+			inspection, err := Inspect(snapshot, []CredentialRuntimeView{{ID: id, GroupID: tc.groupID, Status: state.CredentialStatusActive, IdentityGeneration: 1}}, query, time.Now())
+			if err != nil || inspection.Routable == tc.denied {
+				t.Fatalf("Inspect() = %+v, %v; denied=%v", inspection, err, tc.denied)
+			}
+			if tc.denied {
+				found := false
+				for _, group := range inspection.Groups {
+					for _, credential := range group.Credentials {
+						if credential.CredentialID == id {
+							found = true
+							if credential.Reason != ReasonPolicyExcluded {
+								t.Fatalf("reason = %s", credential.Reason)
+							}
+						}
+					}
+				}
+				if !found {
+					t.Fatal("missing inspection credential")
+				}
+			}
+			ref := state.CredentialRef{ID: id, GroupID: tc.groupID, IdentityGeneration: 1}
+			replay := Selection{CredentialID: id, GroupID: tc.groupID, Group: snapshot.Groups[tc.groupID], UpstreamModelID: &tc.upstreamModel}
+			if charged := it.ChargeReplay(replay, ref); charged == tc.denied {
+				t.Fatalf("ChargeReplay()=%v, denied=%v", charged, tc.denied)
+			}
+		})
 	}
 }
 
 func TestPolicyAdmission_GroupVersusCredentialScope(t *testing.T) {
 	credJSON := []byte(`{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "rule-cred-101",
@@ -275,6 +192,7 @@ func TestPolicyAdmission_SameCredential_AlternateTargetPreserved(t *testing.T) {
 	// Credential policy on Credential 301 excludes up-a only
 	credJSON := []byte(`{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "rule-cred-block-a",
@@ -457,6 +375,7 @@ func TestPolicyAdmission_PreferredCandidateFairnessProtection(t *testing.T) {
 	// Rule excludes Credential 101 for model "gpt-4o"
 	credJSON := []byte(`{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "block-101",

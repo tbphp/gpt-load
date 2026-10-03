@@ -33,7 +33,6 @@ func (receipt *Receipt) UnmarshalJSON(data []byte) error {
 		"total_nano_usd":           {},
 	}
 
-	seen := make(map[string]struct{})
 	rawValues := make(map[string]json.RawMessage)
 
 	for dec.More() {
@@ -45,10 +44,9 @@ func (receipt *Receipt) UnmarshalJSON(data []byte) error {
 		if !ok {
 			return fmt.Errorf("pricing: object key must be a string")
 		}
-		if _, exists := seen[key]; exists {
+		if _, exists := rawValues[key]; exists {
 			return fmt.Errorf("pricing: duplicate receipt field %q", key)
 		}
-		seen[key] = struct{}{}
 
 		if _, ok := canonicalKeys[key]; !ok {
 			return fmt.Errorf("pricing: unknown receipt field %q", key)

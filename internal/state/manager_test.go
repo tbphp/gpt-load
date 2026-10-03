@@ -434,3 +434,79 @@ func TestManagerPublishPolicyOnlyPreservesAffinityRevision(t *testing.T) {
 		t.Fatalf("third Publish().AffinityRevision = %d, want 2 (incremented for incompatible publication)", third.AffinityRevision)
 	}
 }
+
+func TestManagerPublishPolicyOnlyWithVertexPreservesAffinityRevision(t *testing.T) {
+	manager := NewManager()
+	// Google Vertex registers RouteResolver closures in ResolvedTarget.
+	// Standard reflect.DeepEqual always returns false on non-nil funcs, which
+	// previously caused pure policy updates to increment AffinityRevision and flush cache.
+	input1 := CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{{
+			ConnectionType: "api_key",
+			ID:             1,
+			Name:           "vertex-group",
+			ChannelID:      channel.GoogleVertex,
+			Params:         json.RawMessage(`{"location":"us-central1"}`),
+			Models:         []ModelConfig{{ID: "gemini-1.5-pro"}},
+			Enabled:        true,
+		}},
+	}
+	first, err := manager.Publish(input1)
+	if err != nil {
+		t.Fatalf("first Publish() error = %v", err)
+	}
+	if first.Revision != 1 || first.AffinityRevision != 1 {
+		t.Fatalf("first Publish() = rev %d, affinityRev %d, want 1, 1", first.Revision, first.AffinityRevision)
+	}
+
+	// 1. Matches should return true for identical input even with Vertex RouteResolvers
+	matches, err := manager.Matches(input1)
+	if err != nil || !matches {
+		t.Fatalf("Matches(input1) = %v, %v, want true, nil", matches, err)
+	}
+
+	// 2. Policy-only update on Vertex group: AffinityRevision MUST be preserved
+	ruleJSON := []byte(`{"schema_version":1,"rules":[{"id":"p-vertex","name":"Vertex Rule","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gemini-1.5-pro"},"then":{"type":"exclude_candidate"}}]}`)
+	input2 := input1
+	input2.PolicyBindings = []policy.BindingConfig{
+		{Scope: "group", GroupID: 1, Config: ruleJSON},
+	}
+	second, err := manager.Publish(input2)
+	if err != nil {
+		t.Fatalf("second Publish() error = %v", err)
+	}
+	if second.Revision != 2 {
+		t.Fatalf("second Publish().Revision = %d, want 2", second.Revision)
+	}
+	if second.AffinityRevision != 1 {
+		t.Fatalf("second Publish().AffinityRevision = %d, want 1 (must be preserved across Vertex policy updates)", second.AffinityRevision)
+	}
+
+	// 3. Stale-write fence: publication always advanced global Revision from 1 to 2
+	if second.Revision <= first.Revision {
+		t.Fatalf("Revision must advance for stale-write fencing: got %d <= %d", second.Revision, first.Revision)
+	}
+
+	// 4. Incompatible change (route / model / config change) MUST increment AffinityRevision
+	input3 := input2
+	input3.Groups = []GroupConfig{{
+		ConnectionType: "api_key",
+		ID:             1,
+		Name:           "vertex-group-changed",
+		ChannelID:      channel.GoogleVertex,
+		Params:         json.RawMessage(`{"location":"us-east4"}`),
+		Models:         []ModelConfig{{ID: "gemini-1.5-flash"}},
+		Enabled:        true,
+	}}
+	third, err := manager.Publish(input3)
+	if err != nil {
+		t.Fatalf("third Publish() error = %v", err)
+	}
+	if third.Revision != 3 {
+		t.Fatalf("third Publish().Revision = %d, want 3", third.Revision)
+	}
+	if third.AffinityRevision != 2 {
+		t.Fatalf("third Publish().AffinityRevision = %d, want 2 (incremented for route/config changes)", third.AffinityRevision)
+	}
+}

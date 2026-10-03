@@ -747,39 +747,59 @@ func (s *Service) upsertCredentialObservationMetadataOnly(
 }
 
 func (s *Service) restoreCredentialQuotaObservations(ctx context.Context) error {
+	return s.restoreCredentialQuotaObservationsInternal(ctx, false)
+}
+
+// restoreCredentialQuotaObservationsHoldingMutations 在调用方已经持有凭据 mutation
+// stripes 时恢复配额观测，直接执行读取与发布，避免同 stripe 非重入死锁。
+func (s *Service) restoreCredentialQuotaObservationsHoldingMutations(ctx context.Context) error {
+	return s.restoreCredentialQuotaObservationsInternal(ctx, true)
+}
+
+func (s *Service) restoreCredentialQuotaObservationsInternal(ctx context.Context, holdingMutations bool) error {
 	var observations []models.CredentialObservation
-	if err := s.db.WithContext(ctx).Select("credential_id").Find(&observations).Error; err != nil {
+	if err := s.db.WithContext(ctx).Select("credential_id").Order("credential_id ASC").Find(&observations).Error; err != nil {
 		return app_errors.ParseDBError(err)
 	}
 	for _, observation := range observations {
+		if holdingMutations {
+			if err := s.restoreSingleCredentialQuotaObservation(ctx, observation.CredentialID); err != nil {
+				return err
+			}
+			continue
+		}
 		// 恢复也在凭据更新锁内读取并发布，避免覆盖期间的被动观测。
 		err := s.withCredentialMutation(observation.CredentialID, func() error {
-			ref, ok := s.registry.CredentialRef(observation.CredentialID)
-			if !ok {
-				return nil
-			}
-			var credential models.Credential
-			if err := s.db.WithContext(ctx).Take(&credential, ref.ID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return nil
-				}
-				return app_errors.ParseDBError(err)
-			}
-			var current models.CredentialObservation
-			if err := s.db.WithContext(ctx).Take(&current, "credential_id = ?", ref.ID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return nil
-				}
-				return app_errors.ParseDBError(err)
-			}
-			response := presentCredentialObservation(current, credential.IdentityFingerprint)
-			s.applyCredentialQuotaObservation(ref.ID, ref.IdentityGeneration, response)
-			return nil
+			return s.restoreSingleCredentialQuotaObservation(ctx, observation.CredentialID)
 		})
 		if err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *Service) restoreSingleCredentialQuotaObservation(ctx context.Context, credentialID uint) error {
+	ref, ok := s.registry.CredentialRef(credentialID)
+	if !ok {
+		return nil
+	}
+	var credential models.Credential
+	if err := s.db.WithContext(ctx).Take(&credential, ref.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return app_errors.ParseDBError(err)
+	}
+	var current models.CredentialObservation
+	if err := s.db.WithContext(ctx).Take(&current, "credential_id = ?", ref.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return app_errors.ParseDBError(err)
+	}
+	response := presentCredentialObservation(current, credential.IdentityFingerprint)
+	s.applyCredentialQuotaObservation(ref.ID, ref.IdentityGeneration, response)
 	return nil
 }
 

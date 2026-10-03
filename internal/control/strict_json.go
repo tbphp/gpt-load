@@ -8,6 +8,8 @@ import (
 	"io"
 	"reflect"
 	"strings"
+
+	"gpt-load/internal/policy"
 )
 
 const (
@@ -23,7 +25,12 @@ func decodeStrictControlJSONObject(data []byte, target any) error {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return fmt.Errorf("request body must be a JSON object")
 	}
-	if err := rejectDuplicateJSONFields(data); err != nil {
+	maxDepth := maxStrictControlJSONDepth
+	switch target.(type) {
+	case *PolicyUpdateRequest, *PolicyPreviewRequest:
+		maxDepth = policy.MaxJSONDepth + 1
+	}
+	if err := rejectDuplicateJSONFieldsAtDepth(data, maxDepth); err != nil {
 		return err
 	}
 	if allowed, ok := canonicalOuterFields(target); ok {
@@ -49,12 +56,16 @@ func decodeStrictControlJSONObject(data []byte, target any) error {
 }
 
 func rejectDuplicateJSONFields(data []byte) error {
+	return rejectDuplicateJSONFieldsAtDepth(data, maxStrictControlJSONDepth)
+}
+
+func rejectDuplicateJSONFieldsAtDepth(data []byte, maxDepth int) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var walk func(depth int) error
 	walk = func(depth int) error {
-		if depth > maxStrictControlJSONDepth {
-			return fmt.Errorf("maximum JSON nesting depth exceeded (%d)", maxStrictControlJSONDepth)
+		if depth > maxDepth {
+			return fmt.Errorf("maximum JSON nesting depth exceeded (%d)", maxDepth)
 		}
 		token, err := decoder.Token()
 		if err != nil {

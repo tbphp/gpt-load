@@ -13,7 +13,6 @@ import {
   arrayNode,
   conditionKind,
   getField,
-  literalString,
   newFactCondition,
   newTimeWindowCondition,
   objectNode,
@@ -27,9 +26,14 @@ import PolicyFactLeaf from './PolicyFactLeaf.vue'
 import PolicyTimeWindowLeaf from './PolicyTimeWindowLeaf.vue'
 
 const props = withDefaults(
-  defineProps<{ modelValue: JsonNode | undefined; disabled?: boolean }>(),
+  defineProps<{
+    modelValue: JsonNode | undefined
+    disabled?: boolean
+    quotaWindows?: readonly number[]
+  }>(),
   {
     disabled: false,
+    quotaWindows: () => [],
   },
 )
 const emit = defineEmits<{ 'update:modelValue': [node: JsonNode] }>()
@@ -45,8 +49,9 @@ const groupKind = computed<'all' | 'any' | undefined>(() => {
 const children = computed<JsonNode[]>(() => {
   const kind = groupKind.value
   const current = object.value
-  if (!kind || !current) return []
-  return arrayItems(getField(current, kind)) ?? []
+  if (!current) return []
+  if (kind) return arrayItems(getField(current, kind)) ?? []
+  return leafKind(current) === 'unsupported' ? [] : [current]
 })
 
 const blockKeys = ref<number[]>([])
@@ -63,28 +68,31 @@ watch(
 
 function leafKind(node: JsonNode | undefined): 'param' | 'time_window' | 'unsupported' {
   const kind = conditionKind(node)
-  if (kind === 'param')
-    return literalString(getField(node, 'op')) === 'in' ? 'unsupported' : 'param'
+  if (kind === 'param') return 'param'
   if (kind === 'time_window') return 'time_window'
   return 'unsupported'
 }
 
-const soloLeaf = computed(() => {
-  const current = object.value
-  if (!current || groupKind.value) return undefined
-  const kind = leafKind(current)
-  return kind === 'param' || kind === 'time_window' ? { node: current, kind } : undefined
-})
+const editable = computed(() => !!groupKind.value || children.value.length > 0)
+const blocks = computed(() => children.value.map((node) => ({ node, kind: leafKind(node) })))
 
-const blocks = computed(() =>
-  groupKind.value ? children.value.map((node) => ({ node, kind: leafKind(node) })) : [],
-)
+function blockTitle(kind: 'param' | 'time_window' | 'unsupported'): string {
+  if (kind === 'time_window') return t('policyEditor.condition.itemTimeWindow')
+  if (kind === 'param') return t('policyEditor.condition.itemParam')
+  return t('policyEditor.condition.jsonLabel')
+}
 
 function commit(next: JsonNode[]): void {
+  if (props.disabled) return
   const kind = groupKind.value
-  const current = object.value
-  if (!kind || !current) return
-  emit('update:modelValue', setField(current, kind, arrayNode(next)))
+  emit(
+    'update:modelValue',
+    kind && object.value
+      ? setField(object.value, kind, arrayNode(next))
+      : next.length === 1
+        ? next[0]!
+        : objectNode([{ key: 'all', value: arrayNode(next) }]),
+  )
 }
 
 function changeGroup(next: unknown): void {
@@ -134,15 +142,15 @@ function appendFromMenu(id: unknown): void {
 
 <template>
   <div class="policy-condition">
-    <template v-if="groupKind && object">
+    <template v-if="editable">
       <div class="policy-condition-toolbar">
         <span class="policy-condition-toolbar-label">{{ t('policyEditor.condition.title') }}</span>
         <AppSelect
-          :model-value="groupKind"
+          :model-value="groupKind ?? 'all'"
           :options="groupOptions"
           :label="t('policyEditor.condition.title')"
           label-hidden
-          size="sm"
+          size="xs"
           :disabled="disabled"
           @update:model-value="changeGroup"
         />
@@ -155,33 +163,38 @@ function appendFromMenu(id: unknown): void {
           class="policy-condition-block"
         >
           <div class="policy-condition-block-head">
-            <AppIconButton
-              :icon="ArrowUp"
-              :label="t('policyEditor.condition.moveUp')"
-              size="sm"
-              :disabled="disabled || index === 0"
-              @click="moveChild(index, -1)"
-            />
-            <AppIconButton
-              :icon="ArrowDown"
-              :label="t('policyEditor.condition.moveDown')"
-              size="sm"
-              :disabled="disabled || index === blocks.length - 1"
-              @click="moveChild(index, 1)"
-            />
-            <AppIconButton
-              :icon="Trash2"
-              :label="t('policyEditor.condition.remove')"
-              size="sm"
-              variant="danger"
-              :disabled="disabled"
-              @click="removeChild(index)"
-            />
+            <span class="policy-condition-block-title">{{ blockTitle(block.kind) }}</span>
+            <div class="policy-condition-block-actions">
+              <div class="policy-condition-block-move">
+                <AppIconButton
+                  :icon="ArrowUp"
+                  :label="t('policyEditor.condition.moveUp')"
+                  size="xs"
+                  :disabled="disabled || index === 0"
+                  @click="moveChild(index, -1)"
+                />
+                <AppIconButton
+                  :icon="ArrowDown"
+                  :label="t('policyEditor.condition.moveDown')"
+                  size="xs"
+                  :disabled="disabled || index === blocks.length - 1"
+                  @click="moveChild(index, 1)"
+                />
+              </div>
+              <AppIconButton
+                :icon="Trash2"
+                :label="t('policyEditor.condition.remove')"
+                size="xs"
+                :disabled="disabled"
+                @click="removeChild(index)"
+              />
+            </div>
           </div>
           <PolicyFactLeaf
             v-if="block.kind === 'param' && block.node.type === 'object'"
             :model-value="block.node"
             :disabled="disabled"
+            :quota-windows="quotaWindows"
             @update:model-value="(node) => updateChild(index, node)"
           />
           <PolicyTimeWindowLeaf
@@ -193,38 +206,22 @@ function appendFromMenu(id: unknown): void {
           <pre v-else class="policy-condition-json font-mono">{{ serializeJson(block.node) }}</pre>
         </div>
       </div>
-      <p v-else class="policy-condition-empty">{{ t('policyEditor.condition.empty') }}</p>
 
       <div class="policy-condition-add">
         <AppActionMenu
           :label="t('policyEditor.condition.addCondition')"
           :items="addItems"
-          size="sm"
+          size="xs"
           :disabled="disabled"
           @select="appendFromMenu"
         >
           <template #trigger>
-            <AppButton size="sm" :icon="Plus" :disabled="disabled">
+            <AppButton size="xs" variant="ghost" :icon="Plus" :disabled="disabled">
               {{ t('policyEditor.condition.addCondition') }}
             </AppButton>
           </template>
         </AppActionMenu>
       </div>
-    </template>
-
-    <template v-else-if="soloLeaf">
-      <PolicyFactLeaf
-        v-if="soloLeaf.kind === 'param'"
-        :model-value="soloLeaf.node"
-        :disabled="disabled"
-        @update:model-value="(node) => emit('update:modelValue', node)"
-      />
-      <PolicyTimeWindowLeaf
-        v-else
-        :model-value="soloLeaf.node"
-        :disabled="disabled"
-        @update:model-value="(node) => emit('update:modelValue', node)"
-      />
     </template>
 
     <template v-else>
@@ -249,8 +246,9 @@ function appendFromMenu(id: unknown): void {
   gap: var(--modern-space-2);
 }
 .policy-condition-toolbar-label {
+  color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-  font-weight: var(--modern-weight-semibold);
+  font-weight: var(--modern-weight-medium);
 }
 .policy-condition-blocks {
   display: grid;
@@ -268,18 +266,32 @@ function appendFromMenu(id: unknown): void {
 .policy-condition-block-head {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: var(--modern-space-1);
+}
+.policy-condition-block-title {
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-medium);
+  color: var(--modern-muted);
+}
+.policy-condition-block-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.policy-condition-block-move {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: var(--modern-space-1);
+  padding-right: var(--modern-space-1);
+  border-right: var(--modern-line-width) solid var(--modern-border);
 }
 .policy-condition-add {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--modern-space-2);
-}
-.policy-condition-empty {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
 }
 .policy-condition-json {
   overflow-x: auto;

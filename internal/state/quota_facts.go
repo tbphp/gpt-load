@@ -21,6 +21,8 @@ import (
 //  4. Ratio is derived from Utilization and/or Remaining/Limit.
 //  5. Illegal (NaN, Inf, negative limit/remaining/utilization), missing, or ambiguous (discrepant values)
 //     members enter FactStateUnknown so they cannot be masked by valid members.
+//  6. Contradictory readings from the same source, sample timing (non-zero reset/observed), and identity generation
+//     enter FactStateUnknown (distinct observations with unequal ratios represent source ambiguity; no arbitrary tolerance).
 func NormalizeQuotaWindows(windows []providerobservation.QuotaWindow, identityGeneration uint64) []policy.QuotaWindowFact {
 	if len(windows) == 0 {
 		return nil
@@ -29,6 +31,31 @@ func NormalizeQuotaWindows(windows []providerobservation.QuotaWindow, identityGe
 	for _, window := range windows {
 		facts = append(facts, NormalizeQuotaWindowFact(window, identityGeneration))
 	}
+
+	// 校验同来源同真实周期/sample/identity 的冲突额度：
+	// 仅当具有明确非空来源且具备真实 sample 元数据（非零 reset 与 observed 时间戳）并属于同一身份代次时，
+	// 方判定为同样本。若同样本内出现不相等的归一化比率 (Ratio != Ratio)，属于来源歧义，
+	// 冲突成员全部置为 FactStateUnknown，避免借单窗口度量归一化容差造成规则求值失真。
+	for i := 0; i < len(facts); i++ {
+		for j := i + 1; j < len(facts); j++ {
+			if facts[i].Scope != facts[j].Scope || facts[i].WindowSeconds != facts[j].WindowSeconds {
+				continue
+			}
+			if facts[i].SourceID != "" &&
+				facts[i].SourceID == facts[j].SourceID &&
+				facts[i].IdentityGeneration == facts[j].IdentityGeneration &&
+				!facts[i].ResetAt.IsZero() && !facts[i].ObservedAt.IsZero() &&
+				!facts[j].ResetAt.IsZero() && !facts[j].ObservedAt.IsZero() &&
+				facts[i].ResetAt.Equal(facts[j].ResetAt) &&
+				facts[i].ObservedAt.Equal(facts[j].ObservedAt) {
+				if facts[i].Ratio != facts[j].Ratio {
+					facts[i].State = policy.FactStateUnknown
+					facts[j].State = policy.FactStateUnknown
+				}
+			}
+		}
+	}
+
 	return facts
 }
 

@@ -133,7 +133,20 @@ const total = computed(
     </div>
     <div v-if="receipt?.policy_factors?.length" class="modern-log-receipt-meta">
       <span v-for="f in receipt.policy_factors" :key="f.binding_scope + ':' + f.rule_id">
-        [{{ f.binding_scope }}] {{ f.name_snapshot }} ×{{ f.factor }}
+        [{{ f.binding_scope }}] {{ f.name_snapshot }} ×{{ f.factor }} ({{ f.rule_id }} · v{{
+          f.revision
+        }})
+      </span>
+    </div>
+    <div v-if="decision?.receipt?.policy_factors?.length" class="modern-log-receipt-meta">
+      <span
+        v-for="f in decision.receipt.policy_factors"
+        :key="'decision:' + f.binding_scope + ':' + f.rule_id"
+      >
+        {{ t('autoModel.decisionPriceItem') }} · [{{ f.binding_scope }}] {{ f.name_snapshot }} ×{{
+          f.factor
+        }}
+        ({{ f.rule_id }} · v{{ f.revision }})
       </span>
     </div>
     <div class="modern-log-receipt-total">

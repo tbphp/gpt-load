@@ -158,3 +158,28 @@ func TestTimeWindowDSTLocalDate(t *testing.T) {
 		t.Fatalf("expected DST transition Sunday 03:30 to match Saturday overnight rule, got %v", got)
 	}
 }
+
+func TestTimeWindowDSTSantiagoMidnightCross(t *testing.T) {
+	// Santiago 在 2024-09-08（周日）00:00 进入夏令时，时钟直接跳到 01:00。
+	// 2024-09-09（周一）00:30 执行 AddDate(0, 0, -1) 会由于周日缺少 00:30 而漂移到周六。
+	// 使用星期模 7 递减必须正确识别周日为前一日。
+	loc, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Skip("skipping DST test: America/Santiago not available")
+	}
+
+	// 规则：周日 (0) 22:00 至 02:00 跨午夜
+	r, err := compileTimeRange("22:00", "02:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	weekdays := []int{0} // 周日
+	ranges := []TimeRange{r}
+
+	// 周一 00:30（处于周日 22:00 至 02:00 跨午夜的次日凌晨部分）
+	now := time.Date(2024, 9, 9, 0, 30, 0, 0, loc)
+	got := evaluateTimeWindow(weekdays, ranges, now)
+	if got != TruthTrue {
+		t.Fatalf("expected Santiago DST Monday 00:30 to match Sunday overnight rule, got %v", got)
+	}
+}

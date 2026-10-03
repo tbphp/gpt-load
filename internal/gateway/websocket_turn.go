@@ -258,7 +258,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	}
 	requestCtx := s.ctx
 	if _, automatic := snapshot.AutoModels.Lookup(model); automatic {
-		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required}
+		autoQuery := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, ResponsesWebsocket: &original.required, RequestModel: &model}
 		if requiredRef != nil {
 			autoQuery.AllowedCredentialRefs = map[uint]state.CredentialRef{requiredRef.ID: *requiredRef}
 		}
@@ -283,7 +283,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 		original = effective
 	}
-	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
+	query := scheduler.Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative, ResponsesStorePreference: original.metadata.ResponsesStorePreference, RequestModel: &model, ExternalModel: original.metadata.Model, AccessKey: key, AllowedCredentialIDs: make(map[uint]struct{}), AllowedCredentialRefs: make(map[uint]state.CredentialRef)}
 	query.ResponsesWebsocket = &original.required
 	groups := scheduler.CandidateGroupIDsForQuery(snapshot, query)
 	for _, ref := range h.registry.CaptureActiveCredentialRefs(groups) {

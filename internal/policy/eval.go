@@ -108,7 +108,7 @@ func evalConditionFast(node *ConditionNode, ctx *EvalContext) TruthValue {
 
 	case ConditionKindParam:
 		if node.IsQuota {
-			ratio, ok, _ := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.EffectiveQuotaNow())
+			ratio, ok, _ := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.EffectiveQuotaNow(), false)
 			if !ok {
 				return TruthUnknown
 			}
@@ -232,7 +232,7 @@ func evalConditionInspect(node *ConditionNode, ctx *EvalContext) (TruthValue, st
 
 	case ConditionKindParam:
 		if node.IsQuota {
-			matchingRatio, ok, reason := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.EffectiveQuotaNow())
+			matchingRatio, ok, reason := scanQuotaMin(ctx.QuotaWindows, node.Selector, ctx.EffectiveQuotaNow(), true)
 			if !ok {
 				return TruthUnknown, reason, NodeInspectResult{
 					Kind:          ConditionKindParam,
@@ -336,17 +336,26 @@ func getNumberFact(factKey string, ctx *EvalContext) (NumberFact, bool) {
 	return NumberFact{}, false
 }
 
-// scanQuotaMin 单次标量扫描求 min，零切片分配。
+// scanQuotaMin 评估匹配选择器的额度窗口最小值。
 // 遵循合同：无匹配、成员无效、未知、重置时间过期或来源歧义整叶返回未知，不可被有效成员掩盖。
-func scanQuotaMin(windows []QuotaWindowFact, sel *QuotaSelector, now time.Time) (float64, bool, string) {
+//
+// 来源冲突校验规则：
+// 仅当具有明确来源 (SourceID != "") 且具备真实 sample 元数据 (非零 ResetAt 与 ObservedAt)
+// 并属于同一身份代次时，才判定为同样本。若同样本内出现不相等的归一化比率 (Ratio != Ratio)，
+// 判定为来源歧义，整叶返回 unknown（不引入任意容差，避免如 0.099 与 0.101 跨越阈值仍被当成有效）。
+// 不同明确来源（如不同 provider 或独立探针）正常保留并参与 min 求值。
+func scanQuotaMin(windows []QuotaWindowFact, sel *QuotaSelector, now time.Time, diagnostics bool) (float64, bool, string) {
 	if sel == nil {
+		if !diagnostics {
+			return 0, false, ""
+		}
 		return 0, false, "nil quota selector"
 	}
 
 	minVal := math.MaxFloat64
 	matchCount := 0
 
-	for _, w := range windows {
+	for i, w := range windows {
 		if w.Scope != sel.Scope || w.WindowSeconds != sel.WindowSeconds {
 			continue
 		}
@@ -354,11 +363,17 @@ func scanQuotaMin(windows []QuotaWindowFact, sel *QuotaSelector, now time.Time) 
 
 		// 1. 若匹配集合中含有未知状态成员，整叶立即为 unknown（未知不可被有效成员掩盖）
 		if w.State == FactStateUnknown {
+			if !diagnostics {
+				return 0, false, ""
+			}
 			return 0, false, fmt.Sprintf("quota window (%s, %ds) member state is unknown", sel.Scope, sel.WindowSeconds)
 		}
 
 		// 2. 若匹配成员状态非有效（measured / retained_in_period / inferred_reset），整叶立即为 unknown
 		if !w.State.IsEffective() {
+			if !diagnostics {
+				return 0, false, ""
+			}
 			return 0, false, fmt.Sprintf("quota window (%s, %ds) member state is %s", sel.Scope, sel.WindowSeconds, w.State)
 		}
 
@@ -368,15 +383,50 @@ func scanQuotaMin(windows []QuotaWindowFact, sel *QuotaSelector, now time.Time) 
 		//    - 说明：真实归一化事实的 missing reset / missing observedAt 由 NormalizeQuotaWindowFact
 		//      统一标记为 FactStateUnknown；纯求值单测或合成事实未配置 ResetAt/ObservedAt 时不以此拦截。
 		if !now.IsZero() && !w.ResetAt.IsZero() && !now.Before(w.ResetAt) {
+			if !diagnostics {
+				return 0, false, ""
+			}
 			return 0, false, fmt.Sprintf("quota window (%s, %ds) reset reached at %v (now %v)", sel.Scope, sel.WindowSeconds, w.ResetAt, now)
 		}
 		if !now.IsZero() && !w.ObservedAt.IsZero() && now.Before(w.ObservedAt) {
+			if !diagnostics {
+				return 0, false, ""
+			}
 			return 0, false, fmt.Sprintf("quota window (%s, %ds) future observed at %v (now %v)", sel.Scope, sel.WindowSeconds, w.ObservedAt, now)
 		}
 
 		// 4. 若数值非法（NaN、Inf 或超出 [0.0, 1.0]），整叶立即为 unknown（坏成员不忽略）
 		if math.IsNaN(w.Ratio) || math.IsInf(w.Ratio, 0) || w.Ratio < 0.0 || w.Ratio > 1.0 {
+			if !diagnostics {
+				return 0, false, ""
+			}
 			return 0, false, fmt.Sprintf("invalid quota member ratio %v (must be finite in [0.0, 1.0])", w.Ratio)
+		}
+
+		// 5. 校验同来源同真实周期/sample/identity 的冲突额度：
+		//    仅当具有明确来源 (SourceID != "") 且具备真实 sample 元数据 (非零 ResetAt 与 ObservedAt)
+		//    并属于同一身份代次时，才判定为同样本。若同样本内出现不相等的归一化比率 (Ratio != Ratio)，
+		//    来源歧义，整叶返回 unknown。
+		//    不同明确来源（如不同 provider 或独立探针）正常保留并参与 min 求值。
+		for j := 0; j < i; j++ {
+			prev := windows[j]
+			if prev.Scope != sel.Scope || prev.WindowSeconds != sel.WindowSeconds {
+				continue
+			}
+			if prev.SourceID != "" &&
+				prev.SourceID == w.SourceID &&
+				prev.IdentityGeneration == w.IdentityGeneration &&
+				!prev.ResetAt.IsZero() && !prev.ObservedAt.IsZero() &&
+				!w.ResetAt.IsZero() && !w.ObservedAt.IsZero() &&
+				prev.ResetAt.Equal(w.ResetAt) &&
+				prev.ObservedAt.Equal(w.ObservedAt) {
+				if prev.Ratio != w.Ratio {
+					if !diagnostics {
+						return 0, false, ""
+					}
+					return 0, false, fmt.Sprintf("conflicting quota ratios (%.4f vs %.4f) for same source %q sample", prev.Ratio, w.Ratio, w.SourceID)
+				}
+			}
 		}
 
 		if w.Ratio < minVal {
@@ -386,6 +436,9 @@ func scanQuotaMin(windows []QuotaWindowFact, sel *QuotaSelector, now time.Time) 
 
 	// 无匹配窗口
 	if matchCount == 0 {
+		if !diagnostics {
+			return 0, false, ""
+		}
 		return 0, false, fmt.Sprintf("no quota window found for scope %q window %ds", sel.Scope, sel.WindowSeconds)
 	}
 

@@ -48,6 +48,7 @@ type Inspection struct {
 	ClientProtocol   protocol.Protocol
 	Operation        execution.Operation
 	RouteRequirement execution.RouteRequirement
+	RequestModel     *string
 	ExternalModel    *string
 	Routable         bool
 	Reason           ReasonCode
@@ -362,6 +363,7 @@ func Inspect(
 		ClientProtocol:   normalized.clientProtocol,
 		Operation:        normalized.operation,
 		RouteRequirement: normalized.routeRequirement,
+		RequestModel:     cloneString(normalized.requestModel),
 		ExternalModel:    cloneString(normalized.externalModel),
 		Groups:           []GroupInspection{},
 	}
@@ -432,7 +434,7 @@ func Inspect(
 				decision.target.UpstreamModelID,
 				normalized.operation,
 				policies,
-				normalized.externalModel,
+				normalized.requestModel,
 			)
 			groupResult.Credentials = append(groupResult.Credentials, credentialResult)
 		}

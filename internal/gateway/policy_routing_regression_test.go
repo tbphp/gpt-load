@@ -59,23 +59,9 @@ func TestPolicyRouting_PolicyOnlySaveRetainsEligibleAffinity(t *testing.T) {
 		]
 	}`)
 	currentSnap := manager.Current()
-	compileInput := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI,
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{
-			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
-			{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
-		},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
-		}},
-		PolicyBindings: []policy.BindingConfig{
-			{Scope: "group", GroupID: 1, Config: ruleJSON},
-		},
-	}
+	compileInput := policyRegressionCompileInput(handler)
+	compileInput.Credentials = append(compileInput.Credentials, state.CredentialConfig{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"})
+	compileInput.PolicyBindings = []policy.BindingConfig{{Scope: "group", GroupID: 1, Config: ruleJSON}}
 
 	newSnap, err := manager.Publish(compileInput)
 	if err != nil {
@@ -111,20 +97,9 @@ func TestPolicyRouting_IncompatibleConfigInvalidatesAffinity(t *testing.T) {
 
 	// Publish incompatible change: group name/configuration changed
 	currentSnap := manager.Current()
-	compileInput := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ConnectionType: "api_key", ID: 1, Name: "openai-modified", ChannelID: channel.OpenAI,
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{
-			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
-			{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
-		},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
-		}},
-	}
+	compileInput := policyRegressionCompileInput(handler)
+	compileInput.Credentials = append(compileInput.Credentials, state.CredentialConfig{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"})
+	compileInput.Groups[0].Name = "openai-modified"
 
 	newSnap, err := manager.Publish(compileInput)
 	if err != nil {
@@ -157,6 +132,7 @@ func TestPolicyRouting_DeniedBoundCandidateCannotBypassPolicyViaReplayOrFallback
 	// Step 2: Publish policy that excludes credential 1 for gpt-4o
 	ruleJSON := []byte(`{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "block-cred-1",
@@ -170,23 +146,9 @@ func TestPolicyRouting_DeniedBoundCandidateCannotBypassPolicyViaReplayOrFallback
 	}`)
 	// Update snapshot with policy
 	snap := handler.manager.Current()
-	compileInput := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI,
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{
-			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
-			{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
-		},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
-		}},
-		PolicyBindings: []policy.BindingConfig{
-			{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
-		},
-	}
+	compileInput := policyRegressionCompileInput(handler)
+	compileInput.Credentials = append(compileInput.Credentials, state.CredentialConfig{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"})
+	compileInput.PolicyBindings = []policy.BindingConfig{{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON}}
 	if _, err := handler.manager.Publish(compileInput); err != nil {
 		t.Fatalf("Publish error = %v", err)
 	}
@@ -222,6 +184,7 @@ func TestPolicyRouting_AlternateTargetsRemainUsableWhenPreferredDenied(t *testin
 	// Publish policy excluding credential 1
 	ruleJSON := []byte(`{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "block-cred-1",
@@ -233,23 +196,9 @@ func TestPolicyRouting_AlternateTargetsRemainUsableWhenPreferredDenied(t *testin
 			}
 		]
 	}`)
-	compileInput := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ConnectionType: "api_key", ID: 1, Name: "openai", ChannelID: channel.OpenAI,
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{
-			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
-			{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
-		},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
-		}},
-		PolicyBindings: []policy.BindingConfig{
-			{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON},
-		},
-	}
+	compileInput := policyRegressionCompileInput(handler)
+	compileInput.Credentials = append(compileInput.Credentials, state.CredentialConfig{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"})
+	compileInput.PolicyBindings = []policy.BindingConfig{{Scope: "credential", GroupID: 1, CredentialID: 1, Config: ruleJSON}}
 	if _, err := manager.Publish(compileInput); err != nil {
 		t.Fatalf("Publish error = %v", err)
 	}
@@ -305,19 +254,11 @@ func TestPolicyRouting_LivePolicyAdmissionPreservesHangupWithoutMigration(t *tes
 	}
 
 	// 1. Initial snapshot with Codex channel
-	initialInput := state.CompileInput{
-		ChannelRegistry: channel.NewRegistry(),
-		Groups: []state.GroupConfig{{
-			ConnectionType: "subscription", ID: 1, Name: "codex", ChannelID: channel.Codex,
-			Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: liveModel}}, Enabled: true,
-		}},
-		Credentials: []state.CredentialConfig{
-			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
-		},
-		AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive,
-		}},
-	}
+	initialInput := policyRegressionCompileInput(handler)
+	initialInput.Groups[0].ConnectionType = "subscription"
+	initialInput.Groups[0].Name = "codex"
+	initialInput.Groups[0].ChannelID = channel.Codex
+	initialInput.Groups[0].Models = []state.ModelConfig{{ID: liveModel}}
 	if _, err := manager.Publish(initialInput); err != nil {
 		t.Fatalf("Publish error = %v", err)
 	}
@@ -333,6 +274,7 @@ func TestPolicyRouting_LivePolicyAdmissionPreservesHangupWithoutMigration(t *tes
 	// 2. Publish policy that excludes credential 1 for the live model
 	ruleJSON := []byte(fmt.Sprintf(`{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "block-live-cred-1",
@@ -559,7 +501,7 @@ func TestPolicyPricing_DynamicMultiplierFrozenPerAttemptAndUnchangedByPublicatio
 	}
 	engine := newAffinityTestEngine(t, handler)
 
-	// Publish policy rules: group x2, credential x1.5
+	// Publish policy rules: group x2 (suppressed), credential override x3
 	in := policyRegressionCompileInput(handler)
 	in.PolicyBindings = []policy.BindingConfig{
 		{
@@ -571,7 +513,7 @@ func TestPolicyPricing_DynamicMultiplierFrozenPerAttemptAndUnchangedByPublicatio
 			Scope:        "credential",
 			GroupID:      1,
 			CredentialID: 1,
-			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred","name":"Cred 1.5","domain":"pricing","enabled":true,"when":{"fact":"upstream.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"1.5"}}]}`),
+			Config:       []byte(`{"schema_version":1,"group_policy":"override","rules":[{"id":"p-cred","name":"Cred Triple","domain":"pricing","enabled":true,"when":{"fact":"upstream.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"3"}}]}`),
 		},
 	}
 	if _, err := manager.Publish(in); err != nil {
@@ -596,19 +538,16 @@ func TestPolicyPricing_DynamicMultiplierFrozenPerAttemptAndUnchangedByPublicatio
 	if receipt.SchemaVersion != 7 {
 		t.Fatalf("receipt schema = %d, want 7", receipt.SchemaVersion)
 	}
-	if len(receipt.PolicyFactors) != 2 {
-		t.Fatalf("expected 2 policy factors, got %d: %+v", len(receipt.PolicyFactors), receipt.PolicyFactors)
+	if len(receipt.PolicyFactors) != 1 {
+		t.Fatalf("expected 1 policy factor (credential override), got %d: %+v", len(receipt.PolicyFactors), receipt.PolicyFactors)
 	}
-	if receipt.PolicyFactors[0].RuleID != "p-grp" || receipt.PolicyFactors[0].BindingScope != "group" || receipt.PolicyFactors[0].Factor != "2" {
-		t.Errorf("factor 0 mismatch: %+v", receipt.PolicyFactors[0])
-	}
-	if receipt.PolicyFactors[1].RuleID != "p-cred" || receipt.PolicyFactors[1].BindingScope != "credential" || receipt.PolicyFactors[1].Factor != "1.5" {
-		t.Errorf("factor 1 mismatch: %+v", receipt.PolicyFactors[1])
+	if receipt.PolicyFactors[0].RuleID != "p-cred" || receipt.PolicyFactors[0].BindingScope != "credential" || receipt.PolicyFactors[0].Factor != "3" {
+		t.Errorf("factor mismatch: %+v", receipt.PolicyFactors[0])
 	}
 	if receipt.BaseTotalNanoUSD == nil {
 		t.Fatal("expected non-nil BaseTotalNanoUSD")
 	}
-	// 2 * 1.5 = 3x multiplier
+	// override 仅取凭据 x3；分组动态规则被抑制，静态 base multiplier 不变
 	wantTotal := *receipt.BaseTotalNanoUSD * 3
 	if receipt.TotalNanoUSD != wantTotal {
 		t.Fatalf("receipt total = %d, want %d (base %d * 3)", receipt.TotalNanoUSD, wantTotal, *receipt.BaseTotalNanoUSD)
@@ -651,13 +590,13 @@ func TestPolicyPricing_RetrySwapsCredentialAndFreezesNewPricing(t *testing.T) {
 			Scope:        "credential",
 			GroupID:      1,
 			CredentialID: 1,
-			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred1","name":"Cred 1 Double","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+			Config:       []byte(`{"schema_version":1,"group_policy":"override","rules":[{"id":"p-cred1","name":"Cred 1 Double","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
 		},
 		{
 			Scope:        "credential",
 			GroupID:      1,
 			CredentialID: 2,
-			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred2","name":"Cred 2 Half","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"0.5"}}]}`),
+			Config:       []byte(`{"schema_version":1,"group_policy":"override","rules":[{"id":"p-cred2","name":"Cred 2 Half","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"0.5"}}]}`),
 		},
 	}
 	if _, err := manager.Publish(in); err != nil {
@@ -1430,5 +1369,160 @@ func assertAuthRefreshReplay(t *testing.T, env *authRefreshReplayEnv, wantCostNa
 	view := env.runtime.Snapshot(1, time.Now())
 	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != wantCostNano {
 		t.Fatalf("quota used = %d, want %d", view.Rules[0].UsedNanoUSD, wantCostNano)
+	}
+}
+
+// 21. Live and Pricing freeze evaluate quota facts independently of scheduling cooldown
+func TestPolicyAdmission_LiveAndPricing_QuotaReadIndependentOfCooldown(t *testing.T) {
+	liveModel := "gpt-4o-realtime-preview"
+	handler, manager, registry := newHandlerForTest(t, &scriptedForwarder{}, "gl-client")
+
+	// 1. Initial snapshot with Codex channel and quota exclusion policy
+	policyJSON := []byte(`{
+		"schema_version": 1,
+		"group_policy": "override",
+		"rules": [
+			{
+				"id": "exclude-low-quota",
+				"name": "Exclude candidate when remaining quota < 0.2",
+				"domain": "scheduling",
+				"enabled": true,
+				"when": {
+					"fact": "credential.quota.remaining_ratio",
+					"select": {"scope": "account", "window_seconds": 18000},
+					"reduce": "min",
+					"op": "lt",
+					"value": 0.2
+				},
+				"then": {"type": "exclude_candidate"}
+			},
+			{
+				"id": "surge-pricing",
+				"name": "Surge price when remaining quota < 0.2",
+				"domain": "pricing",
+				"enabled": true,
+				"when": {
+					"fact": "credential.quota.remaining_ratio",
+					"select": {"scope": "account", "window_seconds": 18000},
+					"reduce": "min",
+					"op": "lt",
+					"value": 0.2
+				},
+				"then": {"type": "multiply_price", "factor": "2.5"}
+			}
+		]
+	}`)
+
+	input := policyRegressionCompileInput(handler)
+	input.Groups[0].ConnectionType = "subscription"
+	input.Groups[0].Name = "codex"
+	input.Groups[0].ChannelID = channel.Codex
+	input.Groups[0].Models = []state.ModelConfig{{ID: liveModel}}
+	input.PolicyBindings = []policy.BindingConfig{{Scope: "credential", GroupID: 1, CredentialID: 1, Config: policyJSON}}
+	snap, err := manager.Publish(input)
+	if err != nil {
+		t.Fatalf("Publish error = %v", err)
+	}
+
+	call := &liveCallSession{
+		id:          "call-cooldown-test",
+		keyID:       1,
+		keyHash:     handler.encryption.Hash("gl-client"),
+		groupID:     1,
+		clientModel: liveModel,
+		model:       liveModel,
+		ref:         state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 1},
+	}
+
+	// Case A: Before quota observation is set, quota is unknown -> NOT excluded (isLiveCallPolicyAdmitted = true)
+	if !handler.isLiveCallPolicyAdmitted(call) {
+		t.Fatal("expected isLiveCallPolicyAdmitted = true when quota facts are unknown")
+	}
+
+	// Case B: Set quota window with 0.1 ratio (triggers exclusion rule)
+	windowSec := int64(18000)
+	utilization := 0.90 // 10% remaining
+	resetAt := time.Now().Add(time.Hour).UnixMilli()
+	observedAt := time.Now().UnixMilli()
+	windows := []observation.QuotaWindow{{
+		ID: "primary", Scope: "account", WindowSeconds: &windowSec,
+		State: "available", Utilization: &utilization,
+		ResetAtMS: &resetAt, ObservedAtMS: &observedAt,
+	}}
+	if !registry.ApplyQuotaWindows(1, 1, windows) {
+		t.Fatal("ApplyQuotaWindows failed")
+	}
+
+	// Candidate is now excluded
+	if handler.isLiveCallPolicyAdmitted(call) {
+		t.Fatal("expected isLiveCallPolicyAdmitted = false after quota facts trigger exclusion")
+	}
+
+	// Case C: Place credential into cooldown!
+	// Previously, CollectCredentialCandidates filtered out cooldown credentials, causing quota facts
+	// to disappear (unknown) and improperly admitting the candidate.
+	// With CredentialQuotaWindows, quota facts are read independently of cooldown.
+	if !registry.SetCooldown(1, time.Now().Add(time.Hour)) {
+		t.Fatal("SetCooldown failed")
+	}
+	if handler.isLiveCallPolicyAdmitted(call) {
+		t.Fatal("expected isLiveCallPolicyAdmitted = false even during cooldown")
+	}
+
+	// Case D: Live call session with stale identity generation cannot read quota facts
+	staleCall := &liveCallSession{
+		id:          "call-stale-gen",
+		keyID:       1,
+		keyHash:     handler.encryption.Hash("gl-client"),
+		groupID:     1,
+		clientModel: liveModel,
+		model:       liveModel,
+		ref:         state.CredentialRef{ID: 1, GroupID: 1, IdentityGeneration: 2}, // stale generation
+	}
+	if !handler.isLiveCallPolicyAdmitted(staleCall) {
+		t.Fatal("stale generation should not match quota facts; unknown fact should skip rule")
+	}
+
+	// Case E: Pricing freeze during cooldown reads quota facts and applies multiplier
+	sel := scheduler.Selection{
+		CredentialID:       1,
+		IdentityGeneration: 1,
+		GroupID:            1,
+		Group:              snap.Groups[1],
+	}
+	frozen := handler.freezeAttemptPricing(snap, sel, dialect.RequestMetadata{ObserveUsage: true}, true, pricing.DefaultPriceMultiplier, liveModel)
+	if len(frozen.policyFactors) != 1 || frozen.policyFactors[0].Factor != "2.5" {
+		t.Fatalf("expected 1 surge factor of 2.5 during cooldown, got: %+v", frozen.policyFactors)
+	}
+
+	// Case F: HasApplicablePricing short-circuits when no pricing rules exist
+	noPricingInput := input
+	noPricingJSON := []byte(`{
+		"schema_version": 1,
+		"group_policy": "override",
+		"rules": [
+			{
+				"id": "scheduling-only",
+				"name": "Scheduling only",
+				"domain": "scheduling",
+				"enabled": true,
+				"when": {"fact": "request.model", "op": "eq", "value": "test"},
+				"then": {"type": "exclude_candidate"}
+			}
+		]
+	}`)
+	noPricingInput.PolicyBindings = []policy.BindingConfig{
+		{Scope: "credential", GroupID: 1, CredentialID: 1, Config: noPricingJSON},
+	}
+	noPricingSnap, err := manager.Publish(noPricingInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noPricingSnap.Policies.HasApplicablePricing(1, 1) {
+		t.Fatal("HasApplicablePricing returned true for scheduling-only policy")
+	}
+	frozenShortCircuit := handler.freezeAttemptPricing(noPricingSnap, sel, dialect.RequestMetadata{ObserveUsage: true}, true, pricing.DefaultPriceMultiplier, liveModel)
+	if len(frozenShortCircuit.policyFactors) != 0 {
+		t.Fatalf("expected 0 policy factors from short-circuited pricing, got: %+v", frozenShortCircuit.policyFactors)
 	}
 }

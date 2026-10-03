@@ -14,6 +14,7 @@ import {
   type JsonObjectNode,
   type PolicyDomain,
 } from './policy-model'
+import { usePolicyDraftReporter } from './use-policy-draft'
 import { usePolicyMessages } from './use-policy-messages'
 
 const props = withDefaults(
@@ -39,6 +40,8 @@ watch(factorRaw, (next) => {
 })
 const factorInvalid = computed(() => !isMultiplierRaw(factorDraft.value))
 
+const { report: reportDraft } = usePolicyDraftReporter('action')
+
 // 仅在 representable 时渲染选单，因此这里必定是已知动作类型。
 const kind = computed(() => {
   const type = literalString(getField(props.modelValue, 'type'))
@@ -46,6 +49,20 @@ const kind = computed(() => {
   if (type === 'exclude_candidate') return 'exclude_candidate'
   return props.domain === 'pricing' ? 'multiply_price' : 'exclude_candidate'
 })
+
+watch(
+  [factorDraft, factorRaw, factorInvalid, representable, kind, () => props.disabled],
+  () => {
+    if (props.disabled || !representable.value || kind.value !== 'multiply_price') {
+      reportDraft(true, false)
+      return
+    }
+    const isPending = factorDraft.value !== factorRaw.value
+    const isValid = !factorInvalid.value
+    reportDraft(isValid, isPending)
+  },
+  { immediate: true },
+)
 const kindOptions = computed(() => [
   { label: t('policyEditor.action.excludeCandidate'), value: 'exclude_candidate' },
   { label: t('policyEditor.action.multiplyPrice'), value: 'multiply_price' },
@@ -107,9 +124,11 @@ function commitFactor(): void {
           :label="t('policyEditor.action.factor')"
           label-hidden
           :placeholder="t('policyEditor.action.factorPlaceholder')"
+          size="sm"
           :error="factorInvalid ? t('policyEditor.action.factorInvalid') : undefined"
           :disabled="disabled"
           @change="commitFactor"
+          @blur="commitFactor"
         />
       </div>
       <p class="policy-action-help">{{ helpText }}</p>
@@ -140,7 +159,7 @@ function commitFactor(): void {
 .policy-action-label {
   flex-shrink: 0;
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
 }
 .policy-action-select {
@@ -152,8 +171,10 @@ function commitFactor(): void {
   min-width: 0;
 }
 .policy-action-help {
+  margin: 0;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
+  line-height: var(--modern-leading-body);
 }
 .policy-action-json {
   overflow-x: auto;

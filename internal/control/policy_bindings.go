@@ -108,7 +108,10 @@ func (s *Service) GetGroupPolicy(ctx context.Context, groupID uint) (PolicyBindi
 		return PolicyBindingResponse{}, app_errors.ParseDBError(err)
 	}
 
-	if _, cErr := policy.Compile(binding.Config); cErr != nil {
+	if compiled, cErr := policy.Compile(binding.Config); cErr != nil {
+		return PolicyBindingResponse{}, app_errors.ErrMalformedPolicyStorage
+	} else if compiled.GroupPolicyMode() == policy.GroupPolicyOverride {
+		// 分组作用域不允许 override：仅 inherit 合法
 		return PolicyBindingResponse{}, app_errors.ErrMalformedPolicyStorage
 	}
 
@@ -215,8 +218,16 @@ func (s *Service) savePolicyBinding(
 		}
 
 		// 编译校验：必须使用 policy.Compile(DefaultRegistry) 成功通过
-		if _, compileErr := policy.Compile(trimmed); compileErr != nil {
+		compiled, compileErr := policy.Compile(trimmed)
+		if compileErr != nil {
 			return PolicyBindingResponse{}, app_errors.NewAPIErrorWithData(app_errors.ErrValidation, compileErr.Error())
+		}
+		// 分组作用域仅允许 inherit：group_policy=override 在保存时即拒绝
+		if scope == models.PolicyScopeGroup && compiled.GroupPolicyMode() == policy.GroupPolicyOverride {
+			return PolicyBindingResponse{}, app_errors.NewAPIErrorWithData(
+				app_errors.ErrValidation,
+				"group scope policy cannot use group_policy 'override'",
+			)
 		}
 		hasNewConfig = true
 		toSaveRaw = trimmed
@@ -434,7 +445,6 @@ func (s *Server) handleUpdateCredentialPolicy(c *gin.Context) {
 }
 
 func bindStrictPolicyJSON(c *gin.Context, target any) error {
-	w := c.Writer
 	r := c.Request
 	limited := io.LimitReader(r.Body, int64(maxStrictPolicyRequestBytes)+1)
 	raw, err := io.ReadAll(limited)
@@ -445,7 +455,6 @@ func bindStrictPolicyJSON(c *gin.Context, target any) error {
 		return &http.MaxBytesError{Limit: int64(maxStrictPolicyRequestBytes)}
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
-	_ = w
 	return decodeStrictControlJSONObject(raw, target)
 }
 

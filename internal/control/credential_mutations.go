@@ -397,22 +397,25 @@ func (s *Service) restoreGroupCredential(
 		if s.manager == nil || s.mutations == nil {
 			return CredentialItemResponse{}, app_errors.ErrInternalServer
 		}
-		matched := s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
-			if snapshot == nil {
-				return false
-			}
-			currentGroup, exists := snapshot.Groups[groupID]
-			if !exists {
-				restoreErr = app_errors.ErrCredentialVersionConflict
-				return false
-			}
-			currentTarget, valid := buildGroupValidationTarget(currentGroup)
-			if !valid {
-				restoreErr = app_errors.ErrCredentialVersionConflict
-				return false
-			}
-			coordinateRestore(&currentTarget.signature)
-			return restoreErr == nil
+		var matched bool
+		s.mutations.Do(credentialID, func() {
+			matched = s.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
+				if snapshot == nil {
+					return false
+				}
+				currentGroup, exists := snapshot.Groups[groupID]
+				if !exists {
+					restoreErr = app_errors.ErrCredentialVersionConflict
+					return false
+				}
+				currentTarget, valid := buildGroupValidationTarget(currentGroup)
+				if !valid {
+					restoreErr = app_errors.ErrCredentialVersionConflict
+					return false
+				}
+				restore(&currentTarget.signature)
+				return restoreErr == nil
+			})
 		})
 		if !matched && restoreErr == nil {
 			return CredentialItemResponse{}, app_errors.ErrInternalServer

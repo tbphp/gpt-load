@@ -142,6 +142,7 @@ async function refresh(): Promise<void> {
     credentials.value?.refresh(),
     basics.value?.refresh(),
     cache.invalidateQueries({ queryKey: groupPolicyKey(id.value) }),
+    cache.invalidateQueries({ queryKey: ['modern', 'credential-policy', id.value] }),
   ])
 }
 usePageRefresh({
@@ -175,6 +176,7 @@ function modelsSaved(): void {
 function policySaved(): void {
   void cache.invalidateQueries({ queryKey: groupQueryKey })
   void cache.invalidateQueries({ queryKey: groupPolicyKey(id.value) })
+  void cache.invalidateQueries({ queryKey: ['modern', 'credential-policy', id.value] })
 }
 async function groupDeleted(): Promise<void> {
   const deletedID = id.value
@@ -182,6 +184,7 @@ async function groupDeleted(): Promise<void> {
   for (const key of [
     'group-settings',
     'group-policy',
+    'credential-policy',
     'group-models',
     'group-model-names',
     'group-credentials',

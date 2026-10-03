@@ -219,7 +219,9 @@ function decisionFormula(): string {
     .join(' · ')
   const multipliers = decision.receipt.price_multipliers
   const multiplier = multipliers ? ` × ${multipliers.group} × ${multipliers.access_key}` : ''
-  return `${quantities || '—'} · ${rates || '—'}${multiplier} = ${decisionCost(decision.estimated_cost_nano_usd)}`
+  const policyMultipliers =
+    decision.receipt.policy_factors?.map((f) => ` × ${f.factor}`).join('') || ''
+  return `${quantities || '—'} · ${rates || '—'}${multiplier}${policyMultipliers} = ${decisionCost(decision.estimated_cost_nano_usd)}`
 }
 
 function decisionConfidence(value: number): string {
@@ -823,6 +825,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 {{ rIdx > 0 ? ' · ' : '' }}[{{ rule.binding_scope }}] {{ rule.name_snapshot }} ×{{
                   rule.factor
                 }}
+                ({{ rule.rule_id }} · v{{ rule.revision }})
               </span>
             </dd>
           </div>
@@ -846,6 +849,15 @@ function toggleAttemptErrorMessage(sequence: number): void {
               <span v-if="log.auto_decision"
                 >{{ t('autoModel.decisionPriceItem') }} = {{ decisionFormula() }}</span
               >
+              <span
+                v-for="rule in log.auto_decision?.receipt?.policy_factors ?? []"
+                :key="'decision:' + rule.binding_scope + ':' + rule.rule_id"
+              >
+                {{ t('autoModel.decisionPriceItem') }} · [{{ rule.binding_scope }}]
+                {{ rule.name_snapshot }} ×{{ rule.factor }} ({{ rule.rule_id }} · v{{
+                  rule.revision
+                }})
+              </span>
               <template v-if="receipt && usageDisplayState === 'reported'">
                 <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
                 <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>

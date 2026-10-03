@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"gpt-load/internal/pricing"
@@ -196,12 +197,7 @@ type QuotaWindowFact struct {
 
 // CloneQuotaWindows 返回 QuotaWindowFact 切片的独立深拷贝。
 func CloneQuotaWindows(facts []QuotaWindowFact) []QuotaWindowFact {
-	if facts == nil {
-		return nil
-	}
-	cloned := make([]QuotaWindowFact, len(facts))
-	copy(cloned, facts)
-	return cloned
+	return slices.Clone(facts)
 }
 
 // Action 规则执行动作
@@ -249,9 +245,8 @@ type ConditionNode struct {
 	Reduce    string
 
 	// 时间段谓词形态
-	Predicate string
-	Weekdays  []int
-	Ranges    []TimeRange
+	Weekdays []int
+	Ranges   []TimeRange
 }
 
 // Rule 一条完整规则
@@ -266,7 +261,24 @@ type Rule struct {
 
 // CompiledConfig 编译后不可变配置
 type CompiledConfig struct {
-	rules []Rule
+	rules       []Rule
+	groupPolicy GroupPolicyMode
+}
+
+// GroupPolicyMode 决定凭据绑定是继承分组规则还是覆盖分组规则。
+type GroupPolicyMode string
+
+const (
+	GroupPolicyInherit  GroupPolicyMode = "inherit"
+	GroupPolicyOverride GroupPolicyMode = "override"
+)
+
+// GroupPolicyMode 返回配置声明的分组策略模式；未声明或 nil 接收者一律视为 inherit。
+func (c *CompiledConfig) GroupPolicyMode() GroupPolicyMode {
+	if c == nil || c.groupPolicy == "" {
+		return GroupPolicyInherit
+	}
+	return c.groupPolicy
 }
 
 // NodeCount 返回已编译配置中包含的条件节点总数。

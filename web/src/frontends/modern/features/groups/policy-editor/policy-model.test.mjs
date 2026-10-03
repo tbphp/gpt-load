@@ -9,6 +9,7 @@ import {
   conditionKind,
   duplicateRule,
   getField,
+  groupPolicyMode,
   hasFatalIssue,
   insertRule,
   isMultiplierRaw,
@@ -39,7 +40,7 @@ test('raw JSON literals are preserved byte-for-byte', () => {
   const rule = readVisualDocument(text).rules[0]
   const value = getField(getField(getField(rule.node, 'when'), 'value'), 'x')
   // quota value is a number literal, raw retained without Number conversion
-  const quotaValue = getField(rule.when, 'value')
+  const quotaValue = getField(getField(rule.node, 'when'), 'value')
   assert.equal(literalNumberRaw(quotaValue), '0.10000000000000001')
   assert.equal(value, undefined)
 })
@@ -95,66 +96,14 @@ function parseRawJsonSafe(text) {
 }
 
 test('malformed leaf structures are represented as JSON-only, never coerced', () => {
-  const mixedIn = {
-    all: [
-      {
-        fact: 'request.model',
-        op: 'in',
-        value: [
-          { type: 'literal', literal: 'string', raw: '"a"' },
-          { type: 'literal', literal: 'number', raw: '123' },
-          objectNode([{ key: 'unknown', value: { type: 'literal', literal: 'number', raw: '1' } }]),
-        ],
-      },
-    ],
+  for (const raw of [
+    '{"fact":"request.model","op":"in","value":["a",123,{"unknown":1}]}',
+    '{"fact":"request.model","op":"in","value":"x"}',
+    '{"predicate":"time_window","weekdays":[1,9],"ranges":[["09:00","18:00"]]}',
+    '{"predicate":"time_window","weekdays":[1],"ranges":[123]}',
+  ]) {
+    assert.equal(conditionKind(parseRawJson(raw)), 'unsupported', raw)
   }
-  assert.equal(conditionKind(mixedIn.all[0]), 'unsupported')
-  // 字符串参数只支持 eq，导入集合操作必须落回 JSON-only。
-  assert.equal(
-    conditionKind(
-      objectNode([
-        { key: 'fact', value: stringLiteral('request.model') },
-        { key: 'op', value: stringLiteral('in') },
-        { key: 'value', value: stringLiteral('x') },
-      ]),
-    ),
-    'unsupported',
-  )
-
-  const badDays = objectNode([
-    { key: 'predicate', value: stringLiteral('time_window') },
-    {
-      key: 'weekdays',
-      value: {
-        type: 'array',
-        items: [
-          { type: 'literal', literal: 'number', raw: '1' },
-          { type: 'literal', literal: 'number', raw: '9' },
-        ],
-      },
-    },
-    {
-      key: 'ranges',
-      value: {
-        type: 'array',
-        items: [{ type: 'array', items: [stringLiteral('09:00'), stringLiteral('18:00')] }],
-      },
-    },
-  ])
-  assert.equal(conditionKind(badDays), 'unsupported')
-
-  const badRanges = objectNode([
-    { key: 'predicate', value: stringLiteral('time_window') },
-    {
-      key: 'weekdays',
-      value: { type: 'array', items: [{ type: 'literal', literal: 'number', raw: '1' }] },
-    },
-    {
-      key: 'ranges',
-      value: { type: 'array', items: [{ type: 'literal', literal: 'number', raw: '123' }] },
-    },
-  ])
-  assert.equal(conditionKind(badRanges), 'unsupported')
 })
 
 test('unknown actions are JSON-only, not implicitly converted', () => {
@@ -191,8 +140,30 @@ test('a non-object rule is preserved without shifting visual indices', () => {
   const result = readVisualDocument(text)
   assert.equal(result.rules.length, 1)
   assert.equal(result.rules[0].index, 1)
-  assert.equal(result.rules[0].id, 'valid')
+  assert.equal(literalString(getField(result.rules[0].node, 'id')), 'valid')
   assert.equal(serializeJson(result.root), text)
+})
+
+test('group_policy mode defaults to inherit and survives rule edits', () => {
+  const plain = readVisualDocument('{"schema_version":1,"rules":[]}')
+  assert.equal(groupPolicyMode(plain.root), 'inherit')
+  assert.equal(hasFatalIssue(plain.issues), false)
+
+  const overrideText =
+    '{"schema_version":1,"group_policy":"override","rules":[{"id":"a","name":"a","domain":"scheduling","enabled":false,' +
+    '"when":{"predicate":"time_window","weekdays":[1],"ranges":[["09:00","18:00"]]},"then":{"type":"exclude_candidate"}}]}'
+  const result = readVisualDocument(overrideText)
+  assert.equal(groupPolicyMode(result.root), 'override')
+  const inserted = insertRule(result.root, newRule('b', 'scheduling'))
+  assert.equal(groupPolicyMode(inserted), 'override')
+  const removed = removeRuleAt(inserted, 0)
+  assert.equal(groupPolicyMode(removed), 'override')
+  assert.equal(getField(removed, 'group_policy')?.raw, '"override"')
+
+  // 未知取值只标记该字段不可可视化，不将整份配置判为 fatal。
+  const unknown = readVisualDocument('{"schema_version":1,"group_policy":"weird","rules":[]}')
+  assert.equal(hasFatalIssue(unknown.issues), false)
+  assert.deepEqual(unsupportedPaths(unknown.issues), ['group_policy'])
 })
 
 test('blank text is not deletion and is fatal-empty', () => {
@@ -332,4 +303,83 @@ test('duplicate assigns new id and disables; ordering and deletion are explicit'
   assert.equal(literalString(getField(first, 'id')), 'rule-1')
   const deleted = removeRuleAt(inserted, 0)
   assert.equal(getField(deleted, 'rules')?.items?.length, 1)
+})
+
+test('string literals reject illegal escapes and raw control characters, keeping raw tokens', () => {
+  // 合法转义必须逐字保留（含 \u 序列与转义斜杠），不做 decode/encode 往返。
+  const valid = '{"schema_version":1,"rules":[],"note":"a\\u0041\\/b\\n\\t\\"c\\\\"}'
+  const parsed = readVisualDocument(valid)
+  assert.deepEqual(parsed.issues, [])
+  assert.equal(getField(parsed.root, 'note')?.raw, '"a\\u0041\\/b\\n\\t\\"c\\\\"')
+  assert.equal(serializeJson(parsed.root), valid)
+
+  // 非法反斜杠转义与不完整 \u：后端 json.Decoder 拒绝，前端语法判断必须同样拒绝，
+  // 否则编辑器会显示“有效”并原样提交给服务端。
+  for (const bad of [
+    '{"schema_version":1,"rules":[],"note":"\\q"}',
+    '{"schema_version":1,"rules":[],"note":"\\u12"}',
+    '{"schema_version":1,"rules":[],"note":"\\uZZZZ"}',
+    '{"schema_version":1,"rules":[],"note":"dangling\\"}',
+  ]) {
+    assert.equal(parseRawJsonSafe(bad), false, bad)
+    const result = readVisualDocument(bad)
+    assert.equal(result.root, undefined, bad)
+    assert.equal(result.issues[0]?.code, 'syntax', bad)
+  }
+
+  // 裸控制字符（未转义换行）不是合法 JSON 字符串。
+  const bareNewline = '{"schema_version":1,"rules":[],"note":"line1\nline2"}'
+  assert.equal(parseRawJsonSafe(bareNewline), false)
+  assert.equal(readVisualDocument(bareNewline).issues[0]?.code, 'syntax')
+})
+
+test('decoded duplicate object keys are rejected, including escaped spellings', () => {
+  const duplicatedThen =
+    '{"schema_version":1,"rules":[{"id":"a","name":"a","domain":"scheduling","enabled":false,' +
+    '"when":{"fact":"request.model","op":"eq","value":"x"},' +
+    '"then":{"type":"exclude_candidate"},"then":{"type":"exclude_candidate"}}]}'
+  for (const bad of [
+    '{"schema_version":1,"rules":[],"a":1,"a":2}',
+    '{"schema_version":1,"rules":[],"a":1,"\\u0061":2}',
+    duplicatedThen,
+    '{"schema_version":1,"rules":[],"\\ud800":1,"\\ufffd":2}',
+    '{"schema_version":1,"rules":[],"\\ud800":1,"\\ud801":2}',
+    '{"schema_version":1,"rules":[],"\\udc00":1,"\\ufffd":2}',
+  ]) {
+    assert.equal(parseRawJsonSafe(bad), false, bad)
+    const result = readVisualDocument(bad)
+    assert.equal(result.root, undefined, bad)
+    assert.equal(result.issues[0]?.code, 'syntax', bad)
+  }
+  // 大小写不同的键是不同字段，不能误判为重复。
+  const distinct = readVisualDocument('{"schema_version":1,"rules":[],"a":1,"A":2}')
+  assert.equal(hasFatalIssue(distinct.issues), false)
+})
+
+test('weekday literals use raw Go integer syntax, never Number rounding', () => {
+  const windowText = (days) =>
+    '{"schema_version":1,"rules":[{"id":"w","name":"w","domain":"scheduling","enabled":false,' +
+    `"when":{"predicate":"time_window","weekdays":[${days}],"ranges":[["09:00","18:00"]]},` +
+    '"then":{"type":"exclude_candidate"}}]}'
+
+  // 合法 JSON 整数语法仍可视化（-0 按 Go strconv.Atoi 语义等于 0）。
+  const ok = readVisualDocument(windowText('1,5'))
+  assert.equal(hasFatalIssue(ok.issues), false)
+  assert.equal(conditionKind(getField(ok.rules[0].node, 'when')), 'time_window')
+  assert.deepEqual(unsupportedPaths(ok.issues), [])
+  const negativeZero = readVisualDocument(windowText('-0'))
+  assert.equal(conditionKind(getField(negativeZero.rules[0].node, 'when')), 'time_window')
+
+  // 1.0 / 1e0 / 高精度小数是后端拒绝的整数语法；不能被 Number 舍入成合法星期后视觉改写。
+  for (const bad of ['1.0', '1e0', '0.99999999999999999999', '1.0000000000000000001']) {
+    const text = windowText(bad)
+    const result = readVisualDocument(text)
+    assert.equal(hasFatalIssue(result.issues), false, bad)
+    assert.equal(conditionKind(getField(result.rules[0].node, 'when')), 'unsupported', bad)
+    assert.deepEqual(unsupportedPaths(result.issues), ['rules[0].when'], bad)
+    // 原始 token 不被改写，节点按 JSON-only 保真保留。
+    const days = arrayItems(getField(getField(result.rules[0].node, 'when'), 'weekdays'))
+    assert.equal(literalNumberRaw(days?.[0]), bad)
+    assert.equal(serializeJson(result.root), text, bad)
+  }
 })

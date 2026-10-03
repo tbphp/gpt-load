@@ -26,6 +26,7 @@ type Query struct {
 	Operation                execution.Operation
 	RouteRequirement         execution.RouteRequirement
 	ResponsesStorePreference execution.ResponsesStorePreference
+	RequestModel             *string
 	ExternalModel            *string
 	AccessKey                state.AccessKeyView
 	AllowedCredentialIDs     map[uint]struct{}
@@ -91,6 +92,7 @@ type normalizedQuery struct {
 	routeRequirement         execution.RouteRequirement
 	responsesStorePreference execution.ResponsesStorePreference
 	responsesWebsocket       *execution.WebsocketCapabilities
+	requestModel             *string
 	externalModel            *string
 	accessKey                state.AccessKeyView
 	allowedCredentialIDs     map[uint]struct{}
@@ -358,6 +360,19 @@ func (iterator *Iterator) isPolicyExcluded(target candidateTarget, credential st
 	return iterator.isPolicyExcludedTarget(target.target.UpstreamModelID, target.target.GroupID, credential.ID, credential.QuotaWindows, now)
 }
 
+func (iterator *Iterator) requestModel() string {
+	if iterator == nil {
+		return ""
+	}
+	if iterator.query.RequestModel != nil && *iterator.query.RequestModel != "" {
+		return *iterator.query.RequestModel
+	}
+	if iterator.query.ExternalModel != nil {
+		return *iterator.query.ExternalModel
+	}
+	return ""
+}
+
 func (iterator *Iterator) isPolicyExcludedTarget(upstreamModelID string, groupID, credentialID uint, quotaWindows []policy.QuotaWindowFact, now time.Time) bool {
 	if iterator == nil || iterator.policies == nil {
 		return false
@@ -368,9 +383,9 @@ func (iterator *Iterator) isPolicyExcludedTarget(upstreamModelID string, groupID
 		UpstreamModel: policy.StringFact{State: policy.FactStateUnknown},
 		QuotaWindows:  quotaWindows,
 	}
-	if iterator.query.ExternalModel != nil && *iterator.query.ExternalModel != "" {
+	if reqModel := iterator.requestModel(); reqModel != "" {
 		ctx.RequestModel = policy.StringFact{
-			Value: *iterator.query.ExternalModel,
+			Value: reqModel,
 			State: policy.FactStateMeasured,
 		}
 	}
@@ -462,12 +477,17 @@ func normalizeQuery(query Query) normalizedQuery {
 			operation = execution.OperationChatCompletion
 		}
 	}
+	reqModel := cloneString(query.RequestModel)
+	if reqModel == nil {
+		reqModel = cloneString(query.ExternalModel)
+	}
 	return normalizedQuery{
 		clientProtocol:           clientProtocol,
 		operation:                operation,
 		routeRequirement:         query.RouteRequirement.Normalize(),
 		responsesStorePreference: query.ResponsesStorePreference,
 		responsesWebsocket:       cloneWebsocketCapabilities(query.ResponsesWebsocket),
+		requestModel:             reqModel,
 		externalModel:            cloneString(query.ExternalModel),
 		accessKey:                query.AccessKey,
 		allowedCredentialIDs:     cloneAllowedCredentialIDs(query),

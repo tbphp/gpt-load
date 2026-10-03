@@ -1,4 +1,14 @@
-import { extract, loadTsModule, parseSfc, readSource, stripImports } from './policy-test-utils.mjs'
+import assert from 'node:assert/strict'
+import {
+  compileSfc,
+  extract,
+  loadTsModule,
+  mountComponent,
+  parseSfc,
+  readSource,
+  stripImports,
+  Vue,
+} from './policy-test-utils.mjs'
 
 const runtimeGlobals = () => ({
   InvalidResponseError: class InvalidResponseError extends Error {},
@@ -230,26 +240,26 @@ for (let version = 1; version <= 6; version++) {
 }
 
 // 2. Actual Vue SFC key expression must keep scope and rule IDs distinct.
-function readSFCKey(relPath) {
+function readSFCKeys(relPath) {
   const { descriptor } = parseSfc(readSource(relPath))
   const ast = descriptor.template.ast
-  let key = null
+  const keys = []
   function visit(n) {
     if (n.props) {
       const forDir = n.props.find(
-        (p) => p.name === 'for' && p.exp?.loc?.source.includes('receipt.policy_factors'),
+        (p) => p.name === 'for' && p.exp?.loc?.source.includes('policy_factors'),
       )
       if (forDir) {
         const boundKey = n.props.find((p) => p.name === 'bind' && p.arg?.content === 'key')
-        if (boundKey) key = boundKey.exp.loc.source
+        if (boundKey) keys.push(boundKey.exp.loc.source)
       }
     }
     for (const c of n.children ?? []) visit(c)
     if (n.branches) for (const c of n.branches) visit(c)
   }
   visit(ast)
-  if (!key) throw new Error('no source policy factor key found in ' + relPath)
-  return new Function('rule', 'f', `return (${key})`)
+  if (!keys.length) throw new Error('no source policy factor key found in ' + relPath)
+  return keys.map((key) => new Function('rule', 'f', `return (${key})`))
 }
 
 for (const compPath of [
@@ -257,16 +267,77 @@ for (const compPath of [
   'web/src/frontends/modern/features/logs/LogPricingReceipt.vue',
 ]) {
   test(`Vue SFC key distinguishes scope and rule IDs for ${compPath}`, () => {
-    const keyFn = readSFCKey(compPath)
     const item = { binding_scope: 'group', rule_id: 'dup' }
-    if (
-      keyFn(item, item) ===
-      keyFn({ ...item, binding_scope: 'credential' }, { ...item, binding_scope: 'credential' })
-    ) {
-      throw new Error(`scope/rule collision in ${compPath}`)
+    for (const keyFn of readSFCKeys(compPath)) {
+      for (const other of [
+        { ...item, binding_scope: 'credential' },
+        { ...item, rule_id: 'another' },
+      ]) {
+        assert.notEqual(keyFn(item, item), keyFn(other, other), compPath)
+      }
     }
   })
 }
+
+test('Classic auxiliary formula includes the frozen policy chain', () => {
+  const decision = {
+    receipt: fixture,
+    input_tokens: '1000000',
+    output_tokens: null,
+    estimated_cost_nano_usd: '200',
+  }
+  const formula = loadTsModule(
+    extract(readSource('web/src/frontends/classic/features/monitor/LogDetailDrawer.vue'), [
+      'decisionFormula',
+    ]),
+    {
+      log: { value: { auto_decision: decision } },
+      locale: { value: 'en-US' },
+      t: (key) => key,
+      formatLogTokenCount: String,
+      formatExactNanoUSD: String,
+      decisionCost: String,
+    },
+  )
+  assert.match(formula.decisionFormula(), / × 1 × 1 × 2 = 200$/)
+  decision.receipt = { ...fixture, policy_factors: [] }
+  assert.match(formula.decisionFormula(), / × 1 × 1 = 200$/)
+})
+
+test('Modern receipts render frozen IDs and exact revisions for main and auxiliary calls', () => {
+  const display = loadTsModule(
+    extract(readSource('web/src/frontends/modern/features/logs/log-display.ts'), ['exactLogMoney']),
+  )
+  const overflow = Vue.defineComponent({
+    props: ['text'],
+    setup: (props) => () => Vue.h('span', String(props.text ?? '')),
+  })
+  const path = 'web/src/frontends/modern/features/logs/LogPricingReceipt.vue'
+  const component = compileSfc(path, readSource(path), (name) => {
+    if (name === 'vue') return Vue
+    if (name === 'vue-i18n')
+      return { useI18n: () => ({ t: (key) => key, te: () => false, locale: Vue.ref('en-US') }) }
+    if (name === '@modern/components/ui') return { AppOverflowText: overflow }
+    if (name === './log-display')
+      return { exactLogMoney: display.exactLogMoney, logMoney: String, logNumber: String }
+    throw new Error('unexpected import ' + name)
+  }).exports.default
+  const auxiliary = {
+    receipt: {
+      ...fixture,
+      policy_factors: [{ ...fixture.policy_factors[0], rule_id: 'aux-rule' }],
+    },
+    input_tokens: '1000000',
+    output_tokens: null,
+    estimated_cost_nano_usd: '200',
+  }
+  const { root, errors } = mountComponent(component, { receipt: fixture, decision: auxiliary })
+  const text = (node) => [node.text, ...(node.children ?? []).map(text)].join(' ')
+  assert.deepEqual(errors, [])
+  assert.match(text(root), /p · v18446744073709551615/)
+  assert.match(text(root), /aux-rule · v18446744073709551615/)
+  assert.match(text(root), /× 1 × 1 × 2/)
+})
 
 if (failed > 0) {
   console.error(`FAILED: ${failed} checks failed.`)

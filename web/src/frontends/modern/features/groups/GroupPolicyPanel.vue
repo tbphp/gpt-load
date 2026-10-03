@@ -4,28 +4,35 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   credentialPolicyKey,
-  getCredentialPolicy,
-  getGroupPolicy,
+  getPolicy,
+  getPolicyDiscovery,
   groupPolicyKey,
-  saveCredentialPolicy,
-  saveGroupPolicy,
-  type CredentialPolicy,
-  type GroupPolicy,
+  policyDiscoveryKey,
+  savePolicy,
+  type PolicyConfig,
 } from '@modern/api/group-detail'
 import type { GroupRow } from '@modern/api/groups'
 import {
-  AppBadge,
   AppButton,
   AppCollectionState,
   AppFormSection,
   AppNotice,
+  AppSegmentedField,
   AppTextArea,
 } from '@modern/components/ui'
 import { copyText } from '@modern/components/ui/clipboard'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
-import { parseRawJson, type JsonNode } from './policy-editor/policy-model'
+import {
+  getField,
+  groupPolicyMode,
+  parseRawJson,
+  setGroupPolicyMode,
+  type GroupPolicyMode,
+  type JsonNode,
+  type JsonObjectNode,
+} from './policy-editor/policy-model'
 import PolicyEditor from './policy-editor/PolicyEditor.vue'
 
 const props = defineProps<{
@@ -51,27 +58,31 @@ const activeQueryKey = computed(() =>
     : groupPolicyKey(props.group.id),
 )
 
-const query = useQuery<GroupPolicy | CredentialPolicy>({
+const query = useQuery<PolicyConfig>({
   queryKey: activeQueryKey,
-  queryFn: ({ signal }) =>
-    props.credential
-      ? getCredentialPolicy(client, props.group.id, props.credential.id, signal)
-      : getGroupPolicy(client, props.group.id, signal),
+  queryFn: ({ signal }) => getPolicy(client, props.group.id, signal, props.credential?.id),
 })
 
 const inheritedGroupQuery = useQuery({
   queryKey: computed(() => groupPolicyKey(props.group.id)),
-  queryFn: ({ signal }) => getGroupPolicy(client, props.group.id, signal),
+  queryFn: ({ signal }) => getPolicy(client, props.group.id, signal),
   enabled: isCredential,
 })
 
-const currentPolicy = ref<GroupPolicy | CredentialPolicy>()
+const currentPolicy = ref<PolicyConfig>()
 const baseline = ref('')
 const draft = ref('')
 const saving = ref(false)
 const serverError = ref('')
 
-const dirty = computed(() => draft.value !== baseline.value)
+const serializedDirty = computed(() => draft.value !== baseline.value)
+const hasLocalDraft = computed(
+  () =>
+    !visualDraftStatus.value.valid ||
+    visualDraftStatus.value.pending ||
+    visualDraftStatus.value.hasInvalid,
+)
+const dirty = computed(() => serializedDirty.value || hasLocalDraft.value)
 
 // 保留原始词法 token 缩进美化，完全避免 JSON.parse/stringify 浮点精度损耗
 function printPrettyRawJson(node: JsonNode, indent = 0): string {
@@ -102,22 +113,16 @@ function tryFormatPrettyJson(text: string): string | null {
   }
 }
 
-watch(
-  query.data,
-  (data) => {
-    if (!data || dirty.value || saving.value) return
-    currentPolicy.value = data
-    const formatted = tryFormatPrettyJson(data.configText) ?? data.configText
-    baseline.value = formatted
-    draft.value = formatted
-    serverError.value = ''
-  },
-  { immediate: true },
-)
-
-const isUnconfigured = computed(
-  () => !currentPolicy.value || currentPolicy.value.revisionText === '0',
-)
+const parsedDraftAst = computed<JsonObjectNode | null>(() => {
+  const trimmed = draft.value.trim()
+  if (!trimmed) return null
+  try {
+    const node = parseRawJson(trimmed)
+    return node.type === 'object' ? node : null
+  } catch {
+    return null
+  }
+})
 
 function handleJsonBlur(): void {
   const formatted = tryFormatPrettyJson(draft.value)
@@ -136,32 +141,93 @@ function handleJsonPaste(e: ClipboardEvent): void {
   const end = target.selectionEnd ?? 0
   const current = draft.value
   const combined = current.slice(0, start) + pasted + current.slice(end)
+
+  // 凭据覆盖模式下粘贴：若粘贴的 JSON 对象未显式包含 group_policy，保留当前 override 意图
+  if (props.credential && credentialPolicyMode.value === 'override') {
+    try {
+      const ast = parseRawJson(combined.trim())
+      if (ast.type === 'object' && !getField(ast, 'group_policy')) {
+        draft.value = printPrettyRawJson(setGroupPolicyMode(ast, 'override'))
+        return
+      }
+    } catch {
+      // 语法错误由下方兜底处理
+    }
+  }
+
   const formatted = tryFormatPrettyJson(combined)
   draft.value = formatted !== null ? formatted : combined
 }
 
-const jsonValidation = computed<{ valid: boolean; value?: unknown; error?: string }>(() => {
-  const trimmed = draft.value.trim()
-  if (!trimmed) {
+const jsonValidation = computed<{ valid: boolean; error?: string }>(() => {
+  if (!draft.value.trim() || !parsedDraftAst.value) {
     return { valid: false, error: t('groupDetail.policy.invalidJson') }
   }
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return { valid: false, error: t('groupDetail.policy.invalidJson') }
-    }
-    return { valid: true, value: parsed }
-  } catch {
-    return { valid: false, error: t('groupDetail.policy.invalidJson') }
-  }
+  return { valid: true }
 })
 
+const visualDraftStatus = ref<{ valid: boolean; pending: boolean; hasInvalid: boolean }>({
+  valid: true,
+  pending: false,
+  hasInvalid: false,
+})
+
+watch(
+  query.data,
+  (data) => {
+    if (!data || dirty.value || saving.value) return
+    currentPolicy.value = data
+    const formatted = tryFormatPrettyJson(data.configText) ?? data.configText
+    baseline.value = formatted
+    draft.value = formatted
+    serverError.value = ''
+  },
+  { immediate: true },
+)
+
+function handleVisualDraftStatus(status: {
+  valid: boolean
+  pending: boolean
+  hasInvalid: boolean
+}): void {
+  visualDraftStatus.value = status
+}
+
+function switchEditorMode(mode: 'visual' | 'json'): void {
+  if (saving.value) return
+  if (mode === 'json') {
+    if (
+      !visualDraftStatus.value.valid ||
+      visualDraftStatus.value.hasInvalid ||
+      visualDraftStatus.value.pending
+    ) {
+      serverError.value = t('groupDetail.policy.invalidDraftBlockJson')
+      return
+    }
+    handleJsonBlur()
+  }
+  serverError.value = ''
+  editorMode.value = mode
+}
+
 const saveDisabled = computed(
-  () => !dirty.value || !jsonValidation.value.valid || saving.value || !currentPolicy.value,
+  () =>
+    !serializedDirty.value ||
+    !jsonValidation.value.valid ||
+    saving.value ||
+    !currentPolicy.value ||
+    !visualDraftStatus.value.valid ||
+    visualDraftStatus.value.pending ||
+    visualDraftStatus.value.hasInvalid,
 )
 
 async function save(): Promise<void> {
-  if (!currentPolicy.value || !dirty.value || saving.value) return
+  if (!currentPolicy.value || !serializedDirty.value || saving.value) return
+  if (!visualDraftStatus.value.valid || visualDraftStatus.value.hasInvalid) {
+    serverError.value = t('groupDetail.policy.invalidDraftBlockJson')
+    return
+  }
+  if (visualDraftStatus.value.pending) return
   const formatted = tryFormatPrettyJson(draft.value)
   if (formatted !== null) {
     draft.value = formatted
@@ -173,35 +239,33 @@ async function save(): Promise<void> {
   saving.value = true
   serverError.value = ''
   const expectedRevisionText = currentPolicy.value.revisionText
+  const targetGroupID = props.group.id
+  const targetCredentialID = props.credential?.id
+  const queryKey = activeQueryKey.value
+  const textToSave = tryFormatPrettyJson(draft.value) ?? draft.value
 
   try {
-    await cache.cancelQueries({ queryKey: activeQueryKey.value })
-    const result = props.credential
-      ? await saveCredentialPolicy(
-          client,
-          props.group.id,
-          props.credential.id,
-          expectedRevisionText,
-          draft.value,
-          controller.signal,
-        )
-      : await saveGroupPolicy(
-          client,
-          props.group.id,
-          expectedRevisionText,
-          draft.value,
-          controller.signal,
-        )
+    await cache.cancelQueries({ queryKey })
+    if (controller.signal.aborted) return
+    const result = await savePolicy(
+      client,
+      targetGroupID,
+      expectedRevisionText,
+      textToSave,
+      controller.signal,
+      targetCredentialID,
+    )
     if (controller.signal.aborted) return
     currentPolicy.value = result
     const formatted = tryFormatPrettyJson(result.configText) ?? result.configText
     baseline.value = formatted
     draft.value = formatted
-    cache.setQueryData(activeQueryKey.value, result)
+    cache.setQueryData(queryKey, result)
     emit('saved')
     emit('close')
   } catch (err: unknown) {
     if (controller.signal.aborted) return
+    saving.value = false
     if (
       err instanceof ApiError &&
       (err.status === 409 ||
@@ -209,6 +273,7 @@ async function save(): Promise<void> {
         err.code === 'POLICY_REVISION_OVERFLOW')
     ) {
       serverError.value = t('groupDetail.policy.conflict')
+      void cache.invalidateQueries({ queryKey })
     } else if (err instanceof ApiError) {
       serverError.value = err.data
         ? String(err.data)
@@ -217,12 +282,22 @@ async function save(): Promise<void> {
       serverError.value = t('groupDetail.policy.saveFailed')
     }
   } finally {
-    saving.value = false
+    if (!controller.signal.aborted) saving.value = false
   }
 }
 
 // 可视化编辑与 JSON 模式切换
 const editorMode = ref<'visual' | 'json'>('visual')
+
+// 隐藏配额时间窗口选项发现（全组观测，按需传递给规则编辑器，不渲染 reference UI）
+const discoveryQueryKey = computed(() => policyDiscoveryKey(props.group.id, props.credential?.id))
+const discoveryQuery = useQuery({
+  queryKey: discoveryQueryKey,
+  queryFn: ({ signal }) => getPolicyDiscovery(client, signal, props.group.id, props.credential?.id),
+})
+const quotaWindows = computed<readonly number[]>(
+  () => discoveryQuery.data.value?.quota_windows ?? [],
+)
 
 // 导出与复制
 const exportNotice = ref('')
@@ -263,23 +338,37 @@ function handleExportDownload(): void {
   }
 }
 
-const inheritedRules = computed(() => {
-  if (!props.credential || !inheritedGroupQuery.data.value?.configText) return []
-  try {
-    const parsed = JSON.parse(inheritedGroupQuery.data.value.configText)
-    return Array.isArray(parsed.rules)
-      ? (parsed.rules as Array<{
-          id?: string
-          name?: string
-          domain?: string
-          enabled?: boolean
-          then?: { type?: string; factor?: string }
-        }>)
-      : []
-  } catch {
-    return []
-  }
+// 凭据继承/覆盖控制：以顶层 group_policy 字段（"inherit" | "override"）为准
+const credentialPolicyModeOptions = computed(() => [
+  { value: 'inherit', label: t('groupDetail.inherit') },
+  { value: 'override', label: t('groupDetail.override') },
+])
+
+const isRootObjectValid = computed(() => !draft.value.trim() || parsedDraftAst.value !== null)
+
+const credentialPolicyMode = computed<GroupPolicyMode>({
+  get() {
+    return groupPolicyMode(parsedDraftAst.value ?? undefined)
+  },
+  set(newMode: GroupPolicyMode) {
+    handleCredentialPolicyModeChange(newMode)
+  },
 })
+
+function handleCredentialPolicyModeChange(newMode: GroupPolicyMode): void {
+  const trimmed = draft.value.trim()
+  try {
+    // 显式模式切换：空草稿基于标准空规范初始化，非空则保留所有其他字段更新 group_policy
+    const baseText = trimmed || '{\n  "schema_version": 1,\n  "rules": []\n}'
+    const ast = parseRawJson(baseText)
+    if (ast.type !== 'object') return
+    draft.value = printPrettyRawJson(setGroupPolicyMode(ast, newMode))
+  } catch {
+    // 语法错误时保留 raw 文本不静默覆盖
+  }
+}
+
+const groupPolicyConfigText = computed(() => inheritedGroupQuery.data.value?.configText ?? '')
 </script>
 
 <template>
@@ -312,155 +401,153 @@ const inheritedRules = computed(() => {
       <AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
     </AppCollectionState>
     <template v-else>
-      <AppNotice v-if="serverError" tone="danger">
-        {{ serverError }}
-      </AppNotice>
-      <AppNotice v-else-if="isUnconfigured" tone="info">
-        {{ t('groupDetail.policy.emptyState') }}
+      <AppNotice v-if="serverError" tone="danger" class="modern-policy-server-error">
+        <div>{{ serverError }}</div>
       </AppNotice>
 
-      <!-- 分组继承规则（凭据策略只读展示） -->
       <AppFormSection
-        v-if="props.credential"
         compact
-        :title="t('groupDetail.policy.inheritedGroup')"
+        :title="
+          props.credential ? t('groupDetail.policy.sectionTitle') : t('groupDetail.policy.title')
+        "
       >
-        <div class="modern-inherited-header">
-          <span>{{
-            t('groupDetail.policy.inheritedRulesCount', { count: inheritedRules.length })
-          }}</span>
-          <span v-if="inheritedGroupQuery.data.value" class="modern-inherited-revision">
-            {{
-              t('groupDetail.policy.inheritedRevision', {
-                rev: inheritedGroupQuery.data.value.revisionText,
-              })
-            }}
-          </span>
+        <template v-if="props.credential" #actions>
+          <AppSegmentedField
+            v-model="credentialPolicyMode"
+            class="modern-policy-mode-select"
+            :label="t('groupDetail.policy.sectionTitle')"
+            label-hidden
+            :options="credentialPolicyModeOptions"
+            size="xs"
+            :disabled="saving || !isRootObjectValid"
+          />
+        </template>
+
+        <!-- 凭据继承模式：展示分组只读策略，若分组策略加载失败显示 inline notice 不阻塞本地编辑 -->
+        <div
+          v-if="props.credential && credentialPolicyMode === 'inherit'"
+          class="modern-policy-inherited-block"
+        >
+          <div class="modern-policy-section-header">
+            <span class="modern-policy-section-title">{{ t('groupDetail.policy.fromGroup') }}</span>
+          </div>
+          <AppNotice v-if="inheritedGroupQuery.isError.value" tone="warning" compact>
+            {{ t('groupDetail.policy.loadFailed') }}
+            <AppButton size="xs" @click="inheritedGroupQuery.refetch()">
+              {{ t('ui.retry') }}
+            </AppButton>
+          </AppNotice>
+          <PolicyEditor
+            v-else-if="groupPolicyConfigText"
+            :model-value="groupPolicyConfigText"
+            disabled
+            default-domain="scheduling"
+            :quota-windows="quotaWindows"
+          />
         </div>
-        <div v-if="inheritedRules.length" class="modern-inherited-rules-list">
-          <div v-for="rule in inheritedRules" :key="rule.id" class="modern-inherited-rule-card">
-            <div class="modern-inherited-rule-header">
-              <span class="modern-inherited-rule-name">{{ rule.name || rule.id }}</span>
-              <AppBadge :tone="rule.enabled ? 'success' : 'neutral'" compact>
-                {{ rule.enabled ? t('groupDetail.on') : t('groupDetail.off') }}
-              </AppBadge>
+
+        <div
+          v-if="props.credential && credentialPolicyMode === 'inherit'"
+          class="modern-policy-section-header mb-2"
+        >
+          <span class="modern-policy-section-title">{{
+            t('groupDetail.policy.accountRules')
+          }}</span>
+        </div>
+
+        <!-- 策略编辑区：支持可视化与 JSON 源码编辑，凭据继承与覆盖均可追加编辑自身规则 -->
+        <div class="modern-policy-editor">
+          <div class="modern-policy-editor-toolbar">
+            <div class="modern-policy-mode-tabs" role="tablist">
+              <AppButton
+                :variant="editorMode === 'visual' ? 'primary' : 'ghost'"
+                size="xs"
+                :disabled="saving"
+                @click="switchEditorMode('visual')"
+              >
+                {{ t('groupDetail.policy.modeVisual') }}
+              </AppButton>
+              <AppButton
+                :variant="editorMode === 'json' ? 'primary' : 'ghost'"
+                size="xs"
+                :disabled="saving"
+                @click="switchEditorMode('json')"
+              >
+                {{ t('groupDetail.policy.modeJson') }}
+              </AppButton>
             </div>
-            <div class="modern-inherited-rule-action">
-              <span>{{ rule.domain }}: {{ rule.then?.type }}</span>
-              <span v-if="rule.then?.factor"> ×{{ rule.then?.factor }}</span>
+            <div class="modern-policy-portability-actions">
+              <AppButton variant="outline" size="xs" @click="handleExportCopy">
+                {{ t('groupDetail.policy.copyJson') }}
+              </AppButton>
+              <AppButton variant="outline" size="xs" @click="handleExportDownload">
+                {{ t('groupDetail.policy.downloadJson') }}
+              </AppButton>
+            </div>
+          </div>
+
+          <AppNotice v-if="exportNotice" tone="success" compact class="mt-2">
+            {{ exportNotice }}
+          </AppNotice>
+
+          <!-- 主编辑器：可视化与 JSON 切换，绑定相同 raw draft -->
+          <div class="mt-3">
+            <PolicyEditor
+              v-if="editorMode === 'visual'"
+              v-model="draft"
+              :default-domain="props.credential ? 'pricing' : 'scheduling'"
+              :disabled="saving"
+              :quota-windows="quotaWindows"
+              @draft-status="handleVisualDraftStatus"
+            />
+            <div v-else class="modern-policy-json-wrapper">
+              <AppTextArea
+                v-model="draft"
+                :label="t('groupDetail.policy.rawJson')"
+                :error="serializedDirty && !jsonValidation.valid ? jsonValidation.error : undefined"
+                :disabled="saving"
+                mono
+                :rows="14"
+                @blur="handleJsonBlur"
+                @paste="handleJsonPaste"
+              />
+              <div v-if="!draft.trim()" class="modern-policy-ghost-overlay" aria-hidden="true">
+                <pre class="modern-policy-ghost-pre">{{
+                  '{\n  "schema_version": 1,\n  "rules": []\n}'
+                }}</pre>
+              </div>
             </div>
           </div>
         </div>
       </AppFormSection>
-
-      <!-- 策略编辑工具栏与切换 -->
-      <div class="modern-policy-editor">
-        <div class="modern-policy-editor-toolbar">
-          <div class="modern-policy-mode-tabs" role="tablist">
-            <AppButton
-              :variant="editorMode === 'visual' ? 'primary' : 'ghost'"
-              size="sm"
-              @click="editorMode = 'visual'"
-            >
-              {{ t('groupDetail.policy.modeVisual') }}
-            </AppButton>
-            <AppButton
-              :variant="editorMode === 'json' ? 'primary' : 'ghost'"
-              size="sm"
-              @click="editorMode = 'json'"
-            >
-              {{ t('groupDetail.policy.modeJson') }}
-            </AppButton>
-          </div>
-          <div class="modern-policy-portability-actions">
-            <AppButton variant="outline" size="sm" @click="handleExportCopy">
-              {{ t('groupDetail.policy.copyJson') }}
-            </AppButton>
-            <AppButton variant="outline" size="sm" @click="handleExportDownload">
-              {{ t('groupDetail.policy.downloadJson') }}
-            </AppButton>
-          </div>
-        </div>
-
-        <AppNotice v-if="exportNotice" tone="success" compact class="mt-2">
-          {{ exportNotice }}
-        </AppNotice>
-
-        <!-- 主编辑器：可视化与 JSON 切换，绑定相同 raw draft -->
-        <div class="mt-3">
-          <PolicyEditor
-            v-if="editorMode === 'visual'"
-            v-model="draft"
-            :default-domain="props.credential ? 'pricing' : 'scheduling'"
-            :disabled="saving"
-          />
-          <div v-else class="modern-policy-json-wrapper">
-            <AppTextArea
-              v-model="draft"
-              :label="t('groupDetail.policy.rawJson')"
-              :error="dirty && !jsonValidation.valid ? jsonValidation.error : undefined"
-              :disabled="saving"
-              mono
-              :rows="14"
-              @blur="handleJsonBlur"
-              @paste="handleJsonPaste"
-            />
-            <div v-if="!draft.trim()" class="modern-policy-ghost-overlay" aria-hidden="true">
-              <pre class="modern-policy-ghost-pre">{{ t('groupDetail.policy.placeholder') }}</pre>
-            </div>
-          </div>
-        </div>
-      </div>
     </template>
   </GroupWorkspacePanel>
 </template>
 
 <style scoped>
-.modern-inherited-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--modern-font-size-caption);
-  color: var(--modern-muted);
-  margin-bottom: var(--modern-space-2);
+.modern-policy-mode-select {
+  width: var(--modern-menu-min-width);
 }
 
-.modern-inherited-revision {
-  font-family: var(--modern-font-mono);
-  font-size: var(--modern-font-size-caption);
-}
-
-.modern-inherited-rules-list {
+.modern-policy-inherited-block {
   display: flex;
   flex-direction: column;
   gap: var(--modern-space-2);
+  margin-bottom: var(--modern-space-3);
+  padding-bottom: var(--modern-space-3);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
 }
 
-.modern-inherited-rule-card {
-  padding: var(--modern-space-2) var(--modern-space-3);
-  background: var(--modern-subtle);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-panel);
+.modern-policy-section-header {
   display: flex;
-  flex-direction: column;
-  gap: var(--modern-space-1);
-}
-
-.modern-inherited-rule-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: var(--modern-space-2);
 }
 
-.modern-inherited-rule-name {
-  font-weight: var(--modern-weight-medium);
-  font-size: var(--modern-font-size-body);
-}
-
-.modern-inherited-rule-action {
-  font-size: var(--modern-font-size-caption);
+.modern-policy-section-title {
   color: var(--modern-muted);
-  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-medium);
 }
 
 .modern-policy-editor {
@@ -515,6 +602,12 @@ const inheritedRules = computed(() => {
 .modern-policy-portability-actions {
   display: flex;
   align-items: center;
+  gap: var(--modern-space-2);
+}
+
+.modern-policy-server-error {
+  display: flex;
+  flex-direction: column;
   gap: var(--modern-space-2);
 }
 </style>

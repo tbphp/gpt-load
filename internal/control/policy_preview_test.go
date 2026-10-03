@@ -177,9 +177,8 @@ func TestPolicyPreview_GroupAndCredentialInheritanceAndProvenance(t *testing.T) 
 	}
 
 	// 2. 预览凭据草稿策略：倍率 x3
-	// 预期结果：继承分组 saved 规则（revision_text="1", provenance="saved"）
-	// 与凭据 draft 规则（revision_text="draft", provenance="draft"）按组优先顺序结合，
-	// 总倍率应为 2 * 3 = 6
+	// 预期结果：凭据草稿为 override，仅凭据 draft 规则生效（revision_text="draft", provenance="draft"），
+	// 分组 saved 规则被抑制，总倍率应为 3
 	previewCredReq := httptest.NewRequest(
 		http.MethodPost,
 		fmt.Sprintf("/api/groups/%d/credentials/%d/policy/preview", groupID, credID),
@@ -187,6 +186,7 @@ func TestPolicyPreview_GroupAndCredentialInheritanceAndProvenance(t *testing.T) 
 			"request_model": "gpt-4o",
 			"config": {
 				"schema_version": 1,
+				"group_policy": "override",
 				"rules": [
 					{
 						"id": "cred-pricing",
@@ -246,13 +246,9 @@ func TestPolicyPreview_GroupAndCredentialInheritanceAndProvenance(t *testing.T) 
 		t.Fatalf("expected target 'upstream-gpt4' in results")
 	}
 
-	// 验证分组规则继承来源与凭据草稿来源
-	if len(gpt4Target.GroupRules) != 1 {
-		t.Fatalf("expected 1 group rule, got %d", len(gpt4Target.GroupRules))
-	}
-	grpRule := gpt4Target.GroupRules[0]
-	if grpRule.Provenance != "saved" || grpRule.RevisionText != "1" {
-		t.Errorf("expected group rule provenance='saved', revision_text='1', got prov=%q, rev=%q", grpRule.Provenance, grpRule.RevisionText)
+	// override：仅凭据草稿生效，分组 saved 规则被抑制
+	if len(gpt4Target.GroupRules) != 0 {
+		t.Fatalf("override must not surface group rules, got %d", len(gpt4Target.GroupRules))
 	}
 
 	if len(gpt4Target.CredentialRules) != 1 {
@@ -263,15 +259,12 @@ func TestPolicyPreview_GroupAndCredentialInheritanceAndProvenance(t *testing.T) 
 		t.Errorf("expected cred rule provenance='draft', revision_text='draft', got prov=%q, rev=%q", credRule.Provenance, credRule.RevisionText)
 	}
 
-	// 验证累计倍率 (2 * 3 = 6)
-	if gpt4Target.Pricing.CumulativeMultiplier != "6" && gpt4Target.Pricing.CumulativeMultiplier != "6.000000" {
-		t.Errorf("expected cumulative multiplier 6, got %q", gpt4Target.Pricing.CumulativeMultiplier)
+	// 累计倍率只取唯一边界（凭据草稿 x3）
+	if gpt4Target.Pricing.CumulativeMultiplier != "3" {
+		t.Errorf("expected cumulative multiplier 3, got %q", gpt4Target.Pricing.CumulativeMultiplier)
 	}
-	if len(gpt4Target.Pricing.Matches) != 2 {
-		t.Fatalf("expected 2 pricing matches, got %d", len(gpt4Target.Pricing.Matches))
-	}
-	if gpt4Target.Pricing.Matches[0].BindingScope != "group" || gpt4Target.Pricing.Matches[1].BindingScope != "credential" {
-		t.Errorf("expected matches in group-then-credential order")
+	if len(gpt4Target.Pricing.Matches) != 1 || gpt4Target.Pricing.Matches[0].BindingScope != "credential" {
+		t.Fatalf("expected single credential pricing match, got %+v", gpt4Target.Pricing.Matches)
 	}
 }
 
@@ -283,6 +276,7 @@ func TestPolicyPreview_RealClockQuotaVsSimulatedTimeWindow(t *testing.T) {
 	// 配置一个依赖周一工作时间段与额度余量 < 10% 的调度排除规则
 	draftConfig := `{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "time-window-rule",
@@ -355,6 +349,7 @@ func TestPolicyPreview_RealClockQuotaVsSimulatedTimeWindow(t *testing.T) {
 	// 验证额度判断在模拟未来/过去时间下依然以服务器真实时间 realNow 求值
 	quotaDraft := `{
 		"schema_version": 1,
+		"group_policy": "override",
 		"rules": [
 			{
 				"id": "quota-rule",

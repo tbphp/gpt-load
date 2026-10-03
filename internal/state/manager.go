@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gpt-load/internal/execution"
 	"gpt-load/internal/ratelimit"
 )
 
@@ -67,8 +68,9 @@ func (m *Manager) CurrentWithUpdates() (*ConfigSnapshot, <-chan struct{}) {
 // WithCurrentSnapshot runs a short callback while publication is blocked.
 // Allowed callback work is limited to loading/reading the current snapshot,
 // pure signature recomputation, and coordinated Registry/Stats recovery. It
-// must not decrypt, probe, compile, access DB/network, or log. The lock order
-// is publishMu -> MutationCoordinator stripe -> Registry/Stats internal locks.
+// must not decrypt, probe, compile, access DB/network, log, or acquire mutation
+// stripes. Callers needing a stripe acquire it before entering this boundary:
+// MutationCoordinator stripe -> publishMu -> Registry/Stats internal locks.
 func (m *Manager) WithCurrentSnapshot(fn func(*ConfigSnapshot) bool) bool {
 	if m == nil || fn == nil {
 		return false
@@ -119,10 +121,11 @@ func (m *Manager) Matches(input CompileInput) (bool, error) {
 	if current == nil {
 		return false, nil
 	}
-	currentValue := *current
-	currentValue.Revision = 0
-	currentValue.AffinityRevision = 0
-	return reflect.DeepEqual(&currentValue, next), nil
+	c := sanitizeSnapshotForComparison(current)
+	n := sanitizeSnapshotForComparison(next)
+	c.Policies = current.Policies
+	n.Policies = next.Policies
+	return reflect.DeepEqual(&c, &n), nil
 }
 
 func (m *Manager) publishCompiled(next *ConfigSnapshot, beforeLock func()) *ConfigSnapshot {
@@ -163,12 +166,56 @@ func isPolicyOnlyPublication(current, next *ConfigSnapshot) bool {
 	if current == nil || next == nil {
 		return false
 	}
-	c := *current
-	n := *next
-	c.Revision, n.Revision = 0, 0
-	c.AffinityRevision, n.AffinityRevision = 0, 0
-	c.Policies, n.Policies = nil, nil
+	c := sanitizeSnapshotForComparison(current)
+	n := sanitizeSnapshotForComparison(next)
 	return reflect.DeepEqual(&c, &n)
+}
+
+func sanitizeSnapshotForComparison(s *ConfigSnapshot) ConfigSnapshot {
+	c := *s
+	c.Revision = 0
+	c.AffinityRevision = 0
+	c.Policies = nil
+	c.Groups = cloneGroupsStrippingResolvers(c.Groups)
+	c.ExecutionCandidates = cloneExecutionIndexStrippingResolvers(c.ExecutionCandidates)
+	c.ExecutionRouteCatalog = cloneExecutionIndexStrippingResolvers(c.ExecutionRouteCatalog)
+	return c
+}
+
+func cloneGroupsStrippingResolvers(groups map[uint]GroupView) map[uint]GroupView {
+	if groups == nil {
+		return nil
+	}
+	out := make(map[uint]GroupView, len(groups))
+	for id, gv := range groups {
+		gv.ResolvedTarget = gv.ResolvedTarget.WithoutResolverFunctions()
+		out[id] = gv
+	}
+	return out
+}
+
+func cloneExecutionIndexStrippingResolvers(idx ExecutionCandidateIndex) ExecutionCandidateIndex {
+	if idx == nil {
+		return nil
+	}
+	out := make(ExecutionCandidateIndex, len(idx))
+	for proto, byOp := range idx {
+		newByOp := make(map[execution.Operation]map[string][]RouteTarget, len(byOp))
+		for op, byModel := range byOp {
+			newByModel := make(map[string][]RouteTarget, len(byModel))
+			for model, targets := range byModel {
+				newTargets := make([]RouteTarget, len(targets))
+				for i, target := range targets {
+					target.ResolvedTarget = target.ResolvedTarget.WithoutResolverFunctions()
+					newTargets[i] = target
+				}
+				newByModel[model] = newTargets
+			}
+			newByOp[op] = newByModel
+		}
+		out[proto] = newByOp
+	}
+	return out
 }
 
 // SetSchedulingState 将分组配置发布与单实例调度状态衔接；不持有 Registry 锁。

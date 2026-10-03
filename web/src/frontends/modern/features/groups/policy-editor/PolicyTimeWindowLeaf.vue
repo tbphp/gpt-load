@@ -20,6 +20,7 @@ import {
   stringLiteral,
   type JsonObjectNode,
 } from './policy-model'
+import { usePolicyDraftReporter } from './use-policy-draft'
 import { usePolicyMessages } from './use-policy-messages'
 
 const props = withDefaults(defineProps<{ modelValue: JsonObjectNode; disabled?: boolean }>(), {
@@ -30,8 +31,9 @@ const { t } = usePolicyMessages()
 
 const weekdays = computed(() =>
   (arrayItems(getField(props.modelValue, 'weekdays')) ?? [])
-    .map((item) => Number(literalNumberRaw(item)))
-    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+    .map((item) => literalNumberRaw(item) ?? '')
+    .filter((raw) => /^[0-6]$/.test(raw))
+    .map((raw) => Number(raw)),
 )
 const weekdayError = ref(false)
 const weekdayLabels = computed(() =>
@@ -43,12 +45,17 @@ const weekdayLabels = computed(() =>
 
 function setWeekdays(days: number[]): void {
   if (props.disabled) return
+  const unique = Array.from(new Set(days)).sort((a, b) => a - b)
+  if (unique.length === 0) {
+    weekdayError.value = true
+    return
+  }
   emit(
     'update:modelValue',
     setField(
       props.modelValue,
       'weekdays',
-      arrayNode([...days].sort((a, b) => a - b).map((day) => numberLiteral(String(day))!)),
+      arrayNode(unique.map((day) => numberLiteral(String(day))!)),
     ),
   )
 }
@@ -57,15 +64,19 @@ function toggleWeekday(day: number, checked: boolean): void {
   if (props.disabled) return
   const current = weekdays.value
   if (checked) {
-    setWeekdays([...current, day])
+    if (!current.includes(day)) {
+      setWeekdays([...current, day])
+    }
     weekdayError.value = false
     return
   }
-  if (current.length <= 1) {
+  const remaining = current.filter((item) => item !== day)
+  if (remaining.length === 0) {
     weekdayError.value = true
     return
   }
-  setWeekdays(current.filter((item) => item !== day))
+  weekdayError.value = false
+  setWeekdays(remaining)
 }
 
 interface RangeDraft {
@@ -84,23 +95,44 @@ const storedRanges = computed(() =>
 )
 const ranges = storedRanges
 const rangeDrafts = ref<RangeDraft[]>([])
+let removedRangeIndex: number | undefined
 // 仅在存储值本身变化时更新对应草稿；无关重渲染/星期切换保留未提交的本地输入。
 watch(
   storedRanges,
   (next, prev) => {
-    if (!prev || next.length !== prev.length) {
-      rangeDrafts.value = next.map((range) => ({ ...range }))
-      return
+    const previous = [...(prev ?? [])]
+    if (removedRangeIndex !== undefined) {
+      previous.splice(removedRangeIndex, 1)
+      removedRangeIndex = undefined
     }
     rangeDrafts.value = next.map((range, index) => {
-      const before = prev[index]
-      if (before.start !== range.start || before.end !== range.end) return { ...range }
+      const before = previous[index]
+      if (!before || before.start !== range.start || before.end !== range.end) return { ...range }
       return rangeDrafts.value[index] ?? { ...range }
     })
   },
   { immediate: true },
 )
-const rangeErrors = ref<boolean[]>([])
+const { report: reportDraft } = usePolicyDraftReporter('time-window')
+
+watch(
+  [rangeDrafts, storedRanges, weekdays, () => props.disabled],
+  () => {
+    if (props.disabled) {
+      reportDraft(true, false)
+      return
+    }
+    const hasWeekdayErr = weekdays.value.length === 0
+    const hasRangeErr = rangeDrafts.value.some((draft) => Boolean(rangeError(draft)))
+    const isPending = rangeDrafts.value.some((draft, i) => {
+      const stored = storedRanges.value[i]
+      return !stored || draft.start !== stored.start || draft.end !== stored.end
+    })
+    const isValid = !hasWeekdayErr && !hasRangeErr
+    reportDraft(isValid, isPending)
+  },
+  { immediate: true, deep: true },
+)
 
 function rangeError(draft: RangeDraft | undefined): string | undefined {
   if (!draft) return undefined
@@ -116,7 +148,6 @@ function commitRange(index: number): void {
   const draft = rangeDrafts.value[index]
   if (!draft) return
   const error = rangeError(draft)
-  rangeErrors.value[index] = Boolean(error)
   if (error) return
   const next = ranges.value.map((range, at) =>
     at === index
@@ -149,6 +180,8 @@ function removeRange(index: number): void {
     return
   }
   rangeRequired.value = false
+  removedRangeIndex = index
+  rangeDrafts.value.splice(index, 1)
   const next = ranges.value.filter((_, at) => at !== index)
   emit(
     'update:modelValue',
@@ -189,29 +222,37 @@ function removeRange(index: number): void {
           v-model="range.start"
           :label="t('policyEditor.timeWindow.from')"
           placeholder="09:00"
+          size="sm"
           :error="rangeError(range)"
           :disabled="disabled"
           @change="commitRange(index)"
+          @blur="commitRange(index)"
         />
         <AppTextField
           v-model="range.end"
           :label="t('policyEditor.timeWindow.to')"
           placeholder="18:00"
-          :disabled="disabled"
-          @change="commitRange(index)"
-        />
-        <AppIconButton
-          :icon="X"
-          :label="t('policyEditor.timeWindow.removeRange')"
           size="sm"
           :disabled="disabled"
-          @click="removeRange(index)"
+          @change="commitRange(index)"
+          @blur="commitRange(index)"
         />
+        <div class="policy-time-range-action">
+          <span class="policy-time-range-spacer" aria-hidden="true" />
+          <AppIconButton
+            :icon="X"
+            :label="t('policyEditor.timeWindow.removeRange')"
+            size="xs"
+            variant="ghost"
+            :disabled="disabled"
+            @click="removeRange(index)"
+          />
+        </div>
       </div>
       <AppNotice v-if="rangeRequired" tone="warning" compact>
         {{ t('policyEditor.timeWindow.errors.rangeRequired') }}
       </AppNotice>
-      <AppButton size="sm" variant="outline" :icon="Plus" :disabled="disabled" @click="addRange">
+      <AppButton size="xs" variant="outline" :icon="Plus" :disabled="disabled" @click="addRange">
         {{ t('policyEditor.timeWindow.addRange') }}
       </AppButton>
     </div>
@@ -234,9 +275,8 @@ function removeRange(index: number): void {
 }
 .policy-time-label {
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-  font-weight: var(--modern-weight-semibold);
-  text-transform: uppercase;
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-medium);
 }
 .policy-time-weekday-list {
   display: flex;
@@ -244,17 +284,37 @@ function removeRange(index: number): void {
   gap: var(--modern-space-2) var(--modern-space-3);
 }
 .policy-time-range-row {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--modern-space-2);
 }
 .policy-time-range-row > :deep(*) {
-  flex: 1 1 7rem;
   min-width: 0;
 }
+.policy-time-range-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--modern-space-1-5);
+}
+.policy-time-range-spacer {
+  display: block;
+  font-size: var(--modern-font-size-secondary);
+  line-height: var(--modern-leading-compact);
+  visibility: hidden;
+  user-select: none;
+}
+.policy-time-range-spacer::before {
+  content: '\00a0';
+}
+.policy-time-range-action :deep(.modern-button) {
+  margin: calc((var(--modern-control-sm) - var(--modern-control-xs)) / 2) 0;
+}
 .policy-time-hint {
+  margin: 0;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
+  line-height: var(--modern-leading-body);
 }
 </style>

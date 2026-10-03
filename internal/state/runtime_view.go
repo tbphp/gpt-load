@@ -102,3 +102,54 @@ func (r *CredentialRegistry) Snapshot() []CredentialRuntimeView {
 	sortRuntimeViews(views)
 	return views
 }
+
+// SnapshotForScope returns an immutable view of runtime health for credentials matching
+// groupID and/or credentialID, filtering before cloning to minimize allocation overhead.
+// If both groupID and credentialID are 0, it behaves identically to Snapshot().
+func (r *CredentialRegistry) SnapshotForScope(groupID, credentialID uint) []CredentialRuntimeView {
+	if r == nil {
+		return []CredentialRuntimeView{}
+	}
+	r.mu.RLock()
+
+	var views []CredentialRuntimeView
+	if credentialID != 0 {
+		if groupID != 0 {
+			if bucket, ok := r.buckets[groupID]; ok {
+				if entry, ok := bucket[credentialID]; ok {
+					views = []CredentialRuntimeView{runtimeView(entry)}
+				}
+			}
+		} else {
+			if entry, ok := r.entryLocked(credentialID); ok {
+				views = []CredentialRuntimeView{runtimeView(entry)}
+			}
+		}
+		r.mu.RUnlock()
+		if views == nil {
+			views = make([]CredentialRuntimeView, 0)
+		}
+		return views
+	}
+
+	if groupID != 0 {
+		bucket := r.buckets[groupID]
+		views = make([]CredentialRuntimeView, 0, len(bucket))
+		for _, entry := range bucket {
+			views = append(views, runtimeView(entry))
+		}
+		r.mu.RUnlock()
+		sortRuntimeViews(views)
+		return views
+	}
+
+	views = make([]CredentialRuntimeView, 0, len(r.credentialGroups))
+	for _, bucket := range r.buckets {
+		for _, entry := range bucket {
+			views = append(views, runtimeView(entry))
+		}
+	}
+	r.mu.RUnlock()
+	sortRuntimeViews(views)
+	return views
+}

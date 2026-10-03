@@ -84,6 +84,7 @@ type runtimeCredentialRegistry interface {
 	CaptureActiveCredentialRefs(groupIDs []uint) []state.CredentialRef
 	CredentialRef(credentialID uint) (state.CredentialRef, bool)
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
+	CredentialQuotaWindows(id uint, generation uint64) ([]policy.QuotaWindowFact, bool)
 	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
 	SetCooldownWithChangeIfVersion(credentialID uint, expectedVersion uint64, until time.Time) (matched bool, changed bool)
 	SetModelCooldown(state.CredentialRef, string, time.Time, time.Time) (bool, bool)
@@ -158,16 +159,14 @@ func (handler *Handler) freezeAttemptPricing(
 		snapshot = handler.manager.Current()
 	}
 	if snapshot != nil && snapshot.Policies != nil && handler != nil {
+		if !snapshot.Policies.HasApplicablePricing(selection.GroupID, selection.CredentialID) {
+			return frozen
+		}
 		now := handler.now()
 		var quotaWindows []policy.QuotaWindowFact
 		if handler.registry != nil {
-			for _, meta := range handler.registry.CollectCredentialCandidates([]uint{selection.GroupID}, nil, now) {
-				if meta.ID == selection.CredentialID {
-					if selection.IdentityGeneration == 0 || meta.IdentityGeneration == selection.IdentityGeneration {
-						quotaWindows = meta.QuotaWindows
-					}
-					break
-				}
+			if windows, ok := handler.registry.CredentialQuotaWindows(selection.CredentialID, selection.IdentityGeneration); ok {
+				quotaWindows = windows
 			}
 		}
 		ctx := &policy.EvalContext{
@@ -699,8 +698,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	recorder.setClientModel(model)
 	recorder.setOperation(metadata.Operation)
 	recorder.setStream(metadata.Stream)
+	var requestModel *string
+	if model != "" {
+		requestModel = &model
+	}
 	var boundAuto *automodel.Selection
-	autoQuery := scheduler.Query{}
+	autoQuery := scheduler.Query{RequestModel: requestModel}
 	if metadata.PreviousResponseID != "" {
 		binding, found := handler.responseBindings.Lookup(accessKey.ID, metadata.PreviousResponseID)
 		if !found {
@@ -732,6 +735,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		Operation:                metadata.Operation,
 		RouteRequirement:         metadata.RouteRequirement,
 		ResponsesStorePreference: metadata.ResponsesStorePreference,
+		RequestModel:             requestModel,
 		ExternalModel:            metadata.Model,
 		AccessKey:                accessKey,
 	}

@@ -11,11 +11,13 @@ import (
 	"gpt-load/internal/state"
 )
 
-// quotaLowPolicyJSON compiles a quota-based exclusion policy for a credential or group.
+// quotaLowPolicyJSON compiles a quota-based exclusion policy with the given group_policy mode.
+// 凭据作用域需要 override 才会独立于分组规则生效；分组作用域保持 inherit。
 // Rule: if credential.quota.remaining_ratio (account, 18000s) < 0.10, exclude candidate.
-func quotaLowPolicyJSON() []byte {
+func quotaLowPolicyJSON(groupPolicy policy.GroupPolicyMode) []byte {
 	return []byte(`{
 		"schema_version": 1,
+		"group_policy": "` + string(groupPolicy) + `",
 		"rules": [
 			{
 				"id": "rule-quota-low",
@@ -62,9 +64,14 @@ func withReset(fact policy.QuotaWindowFact, resetAt time.Time) policy.QuotaWindo
 }
 
 // quotaRuntime compiles the low-quota policy at the requested binding scope over group 1.
+// 凭据作用域显式 override，否则默认 inherit 会忽略本地规则。
 func quotaRuntime(t *testing.T, scope string, credentialID uint) *state.ConfigSnapshot {
 	t.Helper()
-	binding := policy.BindingConfig{Scope: scope, GroupID: 1, Config: quotaLowPolicyJSON()}
+	groupPolicy := policy.GroupPolicyInherit
+	if scope == "credential" {
+		groupPolicy = policy.GroupPolicyOverride
+	}
+	binding := policy.BindingConfig{Scope: scope, GroupID: 1, Config: quotaLowPolicyJSON(groupPolicy)}
 	if scope == "credential" {
 		binding.CredentialID = credentialID
 	}

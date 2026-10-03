@@ -170,6 +170,11 @@ const policyTarget = computed({
     credentialView.value = { id: row?.id ?? 0, mode: 'policy' }
   },
 })
+function openCredentialPolicy(credentialID: number): void {
+  void router.replace({
+    query: { ...route.query, credential: String(credentialID), credential_view: 'policy' },
+  })
+}
 const resetTarget = ref<CredentialRow>()
 const resetKeys = new Map<number, string>()
 const cardErrors = ref(new Map<number, string>())
@@ -778,7 +783,7 @@ async function action(row: CredentialRow, value: string): Promise<void> {
     return
   }
   if (value === 'policy') {
-    policyTarget.value = row
+    openCredentialPolicy(row.id)
     return
   }
   if (value === 'test') {
@@ -1216,7 +1221,7 @@ defineExpose({ refresh })
     :channel="channel"
     @close="detail = undefined"
     @saved="saved"
-    @policy="credentialView = { id: credentialView.id, mode: 'policy' }"
+    @policy="openCredentialPolicy(credentialView.id)"
   />
   <GroupPolicyPanel
     v-if="policyTarget"

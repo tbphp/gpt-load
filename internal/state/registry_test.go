@@ -1345,3 +1345,137 @@ func keyStatus(t *testing.T, registry *CredentialRegistry, credentialID uint) Cr
 	}
 	return registry.buckets[groupID][credentialID].Status
 }
+
+func TestRegistry_SnapshotForScope(t *testing.T) {
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 10, GroupID: 1, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "fp-10", EncryptedValue: "cipher-10"},
+		{ID: 11, GroupID: 1, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "fp-11", EncryptedValue: "cipher-11"},
+		{ID: 20, GroupID: 2, Status: CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "fp-20", EncryptedValue: "cipher-20"},
+	})
+
+	// 1. (0, 0) returns full snapshot
+	all := registry.SnapshotForScope(0, 0)
+	if len(all) != 3 || all[0].ID != 10 || all[1].ID != 11 || all[2].ID != 20 {
+		t.Fatalf("SnapshotForScope(0, 0) = %+v, want [10, 11, 20]", all)
+	}
+
+	// 2. (1, 0) returns group 1 only
+	g1 := registry.SnapshotForScope(1, 0)
+	if len(g1) != 2 || g1[0].ID != 10 || g1[1].ID != 11 {
+		t.Fatalf("SnapshotForScope(1, 0) = %+v, want [10, 11]", g1)
+	}
+
+	// 3. (2, 0) returns group 2 only
+	g2 := registry.SnapshotForScope(2, 0)
+	if len(g2) != 1 || g2[0].ID != 20 {
+		t.Fatalf("SnapshotForScope(2, 0) = %+v, want [20]", g2)
+	}
+
+	// 4. (1, 10) returns specific credential in group
+	c10 := registry.SnapshotForScope(1, 10)
+	if len(c10) != 1 || c10[0].ID != 10 {
+		t.Fatalf("SnapshotForScope(1, 10) = %+v, want [10]", c10)
+	}
+
+	// 5. (1, 20) returns empty (cred 20 not in group 1)
+	cMismatch := registry.SnapshotForScope(1, 20)
+	if len(cMismatch) != 0 {
+		t.Fatalf("SnapshotForScope(1, 20) = %+v, want empty", cMismatch)
+	}
+
+	// 6. (0, 20) finds credential 20 by ID across groups
+	c20 := registry.SnapshotForScope(0, 20)
+	if len(c20) != 1 || c20[0].ID != 20 {
+		t.Fatalf("SnapshotForScope(0, 20) = %+v, want [20]", c20)
+	}
+
+	// 7. Missing group or missing credential returns non-nil empty slice
+	if missing := registry.SnapshotForScope(99, 0); len(missing) != 0 {
+		t.Fatalf("SnapshotForScope(99, 0) = %+v, want empty", missing)
+	}
+	if missing := registry.SnapshotForScope(0, 99); len(missing) != 0 {
+		t.Fatalf("SnapshotForScope(0, 99) = %+v, want empty", missing)
+	}
+
+	// 8. Nil registry returns empty slice
+	var nilReg *CredentialRegistry
+	if nilSnap := nilReg.SnapshotForScope(1, 10); len(nilSnap) != 0 {
+		t.Fatalf("nilReg.SnapshotForScope = %+v, want empty", nilSnap)
+	}
+}
+
+func TestRegistry_CredentialQuotaWindows(t *testing.T) {
+	registry := NewCredentialRegistry()
+	mustReplaceKeyEntries(t, registry, []CredentialEntry{
+		{ID: 10, GroupID: 1, Status: CredentialStatusActive, AuthState: CredentialAuthStateReady, Version: 1, IdentityGeneration: 5, Fingerprint: "fp-10", EncryptedValue: "cipher-10"},
+		{ID: 11, GroupID: 1, Status: CredentialStatusDisabled, AuthState: CredentialAuthStateReady, Version: 1, IdentityGeneration: 1, Fingerprint: "fp-11", EncryptedValue: "cipher-11"},
+		{ID: 12, GroupID: 1, Status: CredentialStatusActive, AuthState: CredentialAuthStateReauthorizationRequired, Version: 1, IdentityGeneration: 1, Fingerprint: "fp-12", EncryptedValue: "cipher-12"},
+	})
+
+	// Set observation on cred 10 via ApplyQuotaWindows
+	windowSec := int64(18000)
+	utilization := 0.75
+	resetAt := time.Now().Add(time.Hour).UnixMilli()
+	observedAt := time.Now().UnixMilli()
+	windows := []providerobservation.QuotaWindow{
+		{
+			ID: "primary", Scope: "account", WindowSeconds: &windowSec,
+			State: "available", Utilization: &utilization,
+			ResetAtMS: &resetAt, ObservedAtMS: &observedAt,
+		},
+	}
+	if !registry.ApplyQuotaWindows(10, 5, windows) {
+		t.Fatal("ApplyQuotaWindows failed")
+	}
+
+	// 1. Success with exact identity generation
+	facts, ok := registry.CredentialQuotaWindows(10, 5)
+	if !ok {
+		t.Fatalf("CredentialQuotaWindows(10, 5) ok = false, want true")
+	}
+	if len(facts) != 1 || facts[0].Scope != "account" || facts[0].Ratio != 0.25 {
+		t.Fatalf("unexpected quota facts: %+v", facts)
+	}
+
+	// 2. Generation = 0 is rejected (identity zero disallowed, strict identity check)
+	if _, ok := registry.CredentialQuotaWindows(10, 0); ok {
+		t.Fatal("CredentialQuotaWindows with generation=0 succeeded, want false")
+	}
+
+	// 3. Identity generation mismatch returns false
+	if _, ok := registry.CredentialQuotaWindows(10, 4); ok {
+		t.Fatal("CredentialQuotaWindows with wrong generation succeeded, want false")
+	}
+
+	// 4. Missing credential returns false
+	if _, ok := registry.CredentialQuotaWindows(99, 1); ok {
+		t.Fatal("CredentialQuotaWindows on missing credential succeeded, want false")
+	}
+
+	// 5. Disabled credential returns false
+	if _, ok := registry.CredentialQuotaWindows(11, 1); ok {
+		t.Fatal("CredentialQuotaWindows on disabled credential succeeded, want false")
+	}
+
+	// 6. Non-ready auth state returns false
+	if _, ok := registry.CredentialQuotaWindows(12, 1); ok {
+		t.Fatal("CredentialQuotaWindows on unready auth credential succeeded, want false")
+	}
+
+	// 7. Cooldown does NOT prevent reading quota windows (independent of scheduling cooldown)
+	if !registry.SetCooldown(10, time.Now().Add(time.Hour)) {
+		t.Fatal("SetCooldown failed")
+	}
+	factsAfterCooldown, ok := registry.CredentialQuotaWindows(10, 5)
+	if !ok || len(factsAfterCooldown) != 1 {
+		t.Fatalf("CredentialQuotaWindows during cooldown failed: ok=%v, facts=%+v", ok, factsAfterCooldown)
+	}
+
+	// 8. Mutating returned slice does not corrupt registry facts
+	facts[0].Ratio = 0.99
+	reRead, _ := registry.CredentialQuotaWindows(10, 5)
+	if reRead[0].Ratio != 0.25 {
+		t.Fatalf("reRead ratio corrupted by caller mutation: %v, want 0.25", reRead[0].Ratio)
+	}
+}

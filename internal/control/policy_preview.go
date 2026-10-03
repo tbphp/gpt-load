@@ -249,12 +249,20 @@ func (s *Service) previewPolicyInternal(
 		isDraftProvided = true
 	}
 
+	// 分组草稿仅允许 inherit：与保存、运行时编译保持一致
+	if scope == "group" && draftCompiled.GroupPolicyMode() == policy.GroupPolicyOverride {
+		return PolicyPreviewResponse{}, app_errors.NewAPIErrorWithData(
+			app_errors.ErrValidation,
+			"group scope policy cannot use group_policy 'override'",
+		)
+	}
+
 	// 解析请求模型对应的有效上游目标
 	seenTargets := make(map[string]struct{})
 	var targets []string
 	for _, m := range group.Models {
 		clientName := externalModelName(m)
-		if clientName == requestModel || m.ID == requestModel {
+		if clientName == requestModel {
 			if _, seen := seenTargets[m.ID]; !seen {
 				seenTargets[m.ID] = struct{}{}
 				targets = append(targets, m.ID)
@@ -274,40 +282,31 @@ func (s *Service) previewPolicyInternal(
 		)
 	}
 
-	// 预算预检：在分配输出前检查 candidate × targets × (groupNodes + maxCredNodes)
-	var groupNodes int
-	if scope == "group" {
-		if isDraftProvided {
-			groupNodes = draftCompiled.NodeCount()
-		} else if snapshot.Policies != nil && snapshot.Policies.GroupPolicy(groupID) != nil {
-			groupNodes = snapshot.Policies.GroupPolicy(groupID).NodeCount()
-		}
-	} else {
-		if snapshot.Policies != nil && snapshot.Policies.GroupPolicy(groupID) != nil {
-			groupNodes = snapshot.Policies.GroupPolicy(groupID).NodeCount()
-		}
-	}
-
-	var maxCredNodes int
-	if scope == "credential" {
-		if isDraftProvided {
-			maxCredNodes = draftCompiled.NodeCount()
-		} else if snapshot.Policies != nil && snapshot.Policies.CredentialPolicy(credentialID) != nil {
-			maxCredNodes = snapshot.Policies.CredentialPolicy(credentialID).NodeCount()
-		}
-	} else {
+	// 预算与求值使用同一来源选择，不计入被覆盖模式忽略的分组规则。
+	selectPolicies := func(id uint) (groupConfig, credConfig *policy.CompiledConfig, groupDraft, credDraft bool) {
+		var savedGroup, savedCred *policy.CompiledConfig
 		if snapshot.Policies != nil {
-			for _, cand := range candidates {
-				if cp := snapshot.Policies.CredentialPolicy(cand.ID); cp != nil {
-					if cnt := cp.NodeCount(); cnt > maxCredNodes {
-						maxCredNodes = cnt
-					}
-				}
-			}
+			savedGroup = snapshot.Policies.GroupPolicy(groupID)
+			savedCred = snapshot.Policies.CredentialPolicy(id)
 		}
+		currentCred := savedCred
+		if scope == "credential" && isDraftProvided {
+			currentCred = draftCompiled
+		}
+		if currentCred.GroupPolicyMode() == policy.GroupPolicyOverride {
+			return nil, currentCred, false, scope == "credential" && isDraftProvided
+		}
+		if scope == "group" && isDraftProvided {
+			return draftCompiled, currentCred, true, false
+		}
+		return savedGroup, currentCred, false, scope == "credential" && isDraftProvided
 	}
 
-	estimatedTotalNodes := len(candidates) * len(targets) * (groupNodes + maxCredNodes)
+	var estimatedTotalNodes int
+	for _, cred := range candidates {
+		gp, cp, _, _ := selectPolicies(cred.ID)
+		estimatedTotalNodes += len(targets) * (gp.NodeCount() + cp.NodeCount())
+	}
 	if estimatedTotalNodes > maxPreviewTotalNodes {
 		return PolicyPreviewResponse{}, app_errors.NewAPIErrorWithData(
 			app_errors.ErrValidation,
@@ -318,6 +317,12 @@ func (s *Service) previewPolicyInternal(
 	// 纯求值各候选与目标
 	candidateResponses := make([]PolicyPreviewCandidateResponse, 0, len(candidates))
 	for _, cred := range candidates {
+		groupCompiledToUse, credCompiledToUse, isGroupDraft, isCredDraft := selectPolicies(cred.ID)
+		var groupSavedRev, credSavedRev uint64
+		if snapshot.Policies != nil {
+			groupSavedRev = snapshot.Policies.GroupRevision(groupID)
+			credSavedRev = snapshot.Policies.CredentialRevision(cred.ID)
+		}
 		targetResponses := make([]PolicyPreviewTargetResponse, 0, len(targets))
 		for _, targetUpstream := range targets {
 			evalCtx := &policy.EvalContext{
@@ -325,28 +330,27 @@ func (s *Service) previewPolicyInternal(
 				QuotaNow:      realNow,
 				RequestModel:  policy.StringFact{Value: requestModel, State: policy.FactStateMeasured},
 				UpstreamModel: policy.StringFact{Value: targetUpstream, State: policy.FactStateMeasured},
-				QuotaWindows:  policy.CloneQuotaWindows(cred.QuotaWindows),
+				QuotaWindows:  cred.QuotaWindows,
 			}
 
-			// 评估策略规则（分组或凭据）
-			evalPolicyBinding := func(scopeName string, compiled *policy.CompiledConfig, isDraft bool, savedRev uint64) ([]PolicyPreviewRuleResponse, bool, *policy.SchedulingMatch, []policy.PricingMatch) {
+			schedulingRes := PolicyPreviewSchedulingResultResponse{}
+			pricingRes := PolicyPreviewPricingResultResponse{
+				Matches: []PolicyPreviewPricingMatchResponse{},
+				Factors: []string{},
+			}
+			var multipliers []pricing.PriceMultiplier
+			// 在解释规则的同一次遍历中生成响应，分组在前、账号在后。
+			evalPolicyBinding := func(scopeName string, compiled *policy.CompiledConfig, isDraft bool, savedRev uint64) []PolicyPreviewRuleResponse {
 				ruleResponses := make([]PolicyPreviewRuleResponse, 0)
-				var excluded bool
-				var excludeReason *policy.SchedulingMatch
-				var pricingMatches []policy.PricingMatch
-
 				if compiled == nil {
-					return ruleResponses, excluded, excludeReason, pricingMatches
+					return ruleResponses
 				}
-
 				inspectRes := compiled.Inspect(evalCtx)
 				prov := "saved"
-				revText := "0"
+				revText := strconv.FormatUint(savedRev, 10)
 				if isDraft {
 					prov = "draft"
 					revText = "draft"
-				} else if snapshot.Policies != nil {
-					revText = strconv.FormatUint(savedRev, 10)
 				}
 				for _, r := range inspectRes.Rules {
 					actDTO := PolicyPreviewRuleActionResponse{
@@ -368,84 +372,38 @@ func (s *Service) previewPolicyInternal(
 						Condition:    r.Condition,
 						Action:       actDTO,
 					})
-					if r.Status == policy.RuleStatusHit {
-						if r.Domain == policy.DomainScheduling && r.Action.Type == policy.ActionExcludeCandidate {
-							if !excluded {
-								excluded = true
-								excludeReason = &policy.SchedulingMatch{
-									RuleID:       r.RuleID,
-									NameSnapshot: r.NameSnapshot,
-									Domain:       r.Domain,
-								}
-							}
-						} else if r.Domain == policy.DomainPricing && r.Action.Type == policy.ActionMultiplyPrice {
-							pricingMatches = append(pricingMatches, policy.PricingMatch{
+					if r.Status != policy.RuleStatusHit {
+						continue
+					}
+					if r.Domain == policy.DomainScheduling && r.Action.Type == policy.ActionExcludeCandidate {
+						if !schedulingRes.Excluded {
+							schedulingRes.Excluded = true
+							schedulingRes.Reason = &PolicyPreviewSchedulingReasonResponse{
 								RuleID:       r.RuleID,
 								NameSnapshot: r.NameSnapshot,
-								Domain:       r.Domain,
-								Factor:       r.Action.Factor,
-								Multiplier:   r.Action.Multiplier,
-								BindingScope: scopeName,
-							})
+								Domain:       string(r.Domain),
+							}
 						}
+					} else if r.Domain == policy.DomainPricing && r.Action.Type == policy.ActionMultiplyPrice {
+						pricingRes.Matches = append(pricingRes.Matches, PolicyPreviewPricingMatchResponse{
+							RuleID:       r.RuleID,
+							NameSnapshot: r.NameSnapshot,
+							Domain:       string(r.Domain),
+							Factor:       r.Action.Factor,
+							Multiplier:   pricing.FormatPriceMultiplier(r.Action.Multiplier),
+							BindingScope: scopeName,
+							Provenance:   prov,
+							RevisionText: revText,
+						})
+						pricingRes.Factors = append(pricingRes.Factors, r.Action.Factor)
+						multipliers = append(multipliers, r.Action.Multiplier)
 					}
 				}
-				return ruleResponses, excluded, excludeReason, pricingMatches
+				return ruleResponses
 			}
-
-			// 1. 分组规则评估
-			var groupCompiledToUse *policy.CompiledConfig
-			isGroupDraft := false
-			if scope == "group" {
-				if isDraftProvided {
-					groupCompiledToUse = draftCompiled
-					isGroupDraft = true
-				} else if snapshot.Policies != nil {
-					groupCompiledToUse = snapshot.Policies.GroupPolicy(groupID)
-				}
-			} else {
-				if snapshot.Policies != nil {
-					groupCompiledToUse = snapshot.Policies.GroupPolicy(groupID)
-				}
-			}
-
-			var groupSavedRev, credSavedRev uint64
-			if snapshot.Policies != nil {
-				groupSavedRev = snapshot.Policies.GroupRevision(groupID)
-				credSavedRev = snapshot.Policies.CredentialRevision(cred.ID)
-			}
-			groupRuleResponses, groupExcluded, groupExcludeReason, groupPricingMatches := evalPolicyBinding("group", groupCompiledToUse, isGroupDraft, groupSavedRev)
-
-			// 2. 凭据规则评估
-			var credCompiledToUse *policy.CompiledConfig
-			isCredDraft := false
-			if scope == "credential" {
-				if isDraftProvided {
-					credCompiledToUse = draftCompiled
-					isCredDraft = true
-				} else if snapshot.Policies != nil {
-					credCompiledToUse = snapshot.Policies.CredentialPolicy(cred.ID)
-				}
-			} else {
-				if snapshot.Policies != nil {
-					credCompiledToUse = snapshot.Policies.CredentialPolicy(cred.ID)
-				}
-			}
-
-			credRuleResponses, credExcluded, credExcludeReason, credPricingMatches := evalPolicyBinding("credential", credCompiledToUse, isCredDraft, credSavedRev)
-
-			// 最终调度：分组优先，然后凭据
-			finalExcluded := groupExcluded || credExcluded
-			var finalReason *policy.SchedulingMatch
-			if groupExcluded {
-				finalReason = groupExcludeReason
-			} else if credExcluded {
-				finalReason = credExcludeReason
-			}
-
-			// 最终计费：分组优先，然后凭据
-			allMatches := append(groupPricingMatches, credPricingMatches...)
-			pricingRes := formatPreviewPricing(allMatches, isGroupDraft, isCredDraft, snapshot, groupID, cred.ID)
+			groupRuleResponses := evalPolicyBinding("group", groupCompiledToUse, isGroupDraft, groupSavedRev)
+			credRuleResponses := evalPolicyBinding("credential", credCompiledToUse, isCredDraft, credSavedRev)
+			pricingRes.CumulativeMultiplier = computeCumulativeMultiplierString(multipliers)
 
 			// 硬性可用性状态与模型冷却
 			available := true
@@ -479,26 +437,14 @@ func (s *Service) previewPolicyInternal(
 				}
 			}
 
-			var reasonDTO *PolicyPreviewSchedulingReasonResponse
-			if finalReason != nil {
-				reasonDTO = &PolicyPreviewSchedulingReasonResponse{
-					RuleID:       finalReason.RuleID,
-					NameSnapshot: finalReason.NameSnapshot,
-					Domain:       string(finalReason.Domain),
-				}
-			}
-
 			targetResponses = append(targetResponses, PolicyPreviewTargetResponse{
 				UpstreamModel:   targetUpstream,
 				Available:       available,
 				HardFilterState: hardFilterState,
 				GroupRules:      groupRuleResponses,
 				CredentialRules: credRuleResponses,
-				Scheduling: PolicyPreviewSchedulingResultResponse{
-					Excluded: finalExcluded,
-					Reason:   reasonDTO,
-				},
-				Pricing: pricingRes,
+				Scheduling:      schedulingRes,
+				Pricing:         pricingRes,
 			})
 		}
 
@@ -529,68 +475,6 @@ func (s *Service) previewPolicyInternal(
 		CaveatCodes:          caveatCodes,
 		Candidates:           candidateResponses,
 	}, nil
-}
-
-func formatPreviewPricing(
-	matches []policy.PricingMatch,
-	isGroupDraft bool,
-	isCredDraft bool,
-	snapshot *state.ConfigSnapshot,
-	groupID uint,
-	credID uint,
-) PolicyPreviewPricingResultResponse {
-	if len(matches) == 0 {
-		return PolicyPreviewPricingResultResponse{
-			Matches:              []PolicyPreviewPricingMatchResponse{},
-			Factors:              []string{},
-			CumulativeMultiplier: "1",
-		}
-	}
-
-	matchResponses := make([]PolicyPreviewPricingMatchResponse, 0, len(matches))
-	factors := make([]string, 0, len(matches))
-	multipliers := make([]pricing.PriceMultiplier, 0, len(matches))
-
-	for _, m := range matches {
-		prov := "saved"
-		revText := "0"
-		if m.BindingScope == "group" {
-			if isGroupDraft {
-				prov = "draft"
-				revText = "draft"
-			} else if snapshot != nil && snapshot.Policies != nil {
-				revText = strconv.FormatUint(snapshot.Policies.GroupRevision(groupID), 10)
-			}
-		} else {
-			if isCredDraft {
-				prov = "draft"
-				revText = "draft"
-			} else if snapshot != nil && snapshot.Policies != nil {
-				revText = strconv.FormatUint(snapshot.Policies.CredentialRevision(credID), 10)
-			}
-		}
-
-		matchResponses = append(matchResponses, PolicyPreviewPricingMatchResponse{
-			RuleID:       m.RuleID,
-			NameSnapshot: m.NameSnapshot,
-			Domain:       string(m.Domain),
-			Factor:       m.Factor,
-			Multiplier:   pricing.FormatPriceMultiplier(m.Multiplier),
-			BindingScope: m.BindingScope,
-			Provenance:   prov,
-			RevisionText: revText,
-		})
-		factors = append(factors, m.Factor)
-		multipliers = append(multipliers, m.Multiplier)
-	}
-
-	cumMultiplier := computeCumulativeMultiplierString(multipliers)
-
-	return PolicyPreviewPricingResultResponse{
-		Matches:              matchResponses,
-		Factors:              factors,
-		CumulativeMultiplier: cumMultiplier,
-	}
 }
 
 func computeCumulativeMultiplierString(multipliers []pricing.PriceMultiplier) string {

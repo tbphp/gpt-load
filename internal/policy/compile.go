@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -21,21 +22,19 @@ func Empty() *CompiledConfig {
 
 // Clone 返回配置的深拷贝，对 nil 接收者安全并返回不可变空配置
 func (c *CompiledConfig) Clone() *CompiledConfig {
-	if c == nil || c.rules == nil {
+	if c == nil {
 		return Empty()
 	}
-	cloned := make([]Rule, len(c.rules))
-	for i, r := range c.rules {
-		cloned[i] = Rule{
-			ID:      r.ID,
-			Name:    r.Name,
-			Domain:  r.Domain,
-			Enabled: r.Enabled,
-			When:    cloneConditionNode(r.When),
-			Then:    r.Then,
-		}
+	cloned := &CompiledConfig{groupPolicy: c.GroupPolicyMode()}
+	if c.rules == nil {
+		return cloned
 	}
-	return &CompiledConfig{rules: cloned}
+	cloned.rules = make([]Rule, len(c.rules))
+	for i, r := range c.rules {
+		cloned.rules[i] = r
+		cloned.rules[i].When = cloneConditionNode(r.When)
+	}
+	return cloned
 }
 
 // Rules 返回配置中规则列表的深拷贝切片，保护内部 When 语法树指针
@@ -55,45 +54,20 @@ func cloneConditionNode(node *ConditionNode) *ConditionNode {
 	if node == nil {
 		return nil
 	}
-	cloned := &ConditionNode{
-		Kind:      node.Kind,
-		Fact:      node.Fact,
-		ParamType: node.ParamType,
-		IsQuota:   node.IsQuota,
-		Op:        node.Op,
-		StrValue:  node.StrValue,
-		NumValue:  node.NumValue,
-		NumShift:  node.NumShift,
-		Reduce:    node.Reduce,
-	}
-	if node.InValues != nil {
-		cloned.InValues = make([]string, len(node.InValues))
-		copy(cloned.InValues, node.InValues)
-	}
+	cloned := *node
+	cloned.InValues = slices.Clone(node.InValues)
 	if node.Selector != nil {
-		cloned.Selector = &QuotaSelector{
-			Scope:         node.Selector.Scope,
-			WindowSeconds: node.Selector.WindowSeconds,
-		}
+		selector := *node.Selector
+		cloned.Selector = &selector
 	}
-	if node.Weekdays != nil {
-		cloned.Weekdays = make([]int, len(node.Weekdays))
-		copy(cloned.Weekdays, node.Weekdays)
+	cloned.Weekdays = slices.Clone(node.Weekdays)
+	cloned.Ranges = slices.Clone(node.Ranges)
+	cloned.Children = slices.Clone(node.Children)
+	for i, child := range node.Children {
+		cloned.Children[i] = cloneConditionNode(child)
 	}
-	if node.Ranges != nil {
-		cloned.Ranges = make([]TimeRange, len(node.Ranges))
-		copy(cloned.Ranges, node.Ranges)
-	}
-	if node.Children != nil {
-		cloned.Children = make([]*ConditionNode, len(node.Children))
-		for i, child := range node.Children {
-			cloned.Children[i] = cloneConditionNode(child)
-		}
-	}
-	if node.Child != nil {
-		cloned.Child = cloneConditionNode(node.Child)
-	}
-	return cloned
+	cloned.Child = cloneConditionNode(node.Child)
+	return &cloned
 }
 
 // Compile 使用默认注册表编译规则配置正文
@@ -153,9 +127,9 @@ func CompileWithRegistry(data []byte, reg *Registry) (*CompiledConfig, error) {
 		}
 	}
 
-	// 根字段校验：必须且仅允许 schema_version 和 rules
+	// 根字段校验：必须且仅允许 schema_version、rules 与可选的 group_policy
 	for k := range rootObj {
-		if k != "schema_version" && k != "rules" {
+		if k != "schema_version" && k != "rules" && k != "group_policy" {
 			return nil, &ValidationError{
 				Path:    k,
 				Code:    ErrCodeUnknownField,
@@ -201,6 +175,29 @@ func CompileWithRegistry(data []byte, reg *Registry) (*CompiledConfig, error) {
 		}
 	}
 
+	// 可选 group_policy：缺省为 inherit；仅接受字符串 "inherit"/"override"，拒绝 null/未知值
+	groupPolicy := GroupPolicyInherit
+	if rawGroupPolicy, hasGroupPolicy := rootObj["group_policy"]; hasGroupPolicy {
+		groupPolicyStr, ok := rawGroupPolicy.(string)
+		if !ok {
+			return nil, &ValidationError{
+				Path:    "group_policy",
+				Code:    ErrCodeInvalidType,
+				Message: "group_policy must be string 'inherit' or 'override'",
+			}
+		}
+		switch GroupPolicyMode(groupPolicyStr) {
+		case GroupPolicyInherit, GroupPolicyOverride:
+			groupPolicy = GroupPolicyMode(groupPolicyStr)
+		default:
+			return nil, &ValidationError{
+				Path:    "group_policy",
+				Code:    ErrCodeInvalidValue,
+				Message: fmt.Sprintf("invalid group_policy %q, must be 'inherit' or 'override'", groupPolicyStr),
+			}
+		}
+	}
+
 	rawRulesVal, hasRules := rootObj["rules"]
 	if !hasRules {
 		return nil, &ValidationError{
@@ -227,7 +224,7 @@ func CompileWithRegistry(data []byte, reg *Registry) (*CompiledConfig, error) {
 	}
 
 	if len(rawRules) == 0 {
-		return Empty(), nil
+		return &CompiledConfig{groupPolicy: groupPolicy}, nil
 	}
 
 	seenIDs := make(map[string]struct{}, len(rawRules))
@@ -271,7 +268,7 @@ func CompileWithRegistry(data []byte, reg *Registry) (*CompiledConfig, error) {
 		compiledRules = append(compiledRules, rule)
 	}
 
-	return &CompiledConfig{rules: compiledRules}, nil
+	return &CompiledConfig{rules: compiledRules, groupPolicy: groupPolicy}, nil
 }
 
 func compileRule(obj map[string]any, path string, reg *Registry) (Rule, int, error) {
@@ -833,10 +830,9 @@ func compileCondition(raw any, depth int, path string, reg *Registry, totalNodes
 			}
 
 			return &ConditionNode{
-				Kind:      ConditionKindTimeWindow,
-				Predicate: "time_window",
-				Weekdays:  weekdays,
-				Ranges:    timeRanges,
+				Kind:     ConditionKindTimeWindow,
+				Weekdays: weekdays,
+				Ranges:   timeRanges,
 			}, nil
 
 		default:
@@ -1245,7 +1241,6 @@ func parseStrictValue(dec *json.Decoder, depth int, path string) (any, error) {
 		switch t {
 		case '{':
 			obj := make(map[string]any)
-			seenKeys := make(map[string]struct{})
 			for dec.More() {
 				keyTok, err := dec.Token()
 				if err != nil {
@@ -1264,14 +1259,13 @@ func parseStrictValue(dec *json.Decoder, depth int, path string) (any, error) {
 					}
 				}
 				subPath := joinPath(path, key)
-				if _, exists := seenKeys[key]; exists {
+				if _, exists := obj[key]; exists {
 					return nil, &ValidationError{
 						Path:    subPath,
 						Code:    ErrCodeDuplicateKey,
 						Message: fmt.Sprintf("duplicate field %q", key),
 					}
 				}
-				seenKeys[key] = struct{}{}
 
 				val, err := parseStrictValue(dec, depth+1, subPath)
 				if err != nil {

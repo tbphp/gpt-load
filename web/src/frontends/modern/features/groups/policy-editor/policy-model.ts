@@ -16,9 +16,7 @@ export interface PolicyLimits {
   maxNodesPerRule: number
   maxNodesPerConfig: number
   maxListItems: number
-  maxIDLength: number
   maxNameLength: number
-  maxModelLength: number
 }
 
 export const policyLimits: PolicyLimits = {
@@ -30,14 +28,33 @@ export const policyLimits: PolicyLimits = {
   maxNodesPerRule: 256,
   maxNodesPerConfig: 4096,
   maxListItems: 100,
-  maxIDLength: 64,
   maxNameLength: 128,
-  maxModelLength: 255,
 }
 
-export const policyIDPattern = /^[A-Za-z0-9_-]+$/
 export const quotaScopeAccount = 'account'
 export const quotaReduceMin = 'min'
+// 额度参数的 canonical fact key；UI 选择器用 `quota:<seconds>` token 表示“额度比例 + 具体窗口”。
+export const quotaFactKey = 'credential.quota.remaining_ratio'
+
+export function quotaWindowToken(rawWindow: string): string {
+  return `quota:${rawWindow}`
+}
+
+export function quotaWindowFromToken(token: unknown): string | undefined {
+  if (typeof token !== 'string') return undefined
+  const match = token.match(/^quota:([1-9]\d*)$/)
+  return match ? match[1] : undefined
+}
+
+// 只用于 UI 文案的紧凑窗口展示（5h / 7d / 90m / 90000s），不参与落盘。
+export function formatQuotaWindow(rawWindow: string): string {
+  const total = Number(rawWindow)
+  if (!Number.isSafeInteger(total) || total <= 0) return `${rawWindow}s`
+  if (total % 86400 === 0) return `${total / 86400}d`
+  if (total % 3600 === 0) return `${total / 3600}h`
+  if (total % 60 === 0) return `${total / 60}m`
+  return `${total}s`
+}
 
 export type JsonLiteralKind = 'string' | 'number' | 'boolean' | 'null'
 
@@ -96,19 +113,33 @@ export function parseRawJson(text: string): JsonNode {
     }
   }
 
+  // 严格校验 JSON 字符串字面量：只接受标准转义（\" \\ \/ \b \f \n \r \t \uXXXX），
+  // 拒绝其他反斜杠转义与未转义的控制字符。返回值始终是原始切片，含转义序列，逐字保留。
   function parseStringRaw(): string {
     const start = index
     index++
     while (index < length) {
       const ch = text[index]
-      if (ch === '\\') {
-        index += 2
-        continue
-      }
       if (ch === '"') {
         index++
         return text.slice(start, index)
       }
+      if (ch === '\\') {
+        const escape = text[index + 1]
+        if (escape === 'u') {
+          if (!/^[0-9a-fA-F]{4}$/.test(text.slice(index + 2, index + 6))) {
+            return fail('invalid unicode escape in string')
+          }
+          index += 6
+          continue
+        }
+        if (escape === undefined || !'"\\/bfnrt'.includes(escape)) {
+          return fail('invalid escape sequence in string')
+        }
+        index += 2
+        continue
+      }
+      if (ch.charCodeAt(0) < 0x20) return fail('unescaped control character in string')
       index++
     }
     return fail('unterminated string')
@@ -143,6 +174,7 @@ export function parseRawJson(text: string): JsonNode {
 
   function parseObject(depth: number): JsonObjectNode {
     const entries: JsonObjectEntry[] = []
+    const seenKeys = new Set<string>()
     index++
     skipWhitespace()
     if (text[index] === '}') {
@@ -159,6 +191,13 @@ export function parseRawJson(text: string): JsonNode {
       } catch {
         return fail('invalid object key')
       }
+      // 按解码后的键判重：`"a"` 与 `"\u0061"` 是同一字段，与后端严格解析保持一致。
+      const duplicateKey = Array.from(key, (character) => {
+        const codePoint = character.codePointAt(0)!
+        return codePoint >= 0xd800 && codePoint <= 0xdfff ? '\ufffd' : character
+      }).join('')
+      if (seenKeys.has(duplicateKey)) return fail(`duplicate object key ${JSON.stringify(key)}`)
+      seenKeys.add(duplicateKey)
       skipWhitespace()
       if (text[index] !== ':') return fail('expected colon')
       index++
@@ -274,15 +313,6 @@ export function literalBoolean(node: JsonNode | undefined): boolean | undefined 
   return node.raw === 'true'
 }
 
-export function cloneJson(node: JsonNode): JsonNode {
-  if (node.type === 'literal') return { ...node }
-  if (node.type === 'array') return { type: 'array', items: node.items.map(cloneJson) }
-  return {
-    type: 'object',
-    entries: node.entries.map((entry) => ({ key: entry.key, value: cloneJson(entry.value) })),
-  }
-}
-
 // 返回新的对象节点，保留其余字段（包括可视化不认识的字段）。
 export function setField(node: JsonObjectNode, key: string, value: JsonNode): JsonObjectNode {
   const entries = node.entries.map((entry) => ({ ...entry }))
@@ -353,7 +383,6 @@ export type PolicyIssueCode =
   | 'nodePerConfig'
   | 'configBytes'
   | 'ruleShape'
-  | 'invalidValue'
   | 'unsupported'
 
 export interface PolicyIssue {
@@ -428,100 +457,23 @@ export function actionRepresentable(
   return false
 }
 
-// 仅做提示性校验：结构可渲染时保持可视化，值错误通过 issue 呈现，绝不因此丢弃节点。
-function reportStringListValues(
-  node: JsonNode | undefined,
-  path: string,
-  issues: PolicyIssue[],
-): void {
-  const items = arrayItems(node)
-  if (!items || items.length > policyLimits.maxListItems) {
-    issues.push({ code: 'invalidValue', path, fatal: false })
-    return
-  }
-  const seen = new Set<string>()
-  items.forEach((item, index) => {
-    const value = literalString(item)
-    if (
-      value === undefined ||
-      value.trim() === '' ||
-      value !== value.trim() ||
-      [...value].length > policyLimits.maxModelLength ||
-      seen.has(value)
-    ) {
-      issues.push({ code: 'invalidValue', path: `${path}[${index}]`, fatal: false })
-    }
-    if (value !== undefined) seen.add(value)
-  })
-}
+// 与后端 policy 编译保持一致：星期必须是 JSON 整数字面量（strconv.Atoi 语义）。
+// 1.0 / 1e0 / 高精度小数不是整数语法，绝不能经 Number 舍入后当成合法星期并被视觉改写。
+const jsonIntegerRawPattern = /^-?(?:0|[1-9]\d*)$/
 
-function reportWeekdayValues(
-  node: JsonNode | undefined,
-  path: string,
-  issues: PolicyIssue[],
-): void {
-  const items = arrayItems(node)
-  if (!items || items.length > 7) {
-    issues.push({ code: 'invalidValue', path, fatal: false })
-    return
-  }
-  const seen = new Set<number>()
-  items.forEach((item, index) => {
-    const raw = literalNumberRaw(item)
-    const value = raw === undefined ? Number.NaN : Number(raw)
-    if (!Number.isInteger(value) || value < 0 || value > 6 || seen.has(value)) {
-      issues.push({ code: 'invalidValue', path: `${path}[${index}]`, fatal: false })
-    }
-    if (Number.isInteger(value)) seen.add(value)
-  })
-}
-
-function reportRangeValues(node: JsonNode | undefined, path: string, issues: PolicyIssue[]): void {
-  const items = arrayItems(node)
-  if (!items || items.length > policyLimits.maxListItems) {
-    issues.push({ code: 'invalidValue', path, fatal: false })
-    return
-  }
-  items.forEach((item, index) => {
-    const pair = arrayItems(item)
-    if (!pair || pair.length !== 2) {
-      issues.push({ code: 'invalidValue', path: `${path}[${index}]`, fatal: false })
-      return
-    }
-    const start = literalString(pair[0])
-    const end = literalString(pair[1])
-    if (
-      start === undefined ||
-      end === undefined ||
-      !isTimeOfDay(start) ||
-      !isTimeOfDay(end) ||
-      start === end
-    ) {
-      issues.push({ code: 'invalidValue', path: `${path}[${index}]`, fatal: false })
-    }
-  })
-}
-
-// 可表示性：列表必须仍是非空、且每一项都是可编辑的标量形态；否则整个叶节点只能 JSON-only。
-// 值内容（空白/重复/越界时间）仍由 report* 提示，不影响可视化。
-function isStringListShape(node: JsonNode | undefined): boolean {
-  const items = arrayItems(node)
-  return Boolean(
-    items &&
-    items.length > 0 &&
-    items.length <= policyLimits.maxListItems &&
-    items.every((item) => literalString(item) !== undefined),
-  )
+function weekdayFromRaw(node: JsonNode | undefined): number | undefined {
+  const raw = literalNumberRaw(node)
+  if (raw === undefined || !jsonIntegerRawPattern.test(raw)) return undefined
+  const value = Number(raw)
+  return Number.isSafeInteger(value) ? value : undefined
 }
 
 function isWeekdaysShape(node: JsonNode | undefined): boolean {
   const items = arrayItems(node)
   if (!items || items.length === 0 || items.length > 7) return false
   return items.every((item) => {
-    const raw = literalNumberRaw(item)
-    if (raw === undefined) return false
-    const value = Number(raw)
-    return Number.isInteger(value) && value >= 0 && value <= 6
+    const value = weekdayFromRaw(item)
+    return value !== undefined && value >= 0 && value <= 6
   })
 }
 
@@ -539,23 +491,17 @@ function isRangesShape(node: JsonNode | undefined): boolean {
   })
 }
 
-export function conditionKind(
-  node: JsonNode | undefined,
-  path = '',
-  issues: PolicyIssue[] = [],
-): ConditionKind {
+export function conditionKind(node: JsonNode | undefined): ConditionKind {
   if (!node || node.type !== 'object') return 'unsupported'
   const keys = node.entries.map((entry) => entry.key)
   if (keys.length === 1 && keys[0] === 'all') {
     const items = arrayItems(getField(node, 'all'))
     if (!items) return 'unsupported'
-    if (items.length === 0) issues.push({ code: 'invalidValue', path, fatal: false })
     return 'all'
   }
   if (keys.length === 1 && keys[0] === 'any') {
     const items = arrayItems(getField(node, 'any'))
     if (!items) return 'unsupported'
-    if (items.length === 0) issues.push({ code: 'invalidValue', path, fatal: false })
     return 'any'
   }
   if (keys.length === 1 && keys[0] === 'not') {
@@ -572,8 +518,6 @@ export function conditionKind(
     const weekdays = getField(node, 'weekdays')
     const ranges = getField(node, 'ranges')
     if (!isWeekdaysShape(weekdays) || !isRangesShape(ranges)) return 'unsupported'
-    reportWeekdayValues(weekdays, `${path}.weekdays`, issues)
-    reportRangeValues(ranges, `${path}.ranges`, issues)
     return 'time_window'
   }
   if (keys.includes('fact')) {
@@ -590,20 +534,12 @@ export function conditionKind(
       const window = literalNumberRaw(getField(select, 'window_seconds'))
       if (window === undefined || !/^[1-9]\d*$/.test(window)) return 'unsupported'
       if (literalString(getField(node, 'reduce')) !== quotaReduceMin) return 'unsupported'
-      if (literalNumberRaw(getField(node, 'value')) === undefined) return 'unsupported'
-      if (!isRatioRaw(literalNumberRaw(getField(node, 'value')) ?? '')) {
-        issues.push({ code: 'invalidValue', path: `${path}.value`, fatal: false })
-      }
+      const valRaw = literalNumberRaw(getField(node, 'value'))
+      if (valRaw === undefined || !isRatioRaw(valRaw)) return 'unsupported'
       return 'param'
     }
     if (!keysEqual(node, ['fact', 'op', 'value'])) return 'unsupported'
-    if (op === 'eq') {
-      if (literalString(getField(node, 'value')) === undefined) return 'unsupported'
-    } else {
-      const value = getField(node, 'value')
-      if (!isStringListShape(value)) return 'unsupported'
-      reportStringListValues(value, `${path}.value`, issues)
-    }
+    if (literalString(getField(node, 'value')) === undefined) return 'unsupported'
     return 'param'
   }
   return 'unsupported'
@@ -612,14 +548,6 @@ export function conditionKind(
 export interface VisualRule {
   index: number
   node: JsonObjectNode
-  id: string
-  name: string
-  domain: PolicyDomain | ''
-  enabled: boolean
-  enabledValid: boolean
-  when: JsonNode | undefined
-  then: JsonNode | undefined
-  actionType: string
 }
 
 export interface VisualDocumentResult {
@@ -646,7 +574,7 @@ function inspectCondition(
   if (counters.nodes > policyLimits.maxNodesPerRule) {
     issues.push({ code: 'nodePerRule', path, fatal: true })
   }
-  const kind = conditionKind(node, path, issues)
+  const kind = conditionKind(node)
   if (kind === 'unsupported') {
     issues.push({ code: 'unsupported', path, fatal: false })
     return
@@ -664,60 +592,26 @@ function inspectCondition(
   }
 }
 
-function readRule(node: JsonNode, index: number, issues: PolicyIssue[]): VisualRule | undefined {
-  if (node.type !== 'object') {
-    issues.push({ code: 'ruleShape', path: `rules[${index}]`, fatal: false })
-    return undefined
-  }
-  const idNode = getField(node, 'id')
-  const nameNode = getField(node, 'name')
-  const domainNode = getField(node, 'domain')
-  const enabledNode = getField(node, 'enabled')
-  const whenNode = getField(node, 'when')
-  const thenNode = getField(node, 'then')
-  const id = literalString(idNode)
-  const name = literalString(nameNode)
-  const domainRaw = literalString(domainNode)
-  const domain: PolicyDomain | '' =
-    domainRaw === 'scheduling' || domainRaw === 'pricing' ? domainRaw : ''
-  const enabled = literalBoolean(enabledNode)
-  const actionType = literalString(getField(thenNode, 'type')) ?? ''
-  if (id === undefined || !policyIDPattern.test(id) || id.length > policyLimits.maxIDLength) {
-    issues.push({ code: 'invalidValue', path: `rules[${index}].id`, fatal: false })
-  }
-  if (
-    name === undefined ||
-    name.trim() === '' ||
-    name !== name.trim() ||
-    [...name].length > policyLimits.maxNameLength
-  ) {
-    issues.push({ code: 'invalidValue', path: `rules[${index}].name`, fatal: false })
-  }
-  if (domain === '')
-    issues.push({ code: 'invalidValue', path: `rules[${index}].domain`, fatal: false })
-  if (enabled === undefined) {
-    issues.push({ code: 'invalidValue', path: `rules[${index}].enabled`, fatal: false })
-  }
-  const counters: Counters = { nodes: 0 }
-  if (whenNode) inspectCondition(whenNode, `rules[${index}].when`, 1, counters, issues)
-  else issues.push({ code: 'invalidValue', path: `rules[${index}].when`, fatal: false })
-  if (actionType === '')
-    issues.push({ code: 'invalidValue', path: `rules[${index}].then.type`, fatal: false })
-  return {
-    index,
-    node,
-    id: id ?? '',
-    name: name ?? '',
-    domain,
-    enabled: enabled ?? false,
-    enabledValid: enabled !== undefined,
-    when: whenNode,
-    then: thenNode,
-    actionType,
-  }
+// 解析顶层正文并做有界检查。任何一个 fatal 存在时都不得递归渲染条件树。
+export type GroupPolicyMode = 'inherit' | 'override'
+
+// 顶层 group_policy（credential policy 专用）：默认 inherit。未知取值不算 fatal，其余配置仍可编辑。
+export function groupPolicyMode(root: JsonNode | undefined): GroupPolicyMode {
+  return literalString(getField(root, 'group_policy')) === 'override' ? 'override' : 'inherit'
 }
 
-// 解析顶层正文并做有界检查。任何一个 fatal 存在时都不得递归渲染条件树。
+export function groupPolicyModeRepresentable(root: JsonNode | undefined): boolean {
+  const field = getField(root, 'group_policy')
+  if (!field) return true
+  const raw = literalString(field)
+  return raw === 'inherit' || raw === 'override'
+}
+
+// 只改 mode，其余 root 字段（含规则列表）原样保留。
+export function setGroupPolicyMode(root: JsonObjectNode, mode: GroupPolicyMode): JsonObjectNode {
+  return setField(root, 'group_policy', stringLiteral(mode))
+}
+
 export function readVisualDocument(text: string): VisualDocumentResult {
   const issues: PolicyIssue[] = []
   if (text.trim() === '') {
@@ -750,6 +644,10 @@ export function readVisualDocument(text: string): VisualDocumentResult {
     issues.push({ code: 'schemaVersion', path: 'schema_version', fatal: true })
     return { root, rules: [], issues }
   }
+  // 仅标记该字段不可视化，不将整份配置判为不可编辑。
+  if (!groupPolicyModeRepresentable(root)) {
+    issues.push({ code: 'unsupported', path: 'group_policy', fatal: false })
+  }
   const rulesNode = getField(root, 'rules')
   if (!rulesNode || rulesNode.type !== 'array') {
     issues.push({ code: 'rulesType', path: 'rules', fatal: true })
@@ -762,15 +660,15 @@ export function readVisualDocument(text: string): VisualDocumentResult {
   const rules: VisualRule[] = []
   let totalNodes = 0
   rulesNode.items.forEach((ruleNode, index) => {
-    const rule = readRule(ruleNode, index, issues)
-    if (rule) rules.push(rule)
-    // 单独统计总节点数；readRule 内的逐规则预算已进入 issues。
-    const when = rule?.when
-    if (when) {
-      const counters: Counters = { nodes: 0 }
-      inspectCondition(when, `rules[${index}].when`, 1, counters, [])
-      totalNodes += counters.nodes
+    const counters: Counters = { nodes: 0 }
+    if (ruleNode.type !== 'object') {
+      issues.push({ code: 'ruleShape', path: `rules[${index}]`, fatal: false })
+      return
     }
+    const when = getField(ruleNode, 'when')
+    if (when) inspectCondition(when, `rules[${index}].when`, 1, counters, issues)
+    rules.push({ index, node: ruleNode })
+    totalNodes += counters.nodes
   })
   if (totalNodes > policyLimits.maxNodesPerConfig) {
     issues.push({ code: 'nodePerConfig', path: 'rules', fatal: true })
@@ -811,30 +709,32 @@ export function newNotCondition(child: JsonNode = defaultLeaf()): JsonObjectNode
   return objectNode([{ key: 'not', value: child }])
 }
 
-export function newFactCondition(fact: string): JsonObjectNode {
+export function newQuotaFactCondition(windowRaw: string): JsonObjectNode {
+  return objectNode([
+    { key: 'fact', value: stringLiteral(quotaFactKey) },
+    {
+      key: 'select',
+      value: objectNode([
+        { key: 'scope', value: stringLiteral(quotaScopeAccount) },
+        { key: 'window_seconds', value: numberLiteral(windowRaw) ?? numberLiteral('1')! },
+      ]),
+    },
+    { key: 'reduce', value: stringLiteral(quotaReduceMin) },
+    { key: 'op', value: stringLiteral('lt') },
+    { key: 'value', value: numberLiteral('0.1')! },
+  ])
+}
+
+export function newFactCondition(fact: string, windowRaw?: string): JsonObjectNode {
   const definition = factDefinition(fact)
   if (!definition) return defaultLeaf()
-  if (definition.quota) {
-    return objectNode([
-      { key: 'fact', value: stringLiteral(fact) },
-      {
-        key: 'select',
-        value: objectNode([
-          { key: 'scope', value: stringLiteral(quotaScopeAccount) },
-          { key: 'window_seconds', value: numberLiteral('18000') ?? numberLiteral('1')! },
-        ]),
-      },
-      { key: 'reduce', value: stringLiteral(quotaReduceMin) },
-      { key: 'op', value: stringLiteral('lt') },
-      { key: 'value', value: numberLiteral('0.1')! },
-    ])
-  }
+  // 额度参数没有通用默认窗口，必须由调用方给出实际 catalog 窗口，否则回落到可编译默认叶子。
+  if (definition.quota) return windowRaw ? newQuotaFactCondition(windowRaw) : defaultLeaf()
   const op = definition.operators[0]
-  const value = op === 'in' ? arrayNode([stringLiteral('')]) : stringLiteral('')
   return objectNode([
     { key: 'fact', value: stringLiteral(fact) },
     { key: 'op', value: stringLiteral(op) },
-    { key: 'value', value },
+    { key: 'value', value: stringLiteral('') },
   ])
 }
 
@@ -870,14 +770,8 @@ export function newRule(id: string, domain: PolicyDomain): JsonObjectNode {
   ])
 }
 
-export function duplicateRule(
-  rule: VisualRule,
-  existing: Iterable<string>,
-): JsonObjectNode | undefined {
-  if (rule.node.type !== 'object') return undefined
-  const clone = cloneJson(rule.node)
-  if (clone.type !== 'object') return undefined
-  const next = setField(clone, 'id', stringLiteral(newRuleId(existing)))
+export function duplicateRule(rule: VisualRule, existing: Iterable<string>): JsonObjectNode {
+  const next = setField(rule.node, 'id', stringLiteral(newRuleId(existing)))
   return setField(next, 'enabled', booleanLiteral(false))
 }
 

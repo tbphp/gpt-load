@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ChevronDown, ChevronRight, ChevronUp, Copy, Trash2 } from '@lucide/vue'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, Trash2 } from '@lucide/vue'
 import {
-  AppBadge,
   AppButton,
   AppIconButton,
-  AppNotice,
+  AppOverflowText,
   AppSwitch,
   AppTextField,
 } from '@modern/components/ui'
 import {
   booleanLiteral,
-  conditionKind,
+  getField,
+  literalBoolean,
+  literalString,
   policyLimits,
   setField,
   stringLiteral,
@@ -20,6 +21,7 @@ import {
   type PolicyDomain,
   type VisualRule,
 } from './policy-model'
+import { usePolicyDraftReporter } from './use-policy-draft'
 import { usePolicyMessages } from './use-policy-messages'
 import PolicyActionEditor from './PolicyActionEditor.vue'
 import PolicyConditionEditor from './PolicyConditionEditor.vue'
@@ -30,8 +32,9 @@ const props = withDefaults(
     index: number
     total: number
     disabled?: boolean
+    quotaWindows?: readonly number[]
   }>(),
-  { disabled: false },
+  { disabled: false, quotaWindows: () => [] },
 )
 const emit = defineEmits<{
   update: [node: JsonObjectNode]
@@ -40,31 +43,42 @@ const emit = defineEmits<{
   remove: []
 }>()
 const { t } = usePolicyMessages()
-const expanded = ref(true)
-const confirmingRemove = ref(false)
-
-// 只读态一旦生效，待确认的删除必须撤销，且所有变更入口都被阻断。
-watch(
-  () => props.disabled,
-  (value) => {
-    if (value) confirmingRemove.value = false
-  },
-)
+const expanded = ref(!props.disabled)
+const opened = ref(expanded.value)
+watch(expanded, (value) => {
+  if (value) opened.value = true
+})
 
 const name = computed({
-  get: () => props.rule.name,
+  get: () => literalString(getField(props.rule.node, 'name')) ?? '',
   set: (value: string) => patch('name', stringLiteral(value)),
 })
-const enabled = computed(() => props.rule.enabled)
+const id = computed(() => literalString(getField(props.rule.node, 'id')) ?? '')
+const enabled = computed(() => literalBoolean(getField(props.rule.node, 'enabled')) ?? false)
+const domain = computed(() => {
+  const value = literalString(getField(props.rule.node, 'domain'))
+  return value === 'scheduling' || value === 'pricing' ? value : ''
+})
 
 const nameInvalid = computed(
   () =>
-    props.rule.name.trim() === '' ||
-    props.rule.name !== props.rule.name.trim() ||
-    [...props.rule.name].length > policyLimits.maxNameLength,
+    name.value.trim() === '' ||
+    name.value !== name.value.trim() ||
+    [...name.value].length > policyLimits.maxNameLength,
 )
-const domainKey = computed(() =>
-  props.rule.domain === 'pricing' ? 'domainPricing' : 'domainScheduling',
+
+const { report: reportDraft } = usePolicyDraftReporter('rule-name')
+
+watch(
+  [nameInvalid, () => props.disabled],
+  ([invalid, disabled]) => {
+    if (disabled) {
+      reportDraft(true, false)
+      return
+    }
+    reportDraft(!invalid, false)
+  },
+  { immediate: true },
 )
 
 function patch(field: string, value: JsonNode): void {
@@ -73,7 +87,6 @@ function patch(field: string, value: JsonNode): void {
 }
 
 function patchEnabled(value: boolean): void {
-  if (props.disabled) return
   patch('enabled', booleanLiteral(value))
 }
 
@@ -87,86 +100,63 @@ function patchAction(payload: { domain: PolicyDomain; then: JsonNode }): void {
 
 <template>
   <article class="policy-rule-card">
-    <header class="policy-rule-header">
+    <header class="policy-rule-heading">
       <AppButton
+        class="policy-rule-toggle"
         variant="ghost"
-        size="sm"
+        size="xs"
         :icon="expanded ? ChevronDown : ChevronRight"
+        :aria-expanded="expanded"
         @click="expanded = !expanded"
       >
-        <span class="policy-rule-title">
-          {{ t('policyEditor.rule.number', { number: index + 1 }) }}
-          <span class="policy-rule-name">{{
-            rule.name || rule.id || t('policyEditor.rule.name')
-          }}</span>
-        </span>
+        <span>{{ t('policyEditor.rule.number', { number: index + 1 }) }}</span>
+        <AppOverflowText :text="name || id || t('policyEditor.rule.name')" />
       </AppButton>
-      <AppBadge tone="neutral" compact>{{ t(`policyEditor.rule.${domainKey}`) }}</AppBadge>
-      <span class="policy-rule-enabled">
-        <AppSwitch
-          :model-value="enabled"
-          :label="t('policyEditor.rule.enabled')"
-          size="sm"
-          :disabled="disabled"
-          @update:model-value="patchEnabled"
-        />
-      </span>
-      <div class="policy-rule-actions">
-        <AppIconButton
-          :icon="ChevronUp"
-          :label="t('policyEditor.rule.moveUp')"
-          size="sm"
-          :disabled="disabled || index === 0"
-          @click="emit('move', -1)"
-        />
-        <AppIconButton
-          :icon="ChevronDown"
-          :label="t('policyEditor.rule.moveDown')"
-          size="sm"
-          :disabled="disabled || index === total - 1"
-          @click="emit('move', 1)"
-        />
+      <div class="policy-rule-tools">
+        <span class="policy-rule-enabled">
+          <span>{{ t('policyEditor.rule.enabled') }}</span>
+          <AppSwitch
+            :model-value="enabled"
+            :label="t('policyEditor.rule.enabled')"
+            size="sm"
+            :disabled="disabled"
+            @update:model-value="patchEnabled"
+          />
+        </span>
+        <div class="policy-rule-move">
+          <AppIconButton
+            :icon="ArrowUp"
+            :label="t('policyEditor.rule.moveUp')"
+            size="xs"
+            :disabled="disabled || index === 0"
+            @click="emit('move', -1)"
+          />
+          <AppIconButton
+            :icon="ArrowDown"
+            :label="t('policyEditor.rule.moveDown')"
+            size="xs"
+            :disabled="disabled || index === total - 1"
+            @click="emit('move', 1)"
+          />
+        </div>
         <AppIconButton
           :icon="Copy"
           :label="t('policyEditor.rule.duplicate')"
-          size="sm"
-          :disabled="disabled"
+          size="xs"
+          :disabled="disabled || total >= policyLimits.maxRulesPerConfig"
           @click="emit('duplicate')"
         />
         <AppIconButton
           :icon="Trash2"
           :label="t('policyEditor.rule.remove')"
-          size="sm"
-          variant="danger"
+          size="xs"
           :disabled="disabled"
-          @click="!disabled && (confirmingRemove = true)"
+          @click="!disabled && emit('remove')"
         />
       </div>
     </header>
 
-    <AppNotice v-if="confirmingRemove" tone="warning" class="policy-rule-remove">
-      <span>{{ t('policyEditor.rule.removeConfirm', { name: rule.name || rule.id }) }}</span>
-      <span class="policy-rule-remove-actions">
-        <AppButton size="sm" :disabled="disabled" @click="confirmingRemove = false">
-          {{ t('policyEditor.rule.cancel') }}
-        </AppButton>
-        <AppButton
-          size="sm"
-          variant="danger"
-          :disabled="disabled"
-          @click="
-            () => {
-              confirmingRemove = false
-              if (!disabled) emit('remove')
-            }
-          "
-        >
-          {{ t('policyEditor.rule.confirmRemove') }}
-        </AppButton>
-      </span>
-    </AppNotice>
-
-    <div v-if="expanded" class="policy-rule-body">
+    <div v-if="opened" v-show="expanded" class="policy-rule-body">
       <div class="policy-rule-row">
         <span class="policy-rule-row-label">{{ t('policyEditor.rule.name') }}</span>
         <AppTextField
@@ -175,6 +165,7 @@ function patchAction(payload: { domain: PolicyDomain; then: JsonNode }): void {
           :label="t('policyEditor.rule.name')"
           label-hidden
           :placeholder="t('policyEditor.rule.namePlaceholder')"
+          size="sm"
           :error="
             nameInvalid
               ? t('policyEditor.rule.nameInvalid', { max: policyLimits.maxNameLength })
@@ -186,73 +177,70 @@ function patchAction(payload: { domain: PolicyDomain; then: JsonNode }): void {
       <p class="policy-rule-disabled-hint">{{ t('policyEditor.rule.disabledHint') }}</p>
 
       <PolicyConditionEditor
-        :model-value="rule.when"
+        :model-value="getField(rule.node, 'when')"
         :disabled="disabled"
+        :quota-windows="quotaWindows"
         @update:model-value="(node) => patch('when', node)"
       />
 
       <PolicyActionEditor
-        :model-value="rule.then"
-        :domain="rule.domain"
+        :model-value="getField(rule.node, 'then')"
+        :domain="domain"
         :disabled="disabled"
         @update:action="patchAction"
       />
-
-      <AppNotice v-if="conditionKind(rule.when) === 'unsupported'" tone="info" compact>
-        {{ t('policyEditor.rule.unsupportedRule') }}
-      </AppNotice>
     </div>
   </article>
 </template>
 
 <style scoped>
 .policy-rule-card {
-  display: grid;
-  gap: var(--modern-space-3);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-panel);
-  background: var(--modern-surface);
-  padding: var(--modern-space-3);
   min-width: 0;
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
 }
-.policy-rule-header {
+.policy-rule-heading {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--modern-space-2);
+  padding: var(--modern-space-1);
+  background: var(--modern-subtle);
+  border-radius: var(--modern-radius-control);
 }
-.policy-rule-title {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--modern-space-2);
-  font-weight: var(--modern-weight-medium);
+.policy-rule-toggle {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: left;
 }
-.policy-rule-name {
-  color: var(--modern-muted);
-  font-weight: var(--modern-weight-regular);
+.policy-rule-tools {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 0;
 }
 .policy-rule-enabled {
   display: inline-flex;
   align-items: center;
+  gap: var(--modern-space-2);
+  margin-right: var(--modern-space-1);
+  padding-right: var(--modern-space-1);
+  border-right: var(--modern-line-width) solid var(--modern-border);
+  font-size: var(--modern-font-size-small);
+  color: var(--modern-muted);
 }
-.policy-rule-actions {
+.policy-rule-move {
   display: flex;
   align-items: center;
-  gap: var(--modern-space-1);
-  margin-left: auto;
-}
-.policy-rule-remove {
-  flex-direction: column;
-  align-items: flex-start;
-}
-.policy-rule-remove-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2);
+  gap: 0;
+  margin-right: var(--modern-space-1);
+  padding-right: var(--modern-space-1);
+  border-right: var(--modern-line-width) solid var(--modern-border);
 }
 .policy-rule-body {
   display: grid;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-2);
+  padding: var(--modern-space-2);
   min-width: 0;
 }
 .policy-rule-row {
@@ -265,7 +253,7 @@ function patchAction(payload: { domain: PolicyDomain; then: JsonNode }): void {
 .policy-rule-row-label {
   flex-shrink: 0;
   color: var(--modern-muted);
-  font-size: var(--modern-font-size-secondary);
+  font-size: var(--modern-font-size-small);
   font-weight: var(--modern-weight-medium);
 }
 .policy-rule-row-control {
@@ -273,7 +261,9 @@ function patchAction(payload: { domain: PolicyDomain; then: JsonNode }): void {
   min-width: 0;
 }
 .policy-rule-disabled-hint {
+  margin: 0;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
+  line-height: var(--modern-leading-body);
 }
 </style>

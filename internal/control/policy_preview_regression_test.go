@@ -154,7 +154,7 @@ func TestPolicyPreview_ComprehensiveRegressionMatrix(t *testing.T) {
 	real := time.Date(2026, 3, 8, 1, 59, 0, 0, loc)
 	f.service.now = func() time.Time { return real }
 	ref, _ := f.service.registry.CredentialRef(c)
-	quotaDraft := `{"schema_version":1,"rules":[{"id":"q","name":"Quota","domain":"scheduling","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","op":"lt","value":0.1,"select":{"scope":"account","window_seconds":18000},"reduce":"min"},"then":{"type":"exclude_candidate"}}]}`
+	quotaDraft := `{"schema_version":1,"group_policy":"override","rules":[{"id":"q","name":"Quota","domain":"scheduling","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","op":"lt","value":0.1,"select":{"scope":"account","window_seconds":18000},"reduce":"min"},"then":{"type":"exclude_candidate"}}]}`
 	for _, qcase := range []string{"valid", "reset", "future", "missing"} {
 		observed := real.Add(-time.Hour).UnixMilli()
 		reset := real.Add(time.Hour).UnixMilli()
@@ -187,7 +187,7 @@ func TestPolicyPreview_ComprehensiveRegressionMatrix(t *testing.T) {
 	}
 
 	sim := "2026-03-08T07:30:00Z"
-	req := policyPreviewTestRequest(t, `{"schema_version":1,"rules":[{"id":"dst","name":"DST","domain":"scheduling","enabled":true,"when":{"predicate":"time_window","weekdays":[0],"ranges":[["03:00","04:00"]]},"then":{"type":"exclude_candidate"}}]}`)
+	req := policyPreviewTestRequest(t, `{"schema_version":1,"group_policy":"override","rules":[{"id":"dst","name":"DST","domain":"scheduling","enabled":true,"when":{"predicate":"time_window","weekdays":[0],"ranges":[["03:00","04:00"]]},"then":{"type":"exclude_candidate"}}]}`)
 	req.SimulatedTime = &sim
 	res, err := f.service.PreviewCredentialPolicy(t.Context(), g, c, req)
 	if err != nil {
@@ -249,7 +249,7 @@ func TestPolicyPreview_ComprehensiveRegressionMatrix(t *testing.T) {
 		}
 	}
 
-	deep := `{"request_model":"gpt-4o","config":` + strings.Repeat("[", 33) + `0` + strings.Repeat("]", 33) + `}`
+	deep := `{"request_model":"gpt-4o","config":` + strings.Repeat("[", policy.MaxJSONDepth+1) + `0` + strings.Repeat("]", policy.MaxJSONDepth+1) + `}`
 	if err = decodeStrictControlJSONObject([]byte(deep), &PolicyPreviewRequest{}); err == nil || !strings.Contains(err.Error(), "nesting depth") {
 		t.Fatalf("deep error=%v", err)
 	}
@@ -397,12 +397,14 @@ func TestPolicyPreview_Regression_CandidateAndNodeBoundaries(t *testing.T) {
 		keys[i] = fmt.Sprintf("sk-node-review-%03d", i)
 	}
 	g := createUniqueGroupWithCredentials(t, f, strings.Join(keys, "\n"))
+	var budgetConfig []byte
 	for _, leaves := range []int{99, 100} {
 		all := make([]string, leaves)
 		for i := range all {
 			all[i] = `{"fact":"request.model","op":"eq","value":"gpt-4o"}`
 		}
 		cfg := fmt.Sprintf(`{"schema_version":1,"rules":[{"id":"a","name":"A","domain":"scheduling","enabled":false,"when":{"all":[%s]},"then":{"type":"exclude_candidate"}},{"id":"b","name":"B","domain":"scheduling","enabled":false,"when":{"all":[%s]},"then":{"type":"exclude_candidate"}}]}`, strings.Join(all, ","), strings.Join(all, ","))
+		budgetConfig = []byte(cfg)
 		var req PolicyPreviewRequest
 		_ = json.Unmarshal([]byte(`{"request_model":"gpt-4o","config":`+cfg+`}`), &req)
 		_, err := f.service.PreviewGroupPolicy(t.Context(), g, req)
@@ -411,6 +413,33 @@ func TestPolicyPreview_Regression_CandidateAndNodeBoundaries(t *testing.T) {
 		}
 		if leaves == 100 && err == nil {
 			t.Fatal("10100 nodes admitted")
+		}
+	}
+
+	for _, overrides := range []int{50, 25, 0} {
+		bindings := []policy.BindingConfig{{Scope: "group", GroupID: g, Config: budgetConfig}}
+		remaining := overrides
+		for _, cred := range f.service.registry.Snapshot() {
+			if cred.GroupID == g && remaining > 0 {
+				bindings = append(bindings, policy.BindingConfig{
+					Scope: "credential", GroupID: g, CredentialID: cred.ID,
+					Config: []byte(`{"schema_version":1,"group_policy":"override","rules":[]}`),
+				})
+				remaining--
+			}
+		}
+		view, err := policy.CompileRuntimeView(bindings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.service.manager.Current().Policies = view
+		res, err := f.service.PreviewGroupPolicy(t.Context(), g, PolicyPreviewRequest{RequestModel: "gpt-4o"})
+		if overrides == 0 {
+			if err == nil {
+				t.Fatal("active 10100-node group policy admitted")
+			}
+		} else if err != nil || len(res.Candidates) != 50 {
+			t.Fatalf("%d overrides: inactive group nodes counted: %v", overrides, err)
 		}
 	}
 }
@@ -441,9 +470,10 @@ func TestPolicyPreview_Regression_ExactMaxUintProvenance(t *testing.T) {
 	g, c := createTestGroupWithTwoModels(t, f)
 	max := ^uint64(0)
 	cfg := []byte(`{"schema_version":1,"rules":[{"id":"r","name":"R","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`)
+	cfgOverride := []byte(`{"schema_version":1,"group_policy":"override","rules":[{"id":"r","name":"R","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`)
 	view, err := policy.CompileRuntimeView([]policy.BindingConfig{
 		{Scope: "group", GroupID: g, Revision: max, Config: cfg},
-		{Scope: "credential", GroupID: g, CredentialID: c, Revision: max - 1, Config: cfg},
+		{Scope: "credential", GroupID: g, CredentialID: c, Revision: max - 1, Config: cfgOverride},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -470,8 +500,15 @@ func TestPolicyPreview_Regression_ExactMaxUintProvenance(t *testing.T) {
 		t.Fatalf("provenance %+v", out)
 	}
 	target := out.Candidates[0].Targets[0]
-	if target.GroupRules[0].RevisionText != "18446744073709551615" || target.CredentialRules[0].RevisionText != "18446744073709551614" || target.Pricing.Matches[0].RevisionText != "18446744073709551615" || target.Pricing.Matches[1].RevisionText != "18446744073709551614" {
-		t.Fatalf("rule/pricing provenance %+v", target)
+	// override 只选唯一来源（credential）：group 规则不参与，凭据规则与定价因子均带 max-1 版本
+	if len(target.GroupRules) != 0 {
+		t.Fatalf("override must not surface group rules: %+v", target.GroupRules)
+	}
+	if len(target.CredentialRules) != 1 || target.CredentialRules[0].RevisionText != "18446744073709551614" {
+		t.Fatalf("credential rule provenance %+v", target.CredentialRules)
+	}
+	if len(target.Pricing.Matches) != 1 || target.Pricing.Matches[0].RevisionText != "18446744073709551614" || target.Pricing.Matches[0].BindingScope != "credential" {
+		t.Fatalf("pricing provenance %+v", target.Pricing)
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -486,27 +523,27 @@ func TestPolicyPreview_Regression_ExactMaxUintProvenance(t *testing.T) {
 	}
 
 	req.Config.Specified = true
-	req.Config.Raw = cfg
+	req.Config.Raw = cfgOverride
 	out, err = f.service.PreviewCredentialPolicy(t.Context(), g, c, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	target = out.Candidates[0].Targets[0]
-	if target.GroupRules[0].Provenance != "saved" || target.CredentialRules[0].Provenance != "draft" || target.CredentialRules[0].RevisionText != "draft" || target.Pricing.Matches[1].RevisionText != "draft" {
+	if len(target.CredentialRules) != 1 || target.CredentialRules[0].Provenance != "draft" || target.CredentialRules[0].RevisionText != "draft" || len(target.Pricing.Matches) != 1 || target.Pricing.Matches[0].RevisionText != "draft" {
 		t.Fatalf("draft provenance %+v", target)
 	}
 }
 
-func TestPolicyPreview_Regression_StrictDepth32Boundary(t *testing.T) {
-	for _, n := range []int{31, 32} {
+func TestPolicyPreview_Regression_StrictPolicyDepthBoundary(t *testing.T) {
+	for _, n := range []int{policy.MaxJSONDepth, policy.MaxJSONDepth + 1} {
 		body := `{"request_model":"gpt-4o","config":` + strings.Repeat("[", n) + strings.Repeat("]", n) + `}`
 		var req PolicyPreviewRequest
 		err := decodeStrictControlJSONObject([]byte(body), &req)
-		if n == 31 && err != nil {
-			t.Fatalf("depth32 rejected: %v", err)
+		if n == policy.MaxJSONDepth && err != nil {
+			t.Fatalf("policy envelope depth limit rejected: %v", err)
 		}
-		if n == 32 && (err == nil || !strings.Contains(err.Error(), "nesting depth")) {
-			t.Fatalf("depth33 accepted: %v", err)
+		if n > policy.MaxJSONDepth && (err == nil || !strings.Contains(err.Error(), "nesting depth")) {
+			t.Fatalf("over policy envelope depth limit accepted: %v", err)
 		}
 	}
 }
@@ -514,7 +551,7 @@ func TestPolicyPreview_Regression_StrictDepth32Boundary(t *testing.T) {
 func TestPolicyPreview_Regression_SchedulingReasonAndConditionTree(t *testing.T) {
 	f := newServiceFixture(t)
 	g, c := createTestGroupWithTwoModels(t, f)
-	cfg := []byte(`{"schema_version":1,"rules":[{"id":"s","name":"S","domain":"scheduling","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"fact":"request.model","op":"eq","value":"gpt-4o"}]},"then":{"type":"exclude_candidate"}}]}`)
+	cfg := []byte(`{"schema_version":1,"group_policy":"override","rules":[{"id":"s","name":"S","domain":"scheduling","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"fact":"request.model","op":"eq","value":"gpt-4o"}]},"then":{"type":"exclude_candidate"}}]}`)
 	req := PolicyPreviewRequest{RequestModel: "gpt-4o"}
 	req.Config.Specified = true
 	req.Config.Raw = cfg
@@ -532,5 +569,41 @@ func TestPolicyPreview_Regression_SchedulingReasonAndConditionTree(t *testing.T)
 	}
 	if !strings.Contains(s, `"children":[{"kind":"param","fact":"request.model","truth":"true"},{"kind":"param","fact":"request.model","truth":"true"}]`) {
 		t.Fatalf("unexpected condition tree JSON: %s", s)
+	}
+}
+
+func TestPolicyGroupModeScopeContract(t *testing.T) {
+	f := newServiceFixture(t)
+	g, c := createTestGroupWithTwoModels(t, f)
+	server := setupPolicyTestServer(t, f)
+
+	call := func(method, path, body string) int {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer admin-secret-key")
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	overrideConfig := `"config":{"schema_version":1,"group_policy":"override","rules":[]}`
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   int
+	}{
+		{"group binding rejects override", http.MethodPut, fmt.Sprintf("/api/groups/%d/policy", g), `{"expected_revision":"0",` + overrideConfig + `}`, http.StatusBadRequest},
+		{"group draft preview rejects override", http.MethodPost, fmt.Sprintf("/api/groups/%d/policy/preview", g), `{"request_model":"gpt-4o",` + overrideConfig + `}`, http.StatusBadRequest},
+		{"credential binding accepts override", http.MethodPut, fmt.Sprintf("/api/groups/%d/credentials/%d/policy", g, c), `{"expected_revision":"0",` + overrideConfig + `}`, http.StatusOK},
+		{"credential draft preview accepts override", http.MethodPost, fmt.Sprintf("/api/groups/%d/credentials/%d/policy/preview", g, c), `{"request_model":"gpt-4o",` + overrideConfig + `}`, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := call(tc.method, tc.path, tc.body); got != tc.want {
+				t.Fatalf("status = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

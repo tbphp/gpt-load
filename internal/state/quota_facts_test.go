@@ -444,3 +444,82 @@ func TestCredentialRuntimeViewAndMetaClone(t *testing.T) {
 		t.Fatalf("mutating cloned meta mutated original: got %v, want 0.15", meta.QuotaWindows[0].Ratio)
 	}
 }
+
+func TestNormalizeQuotaWindows_ConflictSameSourceSampleBoundary(t *testing.T) {
+	windowSec := int64(18000)
+	observedAt := int64(1799999000000)
+	resetAt := int64(1800000000000)
+
+	rem1 := 9.9
+	rem2 := 10.1
+	limit := 100.0
+
+	// 1. 同来源、同真实周期、同 sample/identity 冲突（0.099 与 0.101）
+	// 两者均必须变为 FactStateUnknown
+	w1 := providerobservation.QuotaWindow{
+		ID:            "w1",
+		Scope:         "account",
+		WindowSeconds: &windowSec,
+		SourceID:      "codex",
+		State:         "available",
+		Remaining:     &rem1,
+		Limit:         &limit,
+		ObservedAtMS:  &observedAt,
+		ResetAtMS:     &resetAt,
+	}
+	w2 := providerobservation.QuotaWindow{
+		ID:            "w2",
+		Scope:         "account",
+		WindowSeconds: &windowSec,
+		SourceID:      "codex",
+		State:         "available",
+		Remaining:     &rem2,
+		Limit:         &limit,
+		ObservedAtMS:  &observedAt,
+		ResetAtMS:     &resetAt,
+	}
+
+	factsConflict := NormalizeQuotaWindows([]providerobservation.QuotaWindow{w1, w2}, 1)
+	if len(factsConflict) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(factsConflict))
+	}
+	if factsConflict[0].State != policy.FactStateUnknown || factsConflict[1].State != policy.FactStateUnknown {
+		t.Fatalf("expected both conflicting facts to be FactStateUnknown, got states %v and %v",
+			factsConflict[0].State, factsConflict[1].State)
+	}
+
+	// 2. 不同来源、同周期、同样本（不属于同来源歧义）
+	w2DiffSource := w2
+	w2DiffSource.SourceID = "claude_adapter"
+	factsDiffSource := NormalizeQuotaWindows([]providerobservation.QuotaWindow{w1, w2DiffSource}, 1)
+	if len(factsDiffSource) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(factsDiffSource))
+	}
+	if factsDiffSource[0].State != policy.FactStateMeasured || factsDiffSource[1].State != policy.FactStateMeasured {
+		t.Fatalf("expected different source facts to both be FactStateMeasured, got %v and %v",
+			factsDiffSource[0].State, factsDiffSource[1].State)
+	}
+
+	// 3. 同来源、同周期、同样本但数值相等（重复观测，非矛盾）
+	w2Identical := w1
+	w2Identical.ID = "w2_dup"
+	factsIdentical := NormalizeQuotaWindows([]providerobservation.QuotaWindow{w1, w2Identical}, 1)
+	if len(factsIdentical) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(factsIdentical))
+	}
+	if factsIdentical[0].State != policy.FactStateMeasured || factsIdentical[1].State != policy.FactStateMeasured {
+		t.Fatalf("expected identical duplicate facts to stay FactStateMeasured, got %v and %v",
+			factsIdentical[0].State, factsIdentical[1].State)
+	}
+
+	// 4. 空来源单窗口（Claude），不可一刀切拒绝
+	wClaude := w1
+	wClaude.SourceID = ""
+	factsClaude := NormalizeQuotaWindows([]providerobservation.QuotaWindow{wClaude}, 1)
+	if len(factsClaude) != 1 {
+		t.Fatalf("expected 1 fact, got %d", len(factsClaude))
+	}
+	if factsClaude[0].State != policy.FactStateMeasured {
+		t.Fatalf("expected blank source window to be FactStateMeasured, got %v", factsClaude[0].State)
+	}
+}

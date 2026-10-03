@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	app_errors "gpt-load/internal/platform/errors"
@@ -1086,6 +1088,119 @@ func TestRecoverCommittedRuntimeRestoresQuotaDisplayStateWithoutAffectingRouting
 	}
 	if candidates := fixture.registry.CollectCredentialCandidates([]uint{groupID}, nil, now); len(candidates) != 1 {
 		t.Fatalf("recovered quota affected candidates = %#v", candidates)
+	}
+}
+
+func TestWriteGroupConfigApplyFailureHoldingMutationsDoesNotDeadlock(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 14, 16, 30, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	resetAt := now.Add(7 * 24 * time.Hour).Unix()
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
+			"rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":100,"reset_at":%d}}
+		}`, resetAt))}, nil
+	})
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 模拟在 writeGroupConfig 事务提交后、发布前发生失败。
+	// writeGroupConfig 持有全部现有凭据的 mutation stripe，失败恢复 recoverCommittedRuntimeHoldingCredentialMutations
+	// 必须直接使用已持有的锁恢复额度观测，不能再次尝试获取同一凭据的 mutation stripe 导致非重入死锁。
+	simulatedErr := errors.New("simulated post-commit registry failure")
+	_, err := fixture.service.writeGroupConfig(t.Context(), func(tx *gorm.DB) error {
+		return tx.Model(&models.Group{}).Where("id = ?", groupID).Update("name", "renamed-group").Error
+	}, func() error {
+		return simulatedErr
+	})
+	if err == nil {
+		t.Fatal("writeGroupConfig() error = nil, want failure")
+	}
+	var operationErr *controlOperationError
+	if !errors.As(err, &operationErr) || operationErr.stage != stageApplyCommittedRegistryMutation {
+		t.Fatalf("writeGroupConfig() operation error = %#v, want stage %s", operationErr, stageApplyCommittedRegistryMutation)
+	}
+
+	views := fixture.registry.Snapshot()
+	if len(views) != 1 || views[0].QuotaRemaining == nil || *views[0].QuotaRemaining != 0 {
+		t.Fatalf("recovered quota views = %#v", views)
+	}
+	if len(views[0].QuotaWindows) != 1 || views[0].QuotaWindows[0].Ratio != 0 ||
+		!views[0].QuotaWindows[0].ObservedAt.Equal(now) ||
+		views[0].QuotaWindows[0].IdentityGeneration != views[0].IdentityGeneration {
+		t.Fatalf("recovered policy facts = %+v", views[0].QuotaWindows)
+	}
+	if fixture.manager.Current().Groups[groupID].Name != "renamed-group" {
+		t.Fatal("committed group configuration was not published during recovery")
+	}
+
+	stripeReleased := false
+	if err := fixture.service.withCredentialMutation(credentialID, func() error {
+		stripeReleased = true
+		return nil
+	}); err != nil {
+		t.Fatalf("withCredentialMutation() error = %v", err)
+	}
+	if !stripeReleased {
+		t.Fatal("credential mutation stripe was not released after recovery")
+	}
+}
+
+func TestWriteGroupConfigSnapshotFailureHoldingMutationsDoesNotDeadlock(t *testing.T) {
+	t.Parallel()
+	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+	now := time.Date(2026, time.August, 14, 16, 30, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	resetAt := now.Add(7 * 24 * time.Hour).Unix()
+	setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+		return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{
+			"rate_limit":{"primary_window":{"limit_window_seconds":604800,"used_percent":100,"reset_at":%d}}
+		}`, resetAt))}, nil
+	})
+	if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 模拟 snapshot 发布阶段失败，触发 recoverCommittedRuntimeHoldingCredentialMutations
+	fixture.service.publishSnapshot = func(state.CompileInput) (*state.ConfigSnapshot, error) {
+		return nil, errors.New("forced snapshot publication failure")
+	}
+
+	_, err := fixture.service.writeGroupConfig(t.Context(), func(tx *gorm.DB) error {
+		return tx.Model(&models.Group{}).Where("id = ?", groupID).Update("name", "renamed-group-2").Error
+	}, nil)
+	if err == nil {
+		t.Fatal("writeGroupConfig() error = nil, want failure")
+	}
+	var operationErr *controlOperationError
+	if !errors.As(err, &operationErr) || operationErr.stage != stagePublishCommittedSnapshot {
+		t.Fatalf("writeGroupConfig() operation error = %#v, want stage %s", operationErr, stagePublishCommittedSnapshot)
+	}
+
+	views := fixture.registry.Snapshot()
+	if len(views) != 1 || views[0].QuotaRemaining == nil || *views[0].QuotaRemaining != 0 {
+		t.Fatalf("recovered quota views = %#v", views)
+	}
+	if len(views[0].QuotaWindows) != 1 || views[0].QuotaWindows[0].Ratio != 0 ||
+		!views[0].QuotaWindows[0].ObservedAt.Equal(now) ||
+		views[0].QuotaWindows[0].IdentityGeneration != views[0].IdentityGeneration {
+		t.Fatalf("recovered policy facts = %+v", views[0].QuotaWindows)
+	}
+	if fixture.manager.Current().Groups[groupID].Name != "renamed-group-2" {
+		t.Fatal("committed group configuration was not published during recovery")
+	}
+
+	stripeReleased := false
+	if err := fixture.service.withCredentialMutation(credentialID, func() error {
+		stripeReleased = true
+		return nil
+	}); err != nil {
+		t.Fatalf("withCredentialMutation() error = %v", err)
+	}
+	if !stripeReleased {
+		t.Fatal("credential mutation stripe was not released after recovery")
 	}
 }
 

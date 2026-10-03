@@ -102,46 +102,29 @@ func TestRegistryBasicOperations(t *testing.T) {
 }
 
 func TestRegistryPredicateAndAction(t *testing.T) {
-	reg := NewEmptyRegistry()
-
-	// 注册谓词
-	err := reg.RegisterPredicate(PredicateDescriptor{
-		Name:        "custom_pred",
-		Label:       "l",
-		Description: "d",
-		Domains:     []Domain{DomainScheduling},
-	})
-	if err != nil {
-		t.Fatal(err)
+	reg := NewRegistry()
+	predicates := reg.ListPredicates()
+	if len(predicates) != 1 || predicates[0].Name != "time_window" {
+		t.Fatalf("unexpected predicates: %+v", predicates)
 	}
-	if _, ok := reg.FindPredicate("custom_pred"); !ok {
-		t.Fatal("predicate not found")
+	predicates[0].Domains[0] = "mutated"
+	predicate, ok := reg.FindPredicate("time_window")
+	if !ok || predicate.Domains[0] != DomainScheduling {
+		t.Fatal("predicate discovery leaked mutable state")
 	}
-	if len(reg.ListPredicates()) != 1 {
-		t.Fatal("expected 1 predicate")
+	actions := reg.ListActions()
+	if len(actions) != 2 || actions[0].Type != ActionExcludeCandidate || actions[1].Type != ActionMultiplyPrice {
+		t.Fatalf("unexpected actions: %+v", actions)
 	}
-
-	// 注册动作
-	err = reg.RegisterAction(ActionDescriptor{
-		Type:        ActionExcludeCandidate,
-		Domain:      DomainScheduling,
-		Label:       "l",
-		Description: "d",
-		Fields:      []string{"type"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := reg.FindAction(ActionExcludeCandidate); !ok {
-		t.Fatal("action not found")
-	}
-	if len(reg.ListActions()) != 1 {
-		t.Fatal("expected 1 action")
+	actions[0].Fields[0] = "mutated"
+	action, ok := reg.FindAction(ActionExcludeCandidate)
+	if !ok || action.Fields[0] != "type" {
+		t.Fatal("action discovery leaked mutable state")
 	}
 }
 
 func TestRegistryRejectsQuotaSelectorWithoutRequiredWindow(t *testing.T) {
-	reg := NewEmptyRegistry()
+	reg := NewRegistry()
 	err := reg.RegisterParam(ParamDescriptor{
 		Key:           "credential.quota.remaining_ratio",
 		Type:          ParamTypeNumber,

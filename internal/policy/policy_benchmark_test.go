@@ -314,7 +314,7 @@ func BenchmarkEvalCandidateCount(b *testing.B) {
 	}
 }
 
-// BenchmarkQuotaWindowScan 测量额度窗口 min 扫描随窗口数的线性成本。
+// BenchmarkQuotaWindowScan 测量额度窗口 min 扫描随窗口数的线性成本及 unknown/未命中路径。
 func BenchmarkQuotaWindowScan(b *testing.B) {
 	cfg := benchMustCompile(b, benchMarshal(b, benchQuotaRule()))
 	for _, n := range []int{1, 4, 16} {
@@ -338,6 +338,57 @@ func BenchmarkQuotaWindowScan(b *testing.B) {
 			}
 		})
 	}
+
+	b.Run("no_match", func(b *testing.B) {
+		ctx := &EvalContext{Now: benchNow(), QuotaWindows: nil}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			if cfg.EvalScheduling(ctx).Excluded {
+				b.Fatal("unexpected exclusion")
+			}
+		}
+	})
+
+	b.Run("unknown_state", func(b *testing.B) {
+		ctx := &EvalContext{
+			Now: benchNow(),
+			QuotaWindows: []QuotaWindowFact{{
+				Scope:         "account",
+				WindowSeconds: 18000,
+				Ratio:         0.5,
+				State:         FactStateUnknown,
+			}},
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			if cfg.EvalScheduling(ctx).Excluded {
+				b.Fatal("unexpected exclusion")
+			}
+		}
+	})
+
+	b.Run("expired_reset", func(b *testing.B) {
+		ctx := &EvalContext{
+			Now: benchNow(),
+			QuotaWindows: []QuotaWindowFact{{
+				Scope:         "account",
+				WindowSeconds: 18000,
+				Ratio:         0.05,
+				State:         FactStateMeasured,
+				ResetAt:       benchNow().Add(-time.Hour),
+				ObservedAt:    benchNow().Add(-2 * time.Hour),
+			}},
+		}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			if cfg.EvalScheduling(ctx).Excluded {
+				b.Fatal("unexpected exclusion")
+			}
+		}
+	})
 }
 
 // BenchmarkEvalUnknownWorstCase 测量有界 AND/OR 全 unknown 的最坏遍历（无短路）。
