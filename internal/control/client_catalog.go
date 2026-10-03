@@ -150,6 +150,9 @@ func applyClientCatalogDraft(current *state.ConfigSnapshot, request ClientCatalo
 		if profile.Overrides == nil || profile.Overrides.CatalogEnabled != nil || profile.Overrides.CatalogOrder != nil || profile.Overrides.Validate() != nil {
 			return nil, app_errors.ErrValidation
 		}
+		if err := validateClientModelDefaultReasoningLevel(current, profile.ClientModel, *profile.Overrides); err != nil {
+			return nil, err
+		}
 		overrides := profile.Overrides.Metadata()
 		directory := draft.ClientModelOverrides[profile.ClientModel]
 		overrides.CatalogEnabled, overrides.CatalogOrder = directory.CatalogEnabled, directory.CatalogOrder

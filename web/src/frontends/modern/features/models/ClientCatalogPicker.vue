@@ -17,6 +17,12 @@ const input = ref<InstanceType<typeof AppTextField>>()
 const results = computed(() =>
   props.names.filter((name) => matchesSearchOption({ value: name, label: name }, search.value)),
 )
+const allResultsSelected = computed(() =>
+  results.value.every((name) => selected.value.includes(name)),
+)
+function selectResults(): void {
+  selected.value = [...new Set([...selected.value, ...results.value])]
+}
 function toggle(name: string, checked: boolean): void {
   selected.value = checked
     ? [...selected.value, name]
@@ -80,6 +86,9 @@ watch(
           type="search"
           @keydown.enter.prevent
         />
+        <p class="modern-client-catalog-picker-results">
+          {{ t('modelManager.clientCatalog.resultCount', { count: n(results.length) }) }}
+        </p>
         <div class="modern-client-catalog-picker-options">
           <AppCheckbox
             v-for="name in results"
@@ -96,8 +105,15 @@ watch(
           </p>
         </div>
         <footer>
-          <span>{{ t('modelManager.clientCatalog.picked', { count: n(selected.length) }) }}</span
-          ><AppButton variant="primary" size="sm" :disabled="!selected.length" @click="add">{{
+          <AppButton
+            variant="default"
+            size="sm"
+            :disabled="allResultsSelected"
+            @click="selectResults"
+          >
+            {{ t('modelManager.clientCatalog.selectResults') }}
+          </AppButton>
+          <AppButton variant="primary" size="sm" :disabled="!selected.length" @click="add">{{
             t('modelManager.clientCatalog.add', { count: n(selected.length) })
           }}</AppButton>
         </footer>
@@ -129,6 +145,11 @@ watch(
   min-height: 0;
   overscroll-behavior: contain;
 }
+.modern-client-catalog-picker-results {
+  flex: none;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
 .modern-client-catalog-picker .modern-client-catalog-picker-option {
   display: flex;
   flex: none;
@@ -143,10 +164,6 @@ watch(
 .modern-client-catalog-picker .modern-client-catalog-picker-option.is-selected {
   background: var(--modern-accent-soft);
   color: var(--modern-accent);
-}
-.modern-client-catalog-picker .modern-client-catalog-picker-option .modern-checkbox-label {
-  min-width: 0;
-  flex: 1;
 }
 .modern-client-catalog-picker-empty {
   padding: var(--modern-space-4);

@@ -189,3 +189,60 @@ func TestClientCatalogRejectsAccessKeysInvalidDraftsAndRollsBackBatch(t *testing
 		t.Fatal("failed batch left partial database or runtime changes")
 	}
 }
+
+func TestClientCatalogPersistsMetadataAndValidatesDefaultReasoning(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "metadata", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"gpt-6.1-sol"}]`), Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	mustPublishClientModelSnapshot(t, fixture)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	metadata := `{"description":"中文说明","auto_compact_token_limit":48000,"supported_reasoning_levels":["low","high"],"default_reasoning_level":"high","service_tiers":["ultrafast"]}`
+	body := `{"profiles":[{"client_model":"gpt-6.1-sol","overrides":` + metadata + `}]}`
+	preview := serveClientModelRequest(engine, http.MethodPost, "/api/models/client-catalog/preview", body, authTestKey)
+	if preview.Code != http.StatusOK {
+		t.Fatalf("metadata preview = %d %s", preview.Code, preview.Body.String())
+	}
+	var count int64
+	if err := fixture.db.Model(&models.ClientModelOverride{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("preview persisted metadata: count=%d, err=%v", count, err)
+	}
+	saved := serveClientModelRequest(engine, http.MethodPut, "/api/models/client-catalog", body, authTestKey)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("metadata save = %d %s", saved.Code, saved.Body.String())
+	}
+	mustPublishClientModelSnapshot(t, fixture)
+	profile := readClientModelProfile(t, engine, http.MethodGet, "/api/models/profile?model=gpt-6.1-sol", "", authTestKey)
+	if profile.Effective.Description != "中文说明" || profile.Effective.AutoCompactTokenLimit == nil || *profile.Effective.AutoCompactTokenLimit != 48000 ||
+		profile.Effective.DefaultReasoningLevel != "high" || !reflect.DeepEqual(profile.Effective.ServiceTiers, []string{"ultrafast"}) {
+		t.Fatalf("reloaded metadata = %#v", profile.Effective)
+	}
+	for _, invalid := range []string{
+		`{"default_reasoning_level":"none"}`,
+		`{"default_reasoning_level":"high","supported_reasoning_levels":["low"]}`,
+		`{"default_service_tier":"priority"}`,
+	} {
+		before := fixture.manager.Current()
+		for _, path := range []string{"/api/models/client-catalog", "/api/models/client-catalog/preview", "/api/models/profile"} {
+			method := http.MethodPut
+			payload := `{"profiles":[{"client_model":"gpt-6.1-sol","overrides":` + invalid + `}]}`
+			if path == "/api/models/client-catalog/preview" {
+				method = http.MethodPost
+			} else if path == "/api/models/profile" {
+				payload = `{"client_model":"gpt-6.1-sol","overrides":` + invalid + `}`
+			}
+			result := serveClientModelRequest(engine, method, path, payload, authTestKey)
+			if result.Code != http.StatusBadRequest || fixture.manager.Current() != before {
+				t.Fatalf("invalid default accepted by %s: %d", path, result.Code)
+			}
+		}
+	}
+	reset := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{"client_model":"gpt-6.1-sol","overrides":{}}`, authTestKey)
+	if reset.HasOverrides || !reflect.DeepEqual(reset.Effective, reset.Automatic) {
+		t.Fatal("metadata reset did not restore the full preset")
+	}
+}

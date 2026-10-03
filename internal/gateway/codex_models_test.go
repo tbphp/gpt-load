@@ -13,10 +13,20 @@ import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/clientcatalog"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
+
+type codexTruncationPolicy struct {
+	Mode  string `json:"mode"`
+	Limit int64  `json:"limit"`
+}
+
+func collectCodexVisibleModelIDs(snapshot *state.ConfigSnapshot, accessKey state.AccessKeyView) []string {
+	return clientcatalog.Selected(snapshot, accessKey)
+}
 
 func TestCodexModelCatalogResponseContract(t *testing.T) {
 	engine := newModelListHandlerEngine(t, state.FilterSet{})

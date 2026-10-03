@@ -68,10 +68,14 @@ const options = computed(() =>
     .filter((name) => !selected.value.includes(name)),
 )
 const overflow = computed(() =>
-  budget.value ? Math.max(0, selected.value.length - budget.value.includedCount) : 0,
+  budget.value ? Math.max(0, budget.value.entries.length - budget.value.includedCount) : 0,
 )
 const outsideSet = computed(() => new Set(editedOutside.value))
 const allRows = computed(() => [...selected.value, ...editedOutside.value])
+function modelLabel(name: string): string {
+  const displayName = drafts.value[name]?.values.display_name.trim()
+  return displayName && displayName !== name ? `${displayName}（${name}）` : name
+}
 function context(name: string): string {
   const draft = drafts.value[name]
   const value = draft?.custom.context_window
@@ -230,7 +234,7 @@ function escape(event: Event): void {
                 />
                 <span v-else></span>
                 <div class="modern-client-catalog-row-name">
-                  <AppOverflowText :text="name" /><AppTooltip
+                  <AppOverflowText :text="modelLabel(name)" /><AppTooltip
                     v-if="
                       Object.keys(fieldErrors(name)).length ||
                       (budget && index >= budget.includedCount && !outsideSet.has(name))
@@ -289,7 +293,10 @@ function escape(event: Event): void {
                   :disabled="saving"
                   :errors="fieldErrors(name)"
                 />
-                <div class="modern-client-catalog-properties-footer">
+                <div
+                  v-if="Object.values(drafts[name]!.custom).some(Boolean)"
+                  class="modern-client-catalog-properties-footer"
+                >
                   <AppButton
                     variant="text"
                     size="xxs"

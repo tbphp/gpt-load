@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -125,6 +126,11 @@ func TestClientModelOverridesValidation(t *testing.T) {
 		`{"display_name":" "}`, `{"supported_reasoning_levels":[]}`,
 		`{"supported_reasoning_levels":["future"]}`, `{"supported_reasoning_levels":["high","high"]}`,
 		`{"input_modalities":[]}`, `{"input_modalities":["text","video"]}`,
+		`{"auto_compact_token_limit":0}`, `{"auto_compact_token_limit":9007199254740992}`,
+		`{"default_reasoning_level":""}`, `{"default_reasoning_level":"future"}`,
+		`{"default_reasoning_level":"high","supported_reasoning_levels":["low"]}`,
+		`{"service_tiers":["standard"]}`, `{"service_tiers":["priority","priority"]}`,
+		`{"description":"` + strings.Repeat("a", 4097) + `"}`,
 	} {
 		t.Run(raw, func(t *testing.T) {
 			var overrides ClientModelOverrides
@@ -167,6 +173,63 @@ func assertCodexInstructionFields(t *testing.T, model map[string]any) {
 }
 
 func ptr(value string) *string { return &value }
+
+func TestCodexClientModelPublishesEditableMetadataAndRestoresPresets(t *testing.T) {
+	limit := int64(48000)
+	description := "中文说明 <model> & \"quoted\"\n"
+	tiers := []string{"ultrafast", "priority"}
+	model, automatic, effective, err := BuildCodexClientModel("gpt-6-sol", 0, ClientModelOverrides{
+		Description: &description, AutoCompactTokenLimit: &limit, ServiceTiers: &tiers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model["description"] != description || model["auto_compact_token_limit"] != limit ||
+		effective.Description != description || effective.AutoCompactTokenLimit == nil || *effective.AutoCompactTokenLimit != limit {
+		t.Fatalf("editable metadata was not published: %#v", effective)
+	}
+	wireTiers := model["service_tiers"].([]any)
+	if len(wireTiers) != 2 || wireTiers[0].(map[string]any)["id"] != "ultrafast" ||
+		wireTiers[0].(map[string]any)["name"] != "Ultrafast" || wireTiers[1].(map[string]any)["id"] != "priority" ||
+		model["default_service_tier"] != nil || !reflect.DeepEqual(model["additional_speed_tiers"], []string{"fast"}) {
+		t.Fatal("configured tiers did not retain client selection with a standard default")
+	}
+	restored, restoredAutomatic, _, err := BuildCodexClientModel("gpt-6-sol", 0, ClientModelOverrides{})
+	if err != nil || !reflect.DeepEqual(restoredAutomatic, automatic) || restored["description"] != automatic.Description ||
+		!reflect.DeepEqual(automatic.ServiceTiers, []string{"priority"}) || restored["default_service_tier"] != nil {
+		t.Fatal("editing modified the preset or enabled Ultrafast by default")
+	}
+	noTiers := []string{}
+	empty := ""
+	hidden, _, cleared, err := BuildCodexClientModel("gpt-6-sol", 0, ClientModelOverrides{ServiceTiers: &noTiers, Description: &empty})
+	if err != nil || len(hidden["service_tiers"].([]any)) != 0 || len(hidden["additional_speed_tiers"].([]string)) != 0 ||
+		hidden["default_service_tier"] != nil || hidden["description"] != "" || cleared.Description != "" {
+		t.Fatal("clearing metadata retained a preset description or accelerated tier")
+	}
+}
+
+func TestCodexClientModelReasoningDefaultStaysWithinSelectedLevels(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		levels []string
+		custom *string
+		want   string
+	}{
+		{"preset retained", []string{"low", "high"}, nil, "low"},
+		{"medium fallback", []string{"high", "medium"}, nil, "medium"},
+		{"first fallback", []string{"high", "xhigh"}, nil, "high"},
+		{"manual default", []string{"low", "high"}, ptr("high"), "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model, _, effective, err := BuildCodexClientModel("gpt-6.1-sol", 0, ClientModelOverrides{
+				SupportedReasoningLevels: &test.levels, DefaultReasoningLevel: test.custom,
+			})
+			if err != nil || effective.DefaultReasoningLevel != test.want || model["default_reasoning_level"] != test.want {
+				t.Fatalf("default reasoning = %q / %v, err=%v", effective.DefaultReasoningLevel, model["default_reasoning_level"], err)
+			}
+		})
+	}
+}
 
 func TestCodexClientUpdateCapabilities(t *testing.T) {
 	for _, id := range []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra"} {

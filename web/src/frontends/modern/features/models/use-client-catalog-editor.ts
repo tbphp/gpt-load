@@ -111,6 +111,7 @@ export function useClientCatalogEditor() {
     attempted.value = false
     saveError.value = ''
     budget.value = value.budget
+    previewError.value = false
   }
   watch(
     query.data,
@@ -128,7 +129,10 @@ export function useClientCatalogEditor() {
         JSON.parse(key) as ClientCatalogDraft,
         signal,
       )
-      if (!signal.aborted && key === requestKey.value) budget.value = value.budget
+      if (!signal.aborted && key === requestKey.value) {
+        budget.value = value.budget
+        previewError.value = false
+      }
     } catch {
       if (!signal.aborted && key === requestKey.value) previewError.value = true
     } finally {
@@ -139,11 +143,9 @@ export function useClientCatalogEditor() {
     if (saving.value) return
     clearTimeout(timer)
     previewController?.abort()
-    budget.value = undefined
-    previewError.value = false
     saveError.value = ''
     previewing.value = Boolean(base.value && !invalidModel.value)
-    if (!previewing.value || saving.value) return
+    if (!previewing.value) return
     const key = requestKey.value
     timer = setTimeout(() => void preview(key), 200)
   }

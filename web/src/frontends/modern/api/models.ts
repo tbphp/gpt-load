@@ -10,9 +10,13 @@ export const modelSourceKey = (id: number) => [...modelsKey, 'source', id] as co
 export const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 export const modelProfileFields = [
   'display_name',
+  'description',
   'context_window',
+  'auto_compact_token_limit',
   'supported_reasoning_levels',
+  'default_reasoning_level',
   'input_modalities',
+  'service_tiers',
 ] as const
 export const modelReasoningLevels = [
   'none',
@@ -26,10 +30,12 @@ export const modelReasoningLevels = [
   'persistent',
 ] as const
 export const modelInputModalities = ['text', 'image', 'audio'] as const
+export const modelServiceTiers = ['priority', 'ultrafast'] as const
 export type PriceField = (typeof priceFields)[number]
 export type ModelProfileField = (typeof modelProfileFields)[number]
 export type ModelReasoningLevel = (typeof modelReasoningLevels)[number]
 export type ModelInputModality = (typeof modelInputModalities)[number]
+export type ModelServiceTier = (typeof modelServiceTiers)[number]
 export type PriceSlots = Record<PriceField, string | null>
 export interface PriceTier {
   threshold_tokens: number
@@ -83,9 +89,13 @@ export interface RequestModel {
 }
 export interface ModelProfileValues {
   display_name: string
+  description: string
   context_window: number | null
+  auto_compact_token_limit: number | null
   supported_reasoning_levels: ModelReasoningLevel[]
+  default_reasoning_level: ModelReasoningLevel
   input_modalities: ModelInputModality[]
+  service_tiers: ModelServiceTier[]
 }
 export type ModelProfileOverrides = Partial<{
   [Field in ModelProfileField]: ModelProfileValues[Field]
@@ -221,6 +231,14 @@ function inputModalities(value: unknown): ModelInputModality[] {
   if (!values.length || !values.includes('text')) throw new InvalidResponseError()
   return values
 }
+export function resolveDefaultReasoningLevel(
+  levels: readonly ModelReasoningLevel[],
+  preferred: string | undefined,
+): ModelReasoningLevel | '' {
+  const selected = levels.find((level) => level === preferred)
+  if (selected) return selected
+  return levels.includes('medium') ? 'medium' : (levels[0] ?? '')
+}
 function profileValues(value: unknown): ModelProfileValues {
   const row = record(value)
   const supportedReasoningLevels = uniqueOptions(
@@ -228,11 +246,23 @@ function profileValues(value: unknown): ModelProfileValues {
     modelReasoningLevels,
   )
   if (!supportedReasoningLevels.length) throw new InvalidResponseError()
+  const defaultReasoningLevel =
+    row.default_reasoning_level == null
+      ? resolveDefaultReasoningLevel(supportedReasoningLevels, undefined)
+      : oneOf(row.default_reasoning_level, modelReasoningLevels)
+  if (defaultReasoningLevel === '' || !supportedReasoningLevels.includes(defaultReasoningLevel))
+    throw new InvalidResponseError()
   return {
     display_name: text(row.display_name),
+    description: row.description == null ? '' : text(row.description),
     context_window: row.context_window === null ? null : integer(row.context_window, 1),
+    auto_compact_token_limit:
+      row.auto_compact_token_limit == null ? null : integer(row.auto_compact_token_limit, 1),
     supported_reasoning_levels: supportedReasoningLevels,
+    default_reasoning_level: defaultReasoningLevel,
     input_modalities: inputModalities(row.input_modalities),
+    service_tiers:
+      row.service_tiers == null ? [] : uniqueOptions(row.service_tiers, modelServiceTiers),
   }
 }
 function profileOverrides(value: unknown): ModelProfileOverrides {
@@ -240,15 +270,23 @@ function profileOverrides(value: unknown): ModelProfileOverrides {
   const overrides: ModelProfileOverrides = {}
   if (row.display_name !== undefined && row.display_name !== null)
     overrides.display_name = text(row.display_name)
+  if (row.description !== undefined && row.description !== null)
+    overrides.description = text(row.description)
   if (row.context_window !== undefined && row.context_window !== null)
     overrides.context_window = integer(row.context_window, 1)
+  if (row.auto_compact_token_limit !== undefined && row.auto_compact_token_limit !== null)
+    overrides.auto_compact_token_limit = integer(row.auto_compact_token_limit, 1)
   if (row.supported_reasoning_levels !== undefined && row.supported_reasoning_levels !== null)
     overrides.supported_reasoning_levels = uniqueOptions(
       row.supported_reasoning_levels,
       modelReasoningLevels,
     )
+  if (row.default_reasoning_level !== undefined && row.default_reasoning_level !== null)
+    overrides.default_reasoning_level = oneOf(row.default_reasoning_level, modelReasoningLevels)
   if (row.input_modalities !== undefined && row.input_modalities !== null)
     overrides.input_modalities = inputModalities(row.input_modalities)
+  if (row.service_tiers !== undefined && row.service_tiers !== null)
+    overrides.service_tiers = uniqueOptions(row.service_tiers, modelServiceTiers)
   return overrides
 }
 export function readModelProfile(value: unknown): ModelProfile {

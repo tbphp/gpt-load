@@ -1,6 +1,6 @@
-export type ControlSize = 'xs' | 'sm' | 'md'
-// 按钮比通用控件多一档，用于卡片内不需要强调的次级操作。
-export type ButtonSize = 'xxs' | ControlSize
+export type ControlSize = 'xxs' | 'xs' | 'sm' | 'md'
+// 紧凑行内编辑的输入框和按钮共用尺寸。
+export type ButtonSize = ControlSize
 export type ButtonVariant =
   'default' | 'primary' | 'outline' | 'ghost' | 'brand' | 'danger' | 'text'
 export type SemanticTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
@@ -19,6 +19,7 @@ export interface SearchSelectOption extends SelectOption {
 export interface FieldProps {
   label: string
   labelHidden?: boolean
+  inline?: boolean | 'subgrid'
   id?: string
   description?: string
   descriptionWarning?: string

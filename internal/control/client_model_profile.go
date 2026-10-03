@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -81,6 +82,9 @@ func (s *Service) UpdateClientModelProfile(
 		if !configured {
 			return app_errors.ErrResourceNotFound
 		}
+		if err := validateClientModelDefaultReasoningLevel(s.manager.Current(), request.ClientModel, metadata); err != nil {
+			return err
+		}
 		existing := s.manager.Current().ClientModelOverrides[request.ClientModel]
 		metadata.CatalogEnabled, metadata.CatalogOrder = existing.CatalogEnabled, existing.CatalogOrder
 		return saveClientModelOverrides(tx, request.ClientModel, metadata)
@@ -89,6 +93,24 @@ func (s *Service) UpdateClientModelProfile(
 		return ClientModelProfileDTO{}, err
 	}
 	return s.GetClientModelProfile(ctx, request.ClientModel)
+}
+
+func validateClientModelDefaultReasoningLevel(snapshot *state.ConfigSnapshot, model string, overrides catalog.ClientModelOverrides) error {
+	if overrides.DefaultReasoningLevel == nil || overrides.SupportedReasoningLevels != nil {
+		return nil
+	}
+	fallback := false
+	if snapshot != nil && snapshot.AutoModels != nil {
+		_, fallback = snapshot.AutoModels.Lookup(model)
+	}
+	_, automatic, _, err := catalog.BuildCodexCatalogModel(model, 0, catalog.ClientModelOverrides{}, fallback)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(automatic.SupportedReasoningLevels, *overrides.DefaultReasoningLevel) {
+		return app_errors.ErrValidation
+	}
+	return nil
 }
 
 func validateClientModelName(model string) error {
