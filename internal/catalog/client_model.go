@@ -8,6 +8,8 @@ import (
 )
 
 type ClientModelProfile struct {
+	CatalogEnabled           bool     `json:"catalog_enabled"`
+	CatalogOrder             *int64   `json:"catalog_order"`
 	DisplayName              string   `json:"display_name"`
 	ContextWindow            *int64   `json:"context_window"`
 	SupportedReasoningLevels []string `json:"supported_reasoning_levels"`
@@ -15,6 +17,8 @@ type ClientModelProfile struct {
 }
 
 type ClientModelOverrides struct {
+	CatalogEnabled           *bool     `json:"catalog_enabled,omitempty"`
+	CatalogOrder             *int64    `json:"catalog_order,omitempty"`
 	DisplayName              *string   `json:"display_name,omitempty"`
 	ContextWindow            *int64    `json:"context_window,omitempty"`
 	SupportedReasoningLevels *[]string `json:"supported_reasoning_levels,omitempty"`
@@ -22,6 +26,9 @@ type ClientModelOverrides struct {
 }
 
 func (overrides ClientModelOverrides) Validate() error {
+	if overrides.CatalogOrder != nil && (*overrides.CatalogOrder < 0 || *overrides.CatalogOrder > 9_007_199_254_740_991) {
+		return fmt.Errorf("catalog_order must be a nonnegative safe integer")
+	}
 	if overrides.DisplayName != nil && (!utf8.ValidString(*overrides.DisplayName) ||
 		strings.TrimSpace(*overrides.DisplayName) == "" || len(*overrides.DisplayName) > 512) {
 		return fmt.Errorf("display_name must be nonblank UTF-8 text up to 512 bytes")
@@ -64,11 +71,14 @@ func validateProfileChoices(values, allowed []string) error {
 }
 
 func (overrides ClientModelOverrides) IsEmpty() bool {
-	return overrides.DisplayName == nil && overrides.ContextWindow == nil &&
+	return overrides.CatalogEnabled == nil && overrides.CatalogOrder == nil &&
+		overrides.DisplayName == nil && overrides.ContextWindow == nil &&
 		overrides.SupportedReasoningLevels == nil && overrides.InputModalities == nil
 }
 
 func (overrides ClientModelOverrides) Clone() ClientModelOverrides {
+	overrides.CatalogEnabled = cloneProfileValue(overrides.CatalogEnabled)
+	overrides.CatalogOrder = cloneProfileValue(overrides.CatalogOrder)
 	overrides.DisplayName = cloneProfileValue(overrides.DisplayName)
 	overrides.ContextWindow = cloneProfileValue(overrides.ContextWindow)
 	if overrides.SupportedReasoningLevels != nil {
@@ -91,6 +101,7 @@ func cloneProfileValue[Value any](value *Value) *Value {
 }
 
 func (profile ClientModelProfile) Clone() ClientModelProfile {
+	profile.CatalogOrder = cloneProfileValue(profile.CatalogOrder)
 	profile.ContextWindow = cloneProfileValue(profile.ContextWindow)
 	profile.SupportedReasoningLevels = append([]string{}, profile.SupportedReasoningLevels...)
 	profile.InputModalities = append([]string{}, profile.InputModalities...)
@@ -99,6 +110,12 @@ func (profile ClientModelProfile) Clone() ClientModelProfile {
 
 func (profile ClientModelProfile) Apply(overrides ClientModelOverrides) ClientModelProfile {
 	result := profile.Clone()
+	if overrides.CatalogEnabled != nil {
+		result.CatalogEnabled = *overrides.CatalogEnabled
+	}
+	if overrides.CatalogOrder != nil {
+		result.CatalogOrder = cloneProfileValue(overrides.CatalogOrder)
+	}
 	if overrides.DisplayName != nil {
 		result.DisplayName = *overrides.DisplayName
 	}

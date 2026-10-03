@@ -100,6 +100,10 @@ func TestClientModelProfileHTTPRejectsInvalidAndAccessKeyMutations(t *testing.T)
 		{http.MethodGet, "/api/models/profile?model=client&model=other", ""},
 		{http.MethodPut, "/api/models/profile", `{"client_model":"client"}`},
 		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"unknown":true}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_order":-1}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_order":1.5}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_order":9007199254740992}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_enabled":"true"}}`},
 		{http.MethodPut, "/api/models/profile", `{"client_model":"missing","overrides":{"display_name":"x"}}`},
 	} {
 		recorder := serveClientModelRequest(engine, request.method, request.path, request.body, authTestKey)
@@ -120,6 +124,71 @@ func TestClientModelProfileHTTPRejectsInvalidAndAccessKeyMutations(t *testing.T)
 			t.Fatalf("access key %s = %d %s, want 403", request.path, recorder.Code, recorder.Body.String())
 		}
 	}
+}
+
+func TestClientModelCatalogSettingsPersistReloadResetAndProjectToList(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "catalog", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"gpt-6"},{"id":"claude-sonnet"}]`), Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	mustEnsureInitialPrices(t, fixture)
+	mustPublishClientModelSnapshot(t, fixture)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+
+	initial := readClientModelProfile(t, engine, http.MethodGet, "/api/models/profile?model=claude-sonnet", "", authTestKey)
+	if initial.Automatic.CatalogEnabled || initial.Effective.CatalogEnabled || initial.Effective.CatalogOrder != nil {
+		t.Fatalf("non-GPT automatic catalog settings = %#v", initial)
+	}
+	updated := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{
+		"client_model":"claude-sonnet",
+		"overrides":{"catalog_enabled":true,"catalog_order":0,"context_window":64000}
+	}`, authTestKey)
+	if !updated.HasOverrides || !updated.Effective.CatalogEnabled || updated.Effective.CatalogOrder == nil || *updated.Effective.CatalogOrder != 0 {
+		t.Fatalf("manual catalog settings = %#v", updated)
+	}
+	mustPublishClientModelSnapshot(t, fixture)
+	reloaded := readClientModelProfile(t, engine, http.MethodGet, "/api/models/profile?model=claude-sonnet", "", authTestKey)
+	if !reloaded.Effective.CatalogEnabled || reloaded.Effective.CatalogOrder == nil || *reloaded.Effective.CatalogOrder != 0 ||
+		reloaded.Effective.ContextWindow == nil || *reloaded.Effective.ContextWindow != 64000 {
+		t.Fatalf("catalog settings lost after reload: %#v", reloaded)
+	}
+	assertCatalogState := func(model string, enabled bool) {
+		t.Helper()
+		recorder := serveAuthRequest(engine, "/api/models?group_status=all&page_size=100", "192.0.2.10:1234", "Bearer "+authTestKey, nil)
+		var envelope struct {
+			Data struct {
+				Items []struct {
+					ClientModel    string `json:"client_model"`
+					CatalogEnabled *bool  `json:"catalog_enabled"`
+				} `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil || recorder.Code != http.StatusOK {
+			t.Fatalf("models response = HTTP %d, error=%v", recorder.Code, err)
+		}
+		for _, item := range envelope.Data.Items {
+			if item.ClientModel == model {
+				if item.CatalogEnabled == nil || *item.CatalogEnabled != enabled {
+					t.Fatalf("model %s catalog enabled=%v, want %v", model, item.CatalogEnabled, enabled)
+				}
+				return
+			}
+		}
+		t.Fatalf("catalog setting removed model %s from the management list", model)
+	}
+	assertCatalogState("claude-sonnet", true)
+	assertCatalogState("gpt-6", true)
+	readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{"client_model":"gpt-6","overrides":{"catalog_enabled":false}}`, authTestKey)
+	assertCatalogState("gpt-6", false)
+	reset := readClientModelProfile(t, engine, http.MethodPut, "/api/models/profile", `{"client_model":"claude-sonnet","overrides":{}}`, authTestKey)
+	if reset.HasOverrides || reset.Effective.CatalogEnabled || reset.Effective.CatalogOrder != nil {
+		t.Fatalf("catalog reset did not restore automatic settings: %#v", reset)
+	}
+	assertCatalogState("claude-sonnet", false)
 }
 
 func TestClientModelProfilePublishFailureRecoversCommittedOverride(t *testing.T) {

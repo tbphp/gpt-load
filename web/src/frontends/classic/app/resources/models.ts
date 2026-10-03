@@ -109,6 +109,7 @@ export interface UpstreamModelDetailDto {
 
 export interface ClientModelDto {
   client_model: string
+  catalog_enabled: boolean
   has_overrides: boolean
   protocols: GroupProtocol[]
   upstream_models: ModelUpstreamDto[]
@@ -144,7 +145,13 @@ export interface ModelCollectionDto {
 }
 
 const collectionFields = ['summary', 'catalog', 'items', 'pagination'] as const
-const clientModelFields = ['client_model', 'has_overrides', 'protocols', 'upstream_models'] as const
+const clientModelFields = [
+  'client_model',
+  'catalog_enabled',
+  'has_overrides',
+  'protocols',
+  'upstream_models',
+] as const
 const upstreamModelFields = [
   'model_id',
   'alias_applied',
@@ -427,6 +434,7 @@ function projectClientModel(value: unknown, isAccessKey: boolean): ClientModelDt
   }
   return {
     client_model: clientModel,
+    catalog_enabled: projectBoolean(record.catalog_enabled),
     has_overrides: projectBoolean(record.has_overrides),
     protocols: projectProtocols(record.protocols),
     upstream_models: upstreamModels,

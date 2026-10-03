@@ -89,15 +89,24 @@ export const zhCN = {
   confirmUnpriced: '确认不计价',
   priceImpact: '价格共用于 {models} 个请求模型、{groups} 个分组。',
   profile: {
-    action: '目录设置',
+    action: '客户端模型目录',
+    actionState: '客户端模型目录 · {state}',
+    enabled: '已开启',
+    disabled: '已关闭',
+    automaticOrder: '版本从新到旧',
+    defaultRule: '默认开启 gpt- 开头的模型，排除 gpt-image-，并按版本从新到旧排序。',
+    orderPlaceholder: '输入 0 或正整数',
     badgeAutomatic: '目录自动',
     badgeCustom: '目录自定义',
-    title: '目录设置',
+    title: '客户端模型目录',
     loading: '正在读取目录设置',
     failed: '目录设置加载失败',
     stale: '刷新失败，当前保留上次目录设置。',
     readOnly: '当前访问密钥仅可查看目录设置，不能修改。',
     sections: {
+      catalog: '展示与排序',
+      catalogHelp:
+        '只影响 Codex 获取的模型目录。关闭展示后仍可按模型名称调用，访问密钥权限保持不变。',
       metadata: '显示与上下文',
       metadataHelp: '只调整客户端模型的目录资料，不会重命名请求模型标识。',
       reasoning: '思考能力',
@@ -106,12 +115,15 @@ export const zhCN = {
       modalitiesHelp: '文本始终是必选输入类型，可按需补充图片或音频。',
     },
     fields: {
+      catalogEnabled: '展示在客户端目录',
+      catalogOrder: '排序顺序',
       displayName: '显示名称',
       contextWindow: '上下文窗口',
       supportedReasoningLevels: '支持的思考等级',
       inputModalities: '输入类型',
     },
     fieldHelp: {
+      catalogOrder: '手动排序优先，数值越小越靠前；相同顺序和未设置的模型按版本从新到旧排列。',
       contextWindow: '自定义值必须是正的安全整数；未知时保持自动。',
       inputModalities: '文本为必选，可额外选择图片和音频。',
     },
@@ -122,6 +134,7 @@ export const zhCN = {
     none: '无',
     contextPlaceholder: '输入正整数',
     errors: {
+      invalidCatalogOrder: '请输入 0 或正的安全整数。',
       invalidContextWindow: '请输入正的安全整数。',
       invalidReasoningLevels: '请至少选择一个思考等级。',
       invalidModalities: '输入类型必须包含文本。',
@@ -250,15 +263,25 @@ export const enUS = {
   confirmUnpriced: 'Mark as unpriced',
   priceImpact: 'These prices apply to {models} request models and {groups} groups.',
   profile: {
-    action: 'Catalog settings',
+    action: 'Client model catalog',
+    actionState: 'Client model catalog · {state}',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    automaticOrder: 'Newest model version first',
+    defaultRule:
+      'Models starting with gpt- are enabled by default, except gpt-image-. Newer versions come first.',
+    orderPlaceholder: 'Enter 0 or a positive integer',
     badgeAutomatic: 'Catalog automatic',
     badgeCustom: 'Catalog custom',
-    title: 'Catalog settings',
+    title: 'Client model catalog',
     loading: 'Loading catalog settings',
     failed: 'Unable to load catalog settings',
     stale: 'Refresh failed. Showing previous catalog settings.',
     readOnly: 'This access key can view catalog settings but cannot change them.',
     sections: {
+      catalog: 'Visibility and order',
+      catalogHelp:
+        'Only affects the model catalog fetched by Codex. Hidden models remain callable by name, with access-key permissions unchanged.',
       metadata: 'Display and context',
       metadataHelp:
         'Only client-model catalog metadata changes; the request model identifier stays unchanged.',
@@ -268,12 +291,16 @@ export const enUS = {
       modalitiesHelp: 'Text is always required; image and audio can be added when needed.',
     },
     fields: {
+      catalogEnabled: 'Show in the client catalog',
+      catalogOrder: 'Sort order',
       displayName: 'Display name',
       contextWindow: 'Context window',
       supportedReasoningLevels: 'Supported reasoning levels',
       inputModalities: 'Input modalities',
     },
     fieldHelp: {
+      catalogOrder:
+        'Manual entries come first; lower numbers have higher priority. Ties and automatic entries use newest model version first.',
       contextWindow: 'A custom value must be a positive safe integer. Keep automatic when unknown.',
       inputModalities: 'Text is required. Image and audio are optional.',
     },
@@ -284,6 +311,7 @@ export const enUS = {
     none: 'None',
     contextPlaceholder: 'Enter a positive integer',
     errors: {
+      invalidCatalogOrder: 'Enter 0 or a positive safe integer.',
       invalidContextWindow: 'Enter a positive safe integer.',
       invalidReasoningLevels: 'Select at least one reasoning level.',
       invalidModalities: 'Input modalities must include text.',
@@ -417,15 +445,25 @@ export const jaJP = {
   confirmUnpriced: '課金なしにする',
   priceImpact: 'この料金は {models} 個のリクエストモデル、{groups} 個のグループで共有されます。',
   profile: {
-    action: 'カタログ設定',
+    action: 'クライアントモデルカタログ',
+    actionState: 'クライアントモデルカタログ · {state}',
+    enabled: '有効',
+    disabled: '無効',
+    automaticOrder: '新しいモデルバージョン順',
+    defaultRule:
+      'gpt- で始まるモデルは既定で有効です。gpt-image- は除外し、新しいバージョンから並べます。',
+    orderPlaceholder: '0 または正の整数を入力',
     badgeAutomatic: 'カタログ自動',
     badgeCustom: 'カタログカスタム',
-    title: 'カタログ設定',
+    title: 'クライアントモデルカタログ',
     loading: 'カタログ設定を読み込み中',
     failed: 'カタログ設定を読み込めません',
     stale: '更新失敗。前回のカタログ設定を表示しています。',
     readOnly: 'このアクセスキーではカタログ設定を閲覧できますが、変更はできません。',
     sections: {
+      catalog: '表示と順序',
+      catalogHelp:
+        'Codex が取得するモデルカタログのみを変更します。非表示のモデルも名前を指定して呼び出せ、アクセスキーの権限は変わりません。',
       metadata: '表示とコンテキスト',
       metadataHelp:
         'クライアントモデルのカタログ情報のみ変更し、リクエストモデル識別子は変更しません。',
@@ -435,12 +473,16 @@ export const jaJP = {
       modalitiesHelp: 'テキストは必須です。必要に応じて画像と音声を追加できます。',
     },
     fields: {
+      catalogEnabled: 'クライアントカタログに表示',
+      catalogOrder: '表示順序',
       displayName: '表示名',
       contextWindow: 'コンテキストウィンドウ',
       supportedReasoningLevels: '対応する推論レベル',
       inputModalities: '入力タイプ',
     },
     fieldHelp: {
+      catalogOrder:
+        '手動設定を優先し、小さい値から表示します。同じ値と自動設定のモデルは新しいバージョン順に並べます。',
       contextWindow:
         'カスタム値は正の安全な整数である必要があります。不明な場合は自動のままにします。',
       inputModalities: 'テキストは必須です。画像と音声は任意です。',
@@ -452,6 +494,7 @@ export const jaJP = {
     none: 'なし',
     contextPlaceholder: '正の整数を入力',
     errors: {
+      invalidCatalogOrder: '0 または正の安全な整数を入力してください。',
       invalidContextWindow: '正の安全な整数を入力してください。',
       invalidReasoningLevels: '推論レベルを1つ以上選択してください。',
       invalidModalities: '入力タイプにはテキストを含める必要があります。',

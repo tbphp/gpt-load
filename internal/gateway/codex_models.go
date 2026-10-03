@@ -2,7 +2,8 @@ package gateway
 
 import (
 	"encoding/json"
-	"sort"
+	"strconv"
+	"strings"
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
@@ -21,6 +22,7 @@ func buildCodexModelList(
 	snapshot *state.ConfigSnapshot,
 	accessKey state.AccessKeyView,
 	limit int64,
+	clientVersion string,
 ) ([]byte, error) {
 	body := []byte(`{"models":[`)
 	if int64(len(body)+2) > limit {
@@ -44,6 +46,9 @@ func buildCodexModelList(
 		}
 		if err != nil {
 			return nil, err
+		}
+		if codexClientUsesModelMessages(clientVersion) {
+			delete(model, "base_instructions")
 		}
 		item, err := json.Marshal(model)
 		if err != nil {
@@ -83,7 +88,8 @@ func collectCodexVisibleModelIDs(snapshot *state.ConfigSnapshot, accessKey state
 				continue
 			}
 		}
-		if anyVisibleTarget(targets, accessKey.Filters.Groups) {
+		if anyVisibleTarget(targets, accessKey.Filters.Groups) &&
+			catalog.ClientModelCatalogEnabled(modelID, snapshot.ClientModelOverrides[modelID]) {
 			visible[modelID] = struct{}{}
 		}
 	}
@@ -100,7 +106,7 @@ func collectCodexVisibleModelIDs(snapshot *state.ConfigSnapshot, accessKey state
 				dialect.RequestMetadata{Operation: execution.OperationResponsesCreate},
 				scheduler.Query{ClientProtocol: protocol.OpenAIResponses},
 			)
-			if allowed {
+			if allowed && catalog.ClientModelCatalogEnabled(entry.Name, snapshot.ClientModelOverrides[entry.Name]) {
 				visible[entry.Name] = struct{}{}
 			}
 		}
@@ -109,6 +115,28 @@ func collectCodexVisibleModelIDs(snapshot *state.ConfigSnapshot, accessKey state
 	for modelID := range visible {
 		result = append(result, modelID)
 	}
-	sort.Strings(result)
+	catalog.SortClientModelCatalog(result, snapshot.ClientModelOverrides)
 	return result
+}
+
+func codexClientUsesModelMessages(clientVersion string) bool {
+	parts := strings.Split(clientVersion, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	var version [3]int
+	for index, part := range parts {
+		parsed, err := strconv.Atoi(part)
+		if err != nil || parsed < 0 {
+			return false
+		}
+		version[index] = parsed
+	}
+	// 0.159.2 的客户端契约已将 base_instructions 变为可选的旧字段。
+	for index, minimum := range [3]int{0, 159, 2} {
+		if version[index] != minimum {
+			return version[index] > minimum
+		}
+	}
+	return true
 }

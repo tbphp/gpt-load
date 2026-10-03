@@ -129,7 +129,7 @@ func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
 		{"all groups", state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"gpt-5.6-sol": {}}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			body, err := buildCodexModelList(snapshot, test.key, math.MaxInt64)
+			body, err := buildCodexModelList(snapshot, test.key, math.MaxInt64, "0.154.0")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +167,7 @@ func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot.ClientModelOverrides["gpt-5.6-sol"] = overrides
-	body, err := buildCodexModelList(snapshot, key, math.MaxInt64)
+	body, err := buildCodexModelList(snapshot, key, math.MaxInt64, "0.154.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,27 +190,28 @@ func TestCodexCatalogUsesExistingVisibilityAndScopedMetadata(t *testing.T) {
 		!reflect.DeepEqual(model.InputModalities, []string{"text"}) {
 		t.Fatalf("overrides absent from wire catalog: %s", body)
 	}
-	if bounded, err := buildCodexModelList(snapshot, key, int64(len(body))); err != nil || string(bounded) != string(body) {
+	if bounded, err := buildCodexModelList(snapshot, key, int64(len(body)), "0.154.0"); err != nil || string(bounded) != string(body) {
 		t.Fatalf("exact byte boundary failed: %v", err)
 	}
-	if partial, err := buildCodexModelList(snapshot, key, int64(len(body)-1)); !errors.Is(err, errModelListTooLarge) || partial != nil {
+	if partial, err := buildCodexModelList(snapshot, key, int64(len(body)-1), "0.154.0"); !errors.Is(err, errModelListTooLarge) || partial != nil {
 		t.Fatalf("overflow leaked partial JSON: %s, %v", partial, err)
 	}
 }
 
 func TestCodexCatalogEmptyAndUnknownValues(t *testing.T) {
 	for _, limit := range []int64{-1, 0, 12} {
-		if body, err := buildCodexModelList(nil, state.AccessKeyView{}, limit); !errors.Is(err, errModelListTooLarge) || body != nil {
+		if body, err := buildCodexModelList(nil, state.AccessKeyView{}, limit, "0.154.0"); !errors.Is(err, errModelListTooLarge) || body != nil {
 			t.Fatalf("limit %d = %s, %v", limit, body, err)
 		}
 	}
-	body, err := buildCodexModelList(nil, state.AccessKeyView{}, 13)
+	body, err := buildCodexModelList(nil, state.AccessKeyView{}, 13, "0.154.0")
 	if err != nil || string(body) != `{"models":[]}` {
 		t.Fatalf("empty catalog = %s, %v", body, err)
 	}
 }
 
 func TestCodexCatalogOnlyListsResponsesCreateModelsAndUsesGPT55ForAutoModels(t *testing.T) {
+	catalogEnabled := true
 	autoModels, err := automodel.Compile(automodel.Config{
 		Enabled: true, Model: "decision-model", TimeoutSeconds: 2,
 		Models: []automodel.Entry{{
@@ -241,9 +242,12 @@ func TestCodexCatalogOnlyListsResponsesCreateModelsAndUsesGPT55ForAutoModels(t *
 			},
 		},
 		GroupCatalog: map[uint]state.GroupCatalogView{1: {ID: 1, Enabled: true}, 2: {ID: 2, Enabled: true}},
-		AutoModels:   autoModels,
+		ClientModelOverrides: map[string]catalog.ClientModelOverrides{
+			"responses-model": {CatalogEnabled: &catalogEnabled},
+		},
+		AutoModels: autoModels,
 	}
-	body, err := buildCodexModelList(snapshot, state.AccessKeyView{}, math.MaxInt64)
+	body, err := buildCodexModelList(snapshot, state.AccessKeyView{}, math.MaxInt64, "0.154.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +279,7 @@ func TestCodexCatalogOnlyListsResponsesCreateModelsAndUsesGPT55ForAutoModels(t *
 	}
 	body, err = buildCodexModelList(snapshot, state.AccessKeyView{Filters: state.FilterSet{
 		Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIEmbeddings: {}},
-	}}, math.MaxInt64)
+	}}, math.MaxInt64, "0.154.0")
 	if err != nil || string(body) != `{"models":[]}` {
 		t.Fatalf("protocol-filtered catalog = %s, %v", body, err)
 	}

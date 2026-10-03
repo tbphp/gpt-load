@@ -18,6 +18,7 @@ import {
   AppFormSection,
   AppMultiSelect,
   AppNotice,
+  AppSwitch,
   AppTextField,
 } from '@modern/components/ui'
 import { useModelProfileEditor } from './use-model-profile-editor'
@@ -51,6 +52,14 @@ function automaticValue(field: ModelProfileFieldName): string {
   const automatic = base.value?.automatic
   if (!automatic) return ''
   switch (field) {
+    case 'catalog_enabled':
+      return t(
+        automatic.catalog_enabled
+          ? 'modelManager.profile.enabled'
+          : 'modelManager.profile.disabled',
+      )
+    case 'catalog_order':
+      return t('modelManager.profile.automaticOrder')
     case 'display_name':
       return automatic.display_name
     case 'context_window':
@@ -67,6 +76,12 @@ function automaticValue(field: ModelProfileFieldName): string {
         .join(' / ')
   }
   return ''
+}
+
+function setCatalogEnabled(value: boolean): void {
+  if (!draft.value || disabled.value) return
+  setCustom('catalog_enabled', true)
+  draft.value.values.catalog_enabled = value
 }
 
 function toggleInputModality(value: Exclude<ModelInputModality, 'text'>, enabled: boolean): void {
@@ -131,6 +146,69 @@ async function close(): Promise<void> {
             {{ t('modelManager.profile.stale') }}
           </AppNotice>
           <AppNotice v-if="saveError" tone="danger">{{ saveError }}</AppNotice>
+          <AppFormSection
+            :title="t('modelManager.profile.sections.catalog')"
+            :description="t('modelManager.profile.sections.catalogHelp')"
+            compact
+          >
+            <section class="modern-model-profile-catalog-visibility">
+              <div class="modern-model-profile-catalog-heading">
+                <span>{{ t('modelManager.profile.fields.catalogEnabled') }}</span>
+                <div class="modern-model-profile-actions">
+                  <AppButton
+                    v-if="draft.custom.catalog_enabled"
+                    variant="text"
+                    size="xxs"
+                    :icon="RotateCcw"
+                    :disabled="disabled"
+                    @click="setCustom('catalog_enabled', false)"
+                    >{{ t('modelManager.profile.modes.automatic') }}</AppButton
+                  >
+                  <AppSwitch
+                    :model-value="draft.values.catalog_enabled"
+                    :label="t('modelManager.profile.fields.catalogEnabled')"
+                    size="sm"
+                    :disabled="disabled"
+                    @update:model-value="setCatalogEnabled"
+                  />
+                </div>
+              </div>
+              <p>{{ t('modelManager.profile.defaultRule') }}</p>
+              <p v-if="draft.custom.catalog_enabled">
+                {{
+                  t('modelManager.profile.automaticPreview', {
+                    value: automaticValue('catalog_enabled'),
+                  })
+                }}
+              </p>
+            </section>
+            <ModelProfileField
+              :label="t('modelManager.profile.fields.catalogOrder')"
+              :description="t('modelManager.profile.fieldHelp.catalogOrder')"
+              :automatic="automaticValue('catalog_order')"
+              :custom="draft.custom.catalog_order"
+              :disabled="disabled"
+              :error="fieldErrors.catalog_order"
+              @update:custom="setCustom('catalog_order', $event)"
+            >
+              <template #default="{ disabled: fieldDisabled }">
+                <AppTextField
+                  v-model="draft.values.catalog_order"
+                  :label="t('modelManager.profile.fields.catalogOrder')"
+                  label-hidden
+                  size="sm"
+                  type="text"
+                  inputmode="numeric"
+                  :placeholder="
+                    draft.custom.catalog_order
+                      ? t('modelManager.profile.orderPlaceholder')
+                      : automaticValue('catalog_order')
+                  "
+                  :disabled="fieldDisabled"
+                />
+              </template>
+            </ModelProfileField>
+          </AppFormSection>
           <AppFormSection
             :title="t('modelManager.profile.sections.metadata')"
             :description="t('modelManager.profile.sections.metadataHelp')"
@@ -289,6 +367,25 @@ async function close(): Promise<void> {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--modern-space-2);
+}
+.modern-model-profile-catalog-visibility {
+  display: grid;
+  gap: var(--modern-space-2);
+  padding-bottom: var(--modern-space-3);
+}
+.modern-model-profile-catalog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-3);
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-medium);
+}
+.modern-model-profile-catalog-visibility p {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
 }
 .modern-model-profile-footer {
   display: flex;

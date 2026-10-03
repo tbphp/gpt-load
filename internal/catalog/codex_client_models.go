@@ -82,6 +82,7 @@ func buildCodexClientModel(
 	if err != nil {
 		return nil, ClientModelProfile{}, ClientModelProfile{}, fmt.Errorf("resolve Codex model %q: %w", model, err)
 	}
+	automatic.CatalogEnabled = ClientModelCatalogEnabled(model, ClientModelOverrides{})
 	effective := automatic.Apply(overrides)
 	applyClientModelProfile(resolved, effective, overrides)
 	if err := applyLegacyBaseInstructions(resolved); err != nil {
