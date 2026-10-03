@@ -18,10 +18,14 @@ func (iterator *Iterator) ChargeReplay(selection Selection, ref state.Credential
 			if meta.ID != ref.ID || meta.IdentityGeneration != ref.IdentityGeneration {
 				continue
 			}
-			if selection.UpstreamModelID != nil && modelCooldownUntil(meta.ModelCooldowns, *selection.UpstreamModelID, iterator.operation, now).After(now) {
-				continue
+			upstreamModel := ""
+			if selection.UpstreamModelID != nil {
+				upstreamModel = *selection.UpstreamModelID
+				if modelCooldownUntil(meta.ModelCooldowns, upstreamModel, iterator.operation, now).After(now) {
+					continue
+				}
 			}
-			if selection.UpstreamModelID != nil && iterator.isPolicyExcludedTarget(*selection.UpstreamModelID, selection.GroupID, meta.ID, meta.QuotaWindows, now) {
+			if iterator.isPolicyExcludedTarget(upstreamModel, selection.GroupID, meta.ID, meta.QuotaWindows, now) {
 				continue
 			}
 			weight := effectiveWeight(selection.Group.WeightManual, meta.WeightManual)

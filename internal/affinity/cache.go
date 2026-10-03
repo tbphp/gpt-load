@@ -35,6 +35,10 @@ func (observation Observation) Found() bool {
 	return observation.found
 }
 
+func (observation Observation) Revision() uint64 {
+	return observation.revision
+}
+
 type cacheEntry struct {
 	key       Key
 	target    Target
@@ -44,14 +48,15 @@ type cacheEntry struct {
 
 // Cache is a bounded, process-local soft-affinity cache.
 type Cache struct {
-	mu          sync.Mutex
-	entries     map[Key]*list.Element
-	recent      list.List
-	capacity    int
-	ttl         time.Duration
-	now         func() time.Time
-	revision    uint64
-	nextVersion uint64
+	mu               sync.Mutex
+	entries          map[Key]*list.Element
+	recent           list.List
+	capacity         int
+	ttl              time.Duration
+	now              func() time.Time
+	revision         uint64
+	affinityRevision uint64
+	nextVersion      uint64
 }
 
 func NewCache() *Cache {
@@ -67,12 +72,18 @@ func newCache(capacity int, ttl time.Duration, now func() time.Time) *Cache {
 	}
 }
 
-// Configure applies one frozen runtime configuration revision. Moving to a
-// newer revision clears entries so changed TTL, capacity, and group policy
-// take effect atomically. Older requests cannot restore stale configuration.
-func (cache *Cache) Configure(revision uint64, capacity int, ttl time.Duration) bool {
+// Configure applies one frozen runtime configuration revision and affinity
+// compatibility revision. Moving to a newer configuration revision updates
+// cache.revision so that older requests cannot restore stale configuration.
+// If the affinity revision, capacity, or TTL changes, entries are cleared.
+// When only non-routing policy changes occur (affinityRevision unchanged),
+// existing entries are preserved.
+func (cache *Cache) Configure(revision uint64, affinityRevision uint64, capacity int, ttl time.Duration) bool {
 	if cache == nil || revision == 0 || capacity <= 0 || ttl <= 0 || cache.now == nil {
 		return false
+	}
+	if affinityRevision == 0 {
+		affinityRevision = revision
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -80,13 +91,22 @@ func (cache *Cache) Configure(revision uint64, capacity int, ttl time.Duration) 
 		return false
 	}
 	if revision == cache.revision {
-		return cache.capacity == capacity && cache.ttl == ttl
+		return cache.capacity == capacity && cache.ttl == ttl && cache.affinityRevision == affinityRevision
 	}
+	compatible := cache.revision > 0 &&
+		cache.affinityRevision == affinityRevision &&
+		cache.capacity == capacity &&
+		cache.ttl == ttl
+
 	cache.revision = revision
+	cache.affinityRevision = affinityRevision
 	cache.capacity = capacity
 	cache.ttl = ttl
-	cache.entries = make(map[Key]*list.Element)
-	cache.recent.Init()
+
+	if !compatible {
+		cache.entries = make(map[Key]*list.Element)
+		cache.recent.Init()
+	}
 	return true
 }
 

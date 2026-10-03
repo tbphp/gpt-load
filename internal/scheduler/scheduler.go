@@ -291,6 +291,41 @@ func (iterator *Iterator) Next() (Selection, error) {
 	if iterator == nil || iterator.credentials == nil || iterator.progress == nil || iterator.now == nil {
 		return Selection{}, ErrExhausted
 	}
+	if iterator.preferredCredentialID > 0 {
+		now := iterator.now()
+		preferredID := iterator.preferredCredentialID
+		for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
+			for _, modes := range iterator.routeModeTiers {
+				var selected state.CredentialMeta
+				var target candidateTarget
+				var found bool
+				iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
+					hasPreferred := false
+					for _, candidate := range weighted {
+						if candidate.meta.ID == preferredID {
+							hasPreferred = true
+							break
+						}
+					}
+					if !hasPreferred {
+						return
+					}
+					selected, found = iterator.selectCredential(weighted, preferredID)
+					if !found {
+						return
+					}
+					target = iterator.selectTarget(pool, modes, selected, now)
+				})
+				if !found {
+					continue
+				}
+				iterator.tried[selected.ID] = struct{}{}
+				iterator.preferredCredentialID = 0
+				return newSelection(selected, target), nil
+			}
+		}
+		iterator.preferredCredentialID = 0
+	}
 	for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
 		for _, modes := range iterator.routeModeTiers {
 			var selected state.CredentialMeta
@@ -298,7 +333,7 @@ func (iterator *Iterator) Next() (Selection, error) {
 			var found bool
 			now := iterator.now()
 			iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
-				selected, found = iterator.selectCredential(weighted, iterator.preferredCredentialID)
+				selected, found = iterator.selectCredential(weighted, 0)
 				if !found {
 					return
 				}

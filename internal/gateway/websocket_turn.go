@@ -317,6 +317,8 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	affinity := h.resolveRequestAffinity(snapshot, key.ID, protocol.OpenAIResponses, original.metadata.AffinityPrefix, query.AllowedCredentialRefs, original.metadata.PromptCacheKey)
 	if requiredRef == nil {
 		query.PreferredCredentialID = affinity.preferredCredentialID
+	} else {
+		query.PreferredCredentialID = requiredRef.ID
 	}
 	iterator := scheduler.New(snapshot, h.registry, query)
 	redactionCipher, err := h.encryption.NewRedactionCipher(key.ID)

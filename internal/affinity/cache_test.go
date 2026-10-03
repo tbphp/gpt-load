@@ -120,7 +120,7 @@ func TestCacheConfigureClearsEntriesAndRejectsOlderRevision(t *testing.T) {
 	cache := newCache(2, time.Hour, func() time.Time { return now })
 	key := Key("one")
 	target := Target{GroupID: 1, CredentialID: 11, IdentityGeneration: 101}
-	if !cache.Configure(1, 2, time.Hour) {
+	if !cache.Configure(1, 1, 2, time.Hour) {
 		t.Fatal("Configure(1) = false")
 	}
 	observed := cache.Lookup(key)
@@ -128,13 +128,13 @@ func TestCacheConfigureClearsEntriesAndRejectsOlderRevision(t *testing.T) {
 		t.Fatal("RecordSuccess() = false")
 	}
 	stale := cache.Lookup(key)
-	if !cache.Configure(2, 1, 30*time.Minute) {
+	if !cache.Configure(2, 2, 1, 30*time.Minute) {
 		t.Fatal("Configure(2) = false")
 	}
 	if cache.Lookup(key).Found() || cache.entryCount() != 0 {
 		t.Fatal("new configuration did not clear old entries")
 	}
-	if cache.Configure(1, 2, time.Hour) {
+	if cache.Configure(1, 1, 2, time.Hour) {
 		t.Fatal("older configuration revision was accepted")
 	}
 	if cache.RecordSuccess(key, stale, target) {
@@ -151,5 +151,53 @@ func TestCacheConfigureClearsEntriesAndRejectsOlderRevision(t *testing.T) {
 	now = now.Add(31 * time.Minute)
 	if cache.Lookup("three").Found() {
 		t.Fatal("configured TTL was not enforced")
+	}
+}
+
+func TestCacheConfigurePreservesEntriesOnCompatibleAffinityRevision(t *testing.T) {
+	now := time.Date(2026, time.August, 12, 12, 0, 0, 0, time.UTC)
+	cache := newCache(5, time.Hour, func() time.Time { return now })
+	key := Key("user-prefix")
+	target := Target{GroupID: 1, CredentialID: 11, IdentityGeneration: 101}
+
+	// Revision 1, AffinityRevision 1
+	if !cache.Configure(1, 1, 5, time.Hour) {
+		t.Fatal("Configure(1, 1) = false")
+	}
+	obs1 := cache.Lookup(key)
+	if !cache.RecordSuccess(key, obs1, target) {
+		t.Fatal("RecordSuccess() = false on rev 1")
+	}
+
+	// Policy-only update: Revision 2, AffinityRevision remains 1, same capacity & TTL
+	if !cache.Configure(2, 1, 5, time.Hour) {
+		t.Fatal("Configure(2, 1) = false")
+	}
+
+	// Eligible entry must be preserved!
+	obs2 := cache.Lookup(key)
+	if !obs2.Found() || obs2.Target != target {
+		t.Fatalf("Lookup() after policy-only update = %#v, want target %#v", obs2, target)
+	}
+	if obs2.revision != 2 {
+		t.Fatalf("Lookup() revision = %d, want 2", obs2.revision)
+	}
+
+	// Stale write from request started under revision 1 must be rejected!
+	if cache.RecordSuccess(key, obs1, target) {
+		t.Fatal("RecordSuccess() with stale revision 1 observation succeeded, want rejection")
+	}
+
+	// Write from request under revision 2 must succeed!
+	if !cache.RecordSuccess(key, obs2, target) {
+		t.Fatal("RecordSuccess() with revision 2 observation failed")
+	}
+
+	// Incompatible config change: Revision 3, AffinityRevision 2 (e.g. routing mode changed)
+	if !cache.Configure(3, 2, 5, time.Hour) {
+		t.Fatal("Configure(3, 2) = false")
+	}
+	if cache.Lookup(key).Found() || cache.entryCount() != 0 {
+		t.Fatal("incompatible configuration did not clear cached affinity entries")
 	}
 }

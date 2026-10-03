@@ -199,6 +199,9 @@ func NewHandler(
 			time.Now,
 		),
 	}
+	if manager != nil {
+		manager.SetAffinitySynchronizer(handler.affinityCache)
+	}
 	for _, runtime := range accessQuotas {
 		if runtime != nil {
 			handler.accessQuota = runtime
@@ -714,6 +717,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 				ID: binding.CredentialID, GroupID: binding.GroupID,
 				IdentityGeneration: binding.IdentityGeneration,
 			},
+		}
+		query.PreferredCredentialID = binding.CredentialID
+		if capturedRef, ok := allowedCredentialRefs[binding.CredentialID]; ok {
+			allowedCredentialRefs = map[uint]state.CredentialRef{binding.CredentialID: capturedRef}
+		} else {
+			allowedCredentialRefs = make(map[uint]state.CredentialRef)
 		}
 	} else {
 		requestAffinity = handler.resolveRequestAffinity(

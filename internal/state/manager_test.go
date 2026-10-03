@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/policy"
 )
 
 func TestManagerReconcilesInfrastructureBeforePublishingSnapshot(t *testing.T) {
@@ -385,5 +386,51 @@ func managerCompileInput(groupID uint) CompileInput {
 		Groups: []GroupConfig{{ConnectionType: "api_key", ID: groupID, Name: "group", ChannelID: channel.OpenAI,
 			Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
+	}
+}
+
+func TestManagerPublishPolicyOnlyPreservesAffinityRevision(t *testing.T) {
+	manager := NewManager()
+	input1 := managerCompileInput(1)
+	first, err := manager.Publish(input1)
+	if err != nil {
+		t.Fatalf("first Publish() error = %v", err)
+	}
+	if first.Revision != 1 || first.AffinityRevision != 1 {
+		t.Fatalf("first Publish() = rev %d, affinityRev %d, want 1, 1", first.Revision, first.AffinityRevision)
+	}
+
+	// Policy-only update: input with a policy binding added
+	ruleJSON := []byte(`{"schema_version":1,"rules":[{"id":"p1","name":"Rule 1","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}`)
+	input2 := managerCompileInput(1)
+	input2.PolicyBindings = []policy.BindingConfig{
+		{Scope: "group", GroupID: 1, Config: ruleJSON},
+	}
+	second, err := manager.Publish(input2)
+	if err != nil {
+		t.Fatalf("second Publish() error = %v", err)
+	}
+	if second.Revision != 2 {
+		t.Fatalf("second Publish().Revision = %d, want 2", second.Revision)
+	}
+	if second.AffinityRevision != 1 {
+		t.Fatalf("second Publish().AffinityRevision = %d, want 1 (preserved for policy-only publication)", second.AffinityRevision)
+	}
+
+	// Incompatible update: group name / channel / model change
+	input3 := input2
+	input3.Groups = []GroupConfig{{
+		ConnectionType: "api_key", ID: 1, Name: "group-renamed", ChannelID: channel.OpenAI,
+		Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "model-new"}}, Enabled: true,
+	}}
+	third, err := manager.Publish(input3)
+	if err != nil {
+		t.Fatalf("third Publish() error = %v", err)
+	}
+	if third.Revision != 3 {
+		t.Fatalf("third Publish().Revision = %d, want 3", third.Revision)
+	}
+	if third.AffinityRevision != 2 {
+		t.Fatalf("third Publish().AffinityRevision = %d, want 2 (incremented for incompatible publication)", third.AffinityRevision)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -501,6 +502,34 @@ func liveMediaProxyURL(effective outboundproxy.Effective) (string, error) {
 	}
 }
 
+func (handler *Handler) isLiveCallPolicyAdmitted(call *liveCallSession) bool {
+	if handler == nil || handler.manager == nil || call == nil {
+		return false
+	}
+	snapshot := handler.manager.Current()
+	if snapshot == nil || snapshot.Policies == nil {
+		return true
+	}
+	now := handler.now()
+	var quotaWindows []policy.QuotaWindowFact
+	if handler.registry != nil {
+		for _, meta := range handler.registry.CollectCredentialCandidates([]uint{call.groupID}, nil, now) {
+			if meta.ID == call.ref.ID {
+				quotaWindows = meta.QuotaWindows
+				break
+			}
+		}
+	}
+	ctx := &policy.EvalContext{
+		Now:           now,
+		RequestModel:  policy.StringFact{Value: call.clientModel, State: policy.FactStateMeasured},
+		UpstreamModel: policy.StringFact{Value: call.model, State: policy.FactStateMeasured},
+		QuotaWindows:  quotaWindows,
+	}
+	excluded, _ := snapshot.Policies.EvalCandidate(call.groupID, call.ref.ID, ctx)
+	return !excluded
+}
+
 func (handler *Handler) liveCallAuthorized(keyID uint, call *liveCallSession) bool {
 	snapshot := handler.manager.Current()
 	key, exists := snapshot.AccessKeysByHash[call.keyHash]
@@ -546,6 +575,11 @@ func (handler *Handler) connectCodexLive(c *gin.Context, request *dataPlaneReque
 	}
 	if !handler.liveCallAuthorized(request.accessKey.ID, call) {
 		handler.liveSessions.finishCall(call, "key_revoked")
+		_ = handler.writeReason(c, reasonLiveSession)
+		return
+	}
+	if !handler.isLiveCallPolicyAdmitted(call) {
+		handler.liveSessions.unclaim(call, nil)
 		_ = handler.writeReason(c, reasonLiveSession)
 		return
 	}

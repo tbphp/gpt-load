@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"gpt-load/internal/ratelimit"
 )
@@ -11,10 +12,16 @@ import (
 type Manager struct {
 	concurrency *ratelimit.Concurrency
 	scheduling  *SchedulingState
+	affinity    AffinitySynchronizer
 	publishMu   sync.RWMutex
 	current     atomic.Pointer[ConfigSnapshot]
 	reconciler  SnapshotReconciler
 	updates     chan struct{}
+}
+
+// AffinitySynchronizer receives runtime affinity updates on snapshot publication.
+type AffinitySynchronizer interface {
+	Configure(revision uint64, affinityRevision uint64, capacity int, ttl time.Duration) bool
 }
 
 // SnapshotReconciler synchronizes infrastructure resources derived from a
@@ -114,6 +121,7 @@ func (m *Manager) Matches(input CompileInput) (bool, error) {
 	}
 	currentValue := *current
 	currentValue.Revision = 0
+	currentValue.AffinityRevision = 0
 	return reflect.DeepEqual(&currentValue, next), nil
 }
 
@@ -128,8 +136,17 @@ func (m *Manager) publishCompiled(next *ConfigSnapshot, beforeLock func()) *Conf
 
 func (m *Manager) publishCompiledLocked(next *ConfigSnapshot) *ConfigSnapshot {
 	next.Revision = 1
+	next.AffinityRevision = 1
 	if current := m.current.Load(); current != nil {
 		next.Revision = current.Revision + 1
+		if isPolicyOnlyPublication(current, next) {
+			next.AffinityRevision = current.AffinityRevision
+		} else {
+			next.AffinityRevision = current.AffinityRevision + 1
+		}
+	}
+	if m.affinity != nil {
+		m.affinity.Configure(next.Revision, next.AffinityRevision, next.Settings.AffinityCapacity, next.Settings.AffinityTTL)
 	}
 	if m.scheduling != nil {
 		m.scheduling.SyncGroups(next)
@@ -142,6 +159,18 @@ func (m *Manager) publishCompiledLocked(next *ConfigSnapshot) *ConfigSnapshot {
 	return next
 }
 
+func isPolicyOnlyPublication(current, next *ConfigSnapshot) bool {
+	if current == nil || next == nil {
+		return false
+	}
+	c := *current
+	n := *next
+	c.Revision, n.Revision = 0, 0
+	c.AffinityRevision, n.AffinityRevision = 0, 0
+	c.Policies, n.Policies = nil, nil
+	return reflect.DeepEqual(&c, &n)
+}
+
 // SetSchedulingState 将分组配置发布与单实例调度状态衔接；不持有 Registry 锁。
 func (m *Manager) SetSchedulingState(scheduling *SchedulingState) {
 	m.publishMu.Lock()
@@ -149,6 +178,21 @@ func (m *Manager) SetSchedulingState(scheduling *SchedulingState) {
 	m.scheduling = scheduling
 	if scheduling != nil {
 		scheduling.SyncGroups(m.current.Load())
+	}
+}
+
+// SetAffinitySynchronizer binds an affinity cache to receive synchronous publication updates.
+func (m *Manager) SetAffinitySynchronizer(sync AffinitySynchronizer) {
+	if m == nil {
+		return
+	}
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	m.affinity = sync
+	if sync != nil {
+		if current := m.current.Load(); current != nil {
+			sync.Configure(current.Revision, current.AffinityRevision, current.Settings.AffinityCapacity, current.Settings.AffinityTTL)
+		}
 	}
 }
 

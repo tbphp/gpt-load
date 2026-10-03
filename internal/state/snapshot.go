@@ -208,6 +208,7 @@ type ConfigSnapshot struct {
 	RequestAudit          requestaudit.Config
 	AutoModels            *automodel.Compiled
 	Revision              uint64
+	AffinityRevision      uint64
 	Settings              RuntimeSettings
 	ExecutionCandidates   ExecutionCandidateIndex
 	ExecutionRouteCatalog ExecutionCandidateIndex

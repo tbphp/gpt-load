@@ -452,3 +452,112 @@ func TestPolicyAdmission_StaleFailedPublication_RetainsLastValidView(t *testing.
 		t.Fatalf("expected retained snapshot to still exclude candidate, got %v", err)
 	}
 }
+
+func TestPolicyAdmission_PreferredCandidateFairnessProtection(t *testing.T) {
+	// Rule excludes Credential 101 for model "gpt-4o"
+	credJSON := []byte(`{
+		"schema_version": 1,
+		"rules": [
+			{
+				"id": "block-101",
+				"name": "Block credential 101",
+				"domain": "scheduling",
+				"enabled": true,
+				"when": {"fact": "request.model", "op": "eq", "value": "gpt-4o"},
+				"then": {"type": "exclude_candidate"}
+			}
+		]
+	}`)
+	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
+		{Scope: "credential", GroupID: 1, CredentialID: 101, Config: credJSON},
+	})
+	if err != nil {
+		t.Fatalf("CompileRuntimeView error = %v", err)
+	}
+
+	snapshot := schedulerSnapshot()
+	snapshot.Policies = pv
+
+	credentials := fakeCredentialSource{
+		keys: []state.CredentialMeta{
+			{ID: 101, GroupID: 1, IdentityGeneration: 1},
+			{ID: 102, GroupID: 1, IdentityGeneration: 1},
+		},
+	}
+
+	reqModel := "gpt-4o"
+	query := Query{
+		ClientProtocol:        protocol.OpenAICompletions,
+		Operation:             execution.OperationChatCompletion,
+		ExternalModel:         &reqModel,
+		PreferredCredentialID: 101, // Credential 101 is preferred, but excluded by policy!
+	}
+
+	iterator := New(snapshot, credentials, query)
+
+	// Next() must select alternate candidate 102
+	selection, err := iterator.Next()
+	if err != nil {
+		t.Fatalf("Next() error = %v", err)
+	}
+	if selection.CredentialID != 102 {
+		t.Fatalf("Next() selected %d, want alternate eligible candidate 102", selection.CredentialID)
+	}
+
+	// Verify scheduler progress: Credential 101 must NOT have its fairness ledger advanced!
+	iterator.progress.WithLock(func(ledger *state.SchedulingLedger) {
+		member101 := ledger.Members[101]
+		if member101 != nil && member101.LastSelected > 0 {
+			t.Fatalf("expected denied preferred credential 101 not to have fairness advancement, got LastSelected=%d", member101.LastSelected)
+		}
+	})
+
+	// ChargeReplay on denied candidate 101 must be rejected and not mutate progress
+	ref101 := state.CredentialRef{ID: 101, GroupID: 1, IdentityGeneration: 1}
+	charged := iterator.ChargeReplay(Selection{
+		CredentialID: 101, GroupID: 1, UpstreamModelID: &reqModel,
+	}, ref101)
+	if charged {
+		t.Fatalf("ChargeReplay on policy-denied candidate succeeded, want false")
+	}
+}
+
+func TestPolicyAdmission_PreferredAcrossNativeFirst(t *testing.T) {
+	it := New(channelSchedulerSnapshot(t), fakeCredentialSource{keys: []state.CredentialMeta{{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2}}}, Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("public"), PreferredCredentialID: 11})
+	sel, err := it.Next()
+	if err != nil || sel.CredentialID != 11 {
+		t.Fatalf("eligible preferred credential 11 lost across allowed tiers: selected=%d mode=%s err=%v", sel.CredentialID, sel.RouteMode, err)
+	}
+}
+
+func TestPolicyAdmission_PreferredAcrossStoreFallback(t *testing.T) {
+	it := New(responsesStoreSchedulerSnapshot(t, true), fakeCredentialSource{keys: []state.CredentialMeta{{ID: 21, GroupID: 2}, {ID: 31, GroupID: 3}}}, Query{ClientProtocol: protocol.OpenAIResponses, Operation: execution.OperationResponsesCreate, ResponsesStorePreference: execution.ResponsesStorePreferencePreferStored, ExternalModel: modelPointer("gpt"), PreferredCredentialID: 31})
+	sel, err := it.Next()
+	if err != nil || sel.CredentialID != 31 {
+		t.Fatalf("eligible preferred credential 31 lost across allowed store fallback: selected=%d downgraded=%v err=%v", sel.CredentialID, sel.ResponsesStoreDowngraded, err)
+	}
+}
+
+func TestPolicyAdmission_ModelLessReplayChecksPolicyBeforeCharging(t *testing.T) {
+	snapshot := schedulerSnapshot()
+	source := fakeCredentialSource{keys: []state.CredentialMeta{{ID: 101, GroupID: 1, IdentityGeneration: 1}}}
+	model := "gpt-4o"
+	it := New(snapshot, source, Query{ClientProtocol: protocol.OpenAICompletions, ExternalModel: &model})
+	selection := Selection{CredentialID: 101, GroupID: 1, Group: snapshot.Groups[1]}
+	ref := state.CredentialRef{ID: 101, GroupID: 1, IdentityGeneration: 1}
+	if !it.ChargeReplay(selection, ref) {
+		t.Fatal("no-policy model-less replay regression")
+	}
+	before := it.progress.CaptureCheckpoint().Sequence
+	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{Scope: "group", GroupID: 1, Config: []byte(`{"schema_version":1,"rules":[{"id":"p","name":"p","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"exclude_candidate"}}]}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it.policies = pv
+	if it.ChargeReplay(selection, ref) {
+		t.Fatal("denied model-less replay admitted")
+	}
+	if it.progress.CaptureCheckpoint().Sequence != before {
+		t.Fatal("denied replay charged progress")
+	}
+}
