@@ -240,3 +240,95 @@ func TestCompileRuntimeView_RejectsDuplicateBindings(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeView_CompileAndEvalPricing(t *testing.T) {
+	groupJSON := []byte(`{
+		"schema_version": 1,
+		"rules": [
+			{
+				"id": "grp-rule-1",
+				"name": "Group Pricing 1 (x2)",
+				"domain": "pricing",
+				"enabled": true,
+				"when": {"fact": "request.model", "op": "eq", "value": "gpt-4o"},
+				"then": {"type": "multiply_price", "factor": "2"}
+			},
+			{
+				"id": "grp-rule-disabled",
+				"name": "Group Pricing Disabled (x10)",
+				"domain": "pricing",
+				"enabled": false,
+				"when": {"fact": "request.model", "op": "eq", "value": "gpt-4o"},
+				"then": {"type": "multiply_price", "factor": "10"}
+			},
+			{
+				"id": "grp-rule-2",
+				"name": "Group Pricing 2 (x1.5)",
+				"domain": "pricing",
+				"enabled": true,
+				"when": {"fact": "upstream.model", "op": "eq", "value": "gpt-4o-2024-08-06"},
+				"then": {"type": "multiply_price", "factor": "1.5"}
+			}
+		]
+	}`)
+
+	credJSON := []byte(`{
+		"schema_version": 1,
+		"rules": [
+			{
+				"id": "cred-rule-unknown",
+				"name": "Cred Unknown Fact",
+				"domain": "pricing",
+				"enabled": true,
+				"when": {
+					"fact": "credential.quota.remaining_ratio",
+					"select": {"scope": "account", "window_seconds": 18000},
+					"reduce": "min",
+					"op": "lt",
+					"value": 0.2
+				},
+				"then": {"type": "multiply_price", "factor": "5"}
+			},
+			{
+				"id": "cred-rule-1",
+				"name": "Cred Pricing Discount (x0.5)",
+				"domain": "pricing",
+				"enabled": true,
+				"when": {"fact": "request.model", "op": "eq", "value": "gpt-4o"},
+				"then": {"type": "multiply_price", "factor": "0.5"}
+			}
+		]
+	}`)
+
+	view, err := policy.CompileRuntimeView([]policy.BindingConfig{
+		{Scope: "group", GroupID: 10, Config: groupJSON},
+		{Scope: "credential", GroupID: 10, CredentialID: 20, Config: credJSON},
+	})
+	if err != nil {
+		t.Fatalf("CompileRuntimeView error: %v", err)
+	}
+
+	ctx := &policy.EvalContext{
+		Now:           time.Now(),
+		RequestModel:  policy.StringFact{Value: "gpt-4o", State: policy.FactStateMeasured},
+		UpstreamModel: policy.StringFact{Value: "gpt-4o-2024-08-06", State: policy.FactStateMeasured},
+	}
+
+	matches := view.EvalPricing(10, 20, ctx)
+	if len(matches) != 3 {
+		t.Fatalf("expected 3 matches (grp-rule-1, grp-rule-2, cred-rule-1), got %d: %+v", len(matches), matches)
+	}
+
+	// 1. Group rules come first in order
+	if matches[0].RuleID != "grp-rule-1" || matches[0].BindingScope != "group" || matches[0].Factor != "2" {
+		t.Errorf("match 0 = %+v, want grp-rule-1 factor 2", matches[0])
+	}
+	if matches[1].RuleID != "grp-rule-2" || matches[1].BindingScope != "group" || matches[1].Factor != "1.5" {
+		t.Errorf("match 1 = %+v, want grp-rule-2 factor 1.5", matches[1])
+	}
+
+	// 2. Credential rule comes after group rules, cred-rule-unknown was skipped
+	if matches[2].RuleID != "cred-rule-1" || matches[2].BindingScope != "credential" || matches[2].Factor != "0.5" {
+		t.Errorf("match 2 = %+v, want cred-rule-1 factor 0.5", matches[2])
+	}
+}

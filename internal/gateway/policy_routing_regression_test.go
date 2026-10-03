@@ -6,18 +6,27 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"gpt-load/internal/accessquota"
 	"gpt-load/internal/affinity"
+	"gpt-load/internal/automodel"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/dialect"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/policy"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
+	observation "gpt-load/internal/subscription/providers/observation"
+	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 // 1. Policy-only save retains eligible soft affinity
@@ -593,5 +602,1120 @@ func TestPolicyRouting_PublicationBetweenConfigureAndLookupRejectsOldRequest(t *
 	h.recordAffinitySuccess(request, scheduler.Selection{CredentialID: 1, GroupID: 1, Group: old.Groups[1]}, ref)
 	if got := h.affinityCache.Lookup(key); got.Found() {
 		t.Fatalf("old request accepted after publication between Configure and Lookup: old=%d current=%d target=%+v", old.Revision, next.Revision, got.Target)
+	}
+}
+
+// 12. Dynamic policy pricing freezes per attempt and produces v7 receipt with ordered factors
+func TestPolicyPricing_DynamicMultiplierFrozenPerAttemptAndUnchangedByPublication(t *testing.T) {
+	forwarder := &scriptedForwarder{
+		results: []UpstreamResult{
+			completeScriptedUpstreamResult(UpstreamResult{
+				StatusCode:     http.StatusOK,
+				RequestWritten: true,
+				Body:           []byte(`{"id":"chat-1","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"hello"}}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}`),
+				Usage:          usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+			}),
+		},
+	}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one")
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.priceTables = &mutableGatewayPriceTableProvider{
+		table: mustGatewayPriceTable(t, 2_000_000_000, true),
+	}
+	engine := newAffinityTestEngine(t, handler)
+
+	// Publish policy rules: group x2, credential x1.5
+	in := policyRegressionCompileInput(handler)
+	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
+		{
+			Scope:   "group",
+			GroupID: 1,
+			Config:  []byte(`{"schema_version":1,"rules":[{"id":"p-grp","name":"Group Double","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+		},
+		{
+			Scope:        "credential",
+			GroupID:      1,
+			CredentialID: 1,
+			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred","name":"Cred 1.5","domain":"pricing","enabled":true,"when":{"fact":"upstream.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"1.5"}}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Policies = pv
+	if _, err := manager.Publish(in); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"test dynamic pricing"}]}`
+	serveAffinityRequest(t, engine, body)
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	event := events[0]
+	if event.Usage.Pricing.ReceiptJSON == "" {
+		t.Fatal("expected non-empty ReceiptJSON")
+	}
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(event.Usage.Pricing.ReceiptJSON), &receipt); err != nil {
+		t.Fatalf("unmarshal receipt error: %v", err)
+	}
+	if receipt.SchemaVersion != 7 {
+		t.Fatalf("receipt schema = %d, want 7", receipt.SchemaVersion)
+	}
+	if len(receipt.PolicyFactors) != 2 {
+		t.Fatalf("expected 2 policy factors, got %d: %+v", len(receipt.PolicyFactors), receipt.PolicyFactors)
+	}
+	if receipt.PolicyFactors[0].RuleID != "p-grp" || receipt.PolicyFactors[0].BindingScope != "group" || receipt.PolicyFactors[0].Factor != "2" {
+		t.Errorf("factor 0 mismatch: %+v", receipt.PolicyFactors[0])
+	}
+	if receipt.PolicyFactors[1].RuleID != "p-cred" || receipt.PolicyFactors[1].BindingScope != "credential" || receipt.PolicyFactors[1].Factor != "1.5" {
+		t.Errorf("factor 1 mismatch: %+v", receipt.PolicyFactors[1])
+	}
+	if receipt.BaseTotalNanoUSD == nil {
+		t.Fatal("expected non-nil BaseTotalNanoUSD")
+	}
+	// 2 * 1.5 = 3x multiplier
+	wantTotal := *receipt.BaseTotalNanoUSD * 3
+	if receipt.TotalNanoUSD != wantTotal {
+		t.Fatalf("receipt total = %d, want %d (base %d * 3)", receipt.TotalNanoUSD, wantTotal, *receipt.BaseTotalNanoUSD)
+	}
+	if err := pricing.ValidateReceipt(receipt); err != nil {
+		t.Fatalf("ValidateReceipt failed on emitted receipt: %v", err)
+	}
+}
+
+// 13. Retries swap credential and freeze newly selected credential's pricing
+func TestPolicyPricing_RetrySwapsCredentialAndFreezesNewPricing(t *testing.T) {
+	failure := completeScriptedUpstreamResult(UpstreamResult{
+		StatusCode:     http.StatusForbidden,
+		RequestWritten: true,
+		Body:           []byte(`{"error":{"message":"unclassified upstream rejection"}}`),
+	})
+	success := completeScriptedUpstreamResult(UpstreamResult{
+		StatusCode:     http.StatusOK,
+		RequestWritten: true,
+		Body:           []byte(`{"id":"chat-2","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"hello retry"}}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}`),
+		Usage:          usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+	})
+	forwarder := &scriptedForwarder{results: []UpstreamResult{failure, success}}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one", "sk-two")
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.priceTables = &mutableGatewayPriceTableProvider{
+		table: mustGatewayPriceTable(t, 2_000_000_000, true),
+	}
+	engine := newAffinityTestEngine(t, handler)
+
+	// Credential 1 has rule x2; Credential 2 has rule x0.5
+	in := policyRegressionCompileInput(handler)
+	in.Credentials = []state.CredentialConfig{
+		{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
+		{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
+	}
+	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{
+		{
+			Scope:        "credential",
+			GroupID:      1,
+			CredentialID: 1,
+			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred1","name":"Cred 1 Double","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+		},
+		{
+			Scope:        "credential",
+			GroupID:      1,
+			CredentialID: 2,
+			Config:       []byte(`{"schema_version":1,"rules":[{"id":"p-cred2","name":"Cred 2 Half","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"0.5"}}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Policies = pv
+	if _, err := manager.Publish(in); err != nil {
+		t.Fatal(err)
+	}
+	manager.Current().Settings.RetryCount = 2
+
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"test retry pricing"}]}`
+	serveAffinityRequest(t, engine, body)
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	event := events[0]
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(event.Usage.Pricing.ReceiptJSON), &receipt); err != nil {
+		t.Fatalf("unmarshal receipt error: %v", err)
+	}
+	if receipt.SchemaVersion != 7 {
+		t.Fatalf("receipt schema = %d, want 7", receipt.SchemaVersion)
+	}
+	if len(receipt.PolicyFactors) != 1 {
+		t.Fatalf("expected 1 policy factor from credential 2, got %d: %+v", len(receipt.PolicyFactors), receipt.PolicyFactors)
+	}
+	// Attempt 2 succeeded on Credential 2, which has rule p-cred2 (0.5), NOT p-cred1 (2)
+	if receipt.PolicyFactors[0].RuleID != "p-cred2" || receipt.PolicyFactors[0].Factor != "0.5" {
+		t.Fatalf("expected cred2 factor 0.5, got: %+v", receipt.PolicyFactors[0])
+	}
+	wantTotal := *receipt.BaseTotalNanoUSD / 2
+	if receipt.TotalNanoUSD != wantTotal {
+		t.Fatalf("receipt total = %d, want %d (base %d / 2)", receipt.TotalNanoUSD, wantTotal, *receipt.BaseTotalNanoUSD)
+	}
+}
+
+// 14. Configuration/name changes do not retroactively alter previously frozen attempt receipts
+func TestPolicyPricing_FrozenConfigNameChangeDoesNotAffectPastAttempts(t *testing.T) {
+	forwarder := &scriptedForwarder{
+		results: []UpstreamResult{
+			completeScriptedUpstreamResult(UpstreamResult{
+				StatusCode:     http.StatusOK,
+				RequestWritten: true,
+				Body:           []byte(`{"id":"chat-1","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"first"}}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}`),
+				Usage:          usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+			}),
+			completeScriptedUpstreamResult(UpstreamResult{
+				StatusCode:     http.StatusOK,
+				RequestWritten: true,
+				Body:           []byte(`{"id":"chat-2","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"second"}}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}`),
+				Usage:          usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+			}),
+		},
+	}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-one")
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.priceTables = &mutableGatewayPriceTableProvider{
+		table: mustGatewayPriceTable(t, 2_000_000_000, true),
+	}
+	engine := newAffinityTestEngine(t, handler)
+
+	// Publish v1: rule name "Original Name", factor "2", explicit binding revision 101
+	in := policyRegressionCompileInput(handler)
+	pv1, err := policy.CompileRuntimeView([]policy.BindingConfig{
+		{
+			Scope:    "group",
+			GroupID:  1,
+			Revision: 101,
+			Config:   []byte(`{"schema_version":1,"rules":[{"id":"p-dyn","name":"Original Name","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Policies = pv1
+	if _, err := manager.Publish(in); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"request 1"}]}`
+	serveAffinityRequest(t, engine, body)
+
+	// Publish v2: rename rule to "Renamed Rule" and factor to "5", explicit binding revision 202
+	in2 := policyRegressionCompileInput(handler)
+	pv2, err := policy.CompileRuntimeView([]policy.BindingConfig{
+		{
+			Scope:    "group",
+			GroupID:  1,
+			Revision: 202,
+			Config:   []byte(`{"schema_version":1,"rules":[{"id":"p-dyn","name":"Renamed Rule","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"5"}}]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in2.Policies = pv2
+	if _, err := manager.Publish(in2); err != nil {
+		t.Fatal(err)
+	}
+
+	body2 := `{"model":"gpt-4o","messages":[{"role":"user","content":"request 2"}]}`
+	serveAffinityRequest(t, engine, body2)
+
+	events := sink.snapshot()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+
+	// Verify Event 1 retains binding revision 101, original name snapshot "Original Name", and factor 2
+	var r1 pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r1); err != nil {
+		t.Fatal(err)
+	}
+	if len(r1.PolicyFactors) != 1 || r1.PolicyFactors[0].NameSnapshot != "Original Name" ||
+		r1.PolicyFactors[0].Factor != "2" || r1.PolicyFactors[0].Revision != 101 {
+		t.Fatalf("event 1 was corrupted by subsequent publish: %+v", r1.PolicyFactors[0])
+	}
+
+	// Verify Event 2 has binding revision 202, renamed name snapshot "Renamed Rule", and factor 5
+	var r2 pricing.Receipt
+	if err := json.Unmarshal([]byte(events[1].Usage.Pricing.ReceiptJSON), &r2); err != nil {
+		t.Fatal(err)
+	}
+	if len(r2.PolicyFactors) != 1 || r2.PolicyFactors[0].NameSnapshot != "Renamed Rule" ||
+		r2.PolicyFactors[0].Factor != "5" || r2.PolicyFactors[0].Revision != 202 {
+		t.Fatalf("event 2 mismatch: %+v", r2.PolicyFactors[0])
+	}
+}
+
+// 15. In-flight unary/stream freeze with price publication: request log estimate matches quota deduction
+func TestPolicyPricing_InFlightPricePublicationLogMatchesQuota(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		name := "unary"
+		if stream {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{{
+				StatusCode:     http.StatusOK,
+				Header:         make(http.Header),
+				RequestWritten: true,
+				Body:           []byte(`{"ok":true}`),
+				Usage:          usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1, Output: 1}},
+			}}}
+			if stream {
+				forwarder.results[0].Committed = true
+				forwarder.results[0].Stream = StreamObservation{EndReason: StreamEndCleanEOF}
+				forwarder.streamResults = forwarder.results
+			}
+			sink := &recordingRequestLogSink{}
+			engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+				t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+			)
+			runtime := accessquota.NewRuntime()
+			rules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
+			if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: rules}); err != nil {
+				t.Fatal(err)
+			}
+			handler.accessQuota = runtime
+			table, err := pricing.NewTable([]pricing.Rule{{
+				Identity: pricing.Identity{ChannelID: "openai", ModelID: "gpt-4o"},
+				Prices: pricing.Prices{
+					Input:  pricing.Price{NanoUSDPerMillion: 600_000, Set: true},
+					Output: pricing.Price{NanoUSDPerMillion: 600_000, Set: true},
+				},
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+			input := gatewayAccessQuotaCompileInput(handler, rules)
+			setGatewayPriceMultipliers(t, &input, "2", "1")
+			input.PolicyBindings = []policy.BindingConfig{{
+				Scope:    "group",
+				GroupID:  1,
+				Revision: 55,
+				Config:   []byte(`{"schema_version":1,"rules":[{"id":"dyn","name":"dyn","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"3"}}]}`),
+			}}
+			if _, err := manager.Publish(input); err != nil {
+				t.Fatal(err)
+			}
+			forwarder.onCall = func(int) {
+				setGatewayPriceMultipliers(t, &input, "7", "9")
+				input.PolicyBindings[0].Config = []byte(`{"schema_version":1,"rules":[{"id":"dyn","name":"changed","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"9"}}]}`)
+				if _, err := manager.Publish(input); err != nil {
+					t.Fatal(err)
+				}
+			}
+			forwarder.onStreamCall = func(index int, _ http.ResponseWriter) { forwarder.onCall(index) }
+
+			body := `{"model":"gpt-4o"}`
+			if stream {
+				body = `{"model":"gpt-4o","stream":true}`
+			}
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				t.Fatalf("response = %d %s", response.Code, response.Body.String())
+			}
+			events := sink.snapshot()
+			if len(events) != 1 || events[0].Usage.Pricing.EstimatedCostNanoUSD != 12 {
+				t.Fatalf("frozen multiplier estimate = %#v, want 12", events)
+			}
+			view := runtime.Snapshot(1, time.Now())
+			if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 12 {
+				t.Fatalf("quota = %#v, want matching deduction 12", view)
+			}
+		})
+	}
+}
+
+// 16. Replacement identity does not inherit previous identity's quota facts in pricing freeze
+func TestPolicyPricing_ReplacementIdentityQuotaBecomesUnknown(t *testing.T) {
+	h, m, r := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
+	in := policyRegressionCompileInput(h)
+	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{
+		Scope:    "group",
+		GroupID:  1,
+		Revision: 10,
+		Config:   []byte(`{"schema_version":1,"rules":[{"id":"p","name":"low quota price","domain":"pricing","enabled":true,"when":{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.2},"then":{"type":"multiply_price","factor":"2"}}]}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Policies = pv
+	snap, err := m.Publish(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := "gpt-4o"
+	query := scheduler.Query{ClientProtocol: protocol.OpenAICompletions, ExternalModel: &model}
+	sel, err := scheduler.New(snap, r, query).Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRef, _ := r.CredentialRef(1)
+	if err = r.ReplaceCredentials([]state.CredentialEntry{{
+		ID:                 1,
+		GroupID:            1,
+		Status:             state.CredentialStatusActive,
+		Version:            2,
+		IdentityGeneration: 2,
+		Fingerprint:        "replacement",
+		EncryptedValue:     oldRef.EncryptedValue,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	h.now = func() time.Time { return now }
+	used := 0.95
+	win := int64(18000)
+	reset := now.Add(time.Hour).UnixMilli()
+	observed := now.Add(-time.Second).UnixMilli()
+	if !r.ApplyQuotaWindows(1, 2, []observation.QuotaWindow{{
+		ID: "primary", SourceID: "account", Scope: "account", Unit: "ratio",
+		Utilization: &used, WindowSeconds: &win, ResetAtMS: &reset, ObservedAtMS: &observed, State: "available",
+	}}) {
+		t.Fatal("apply quota failed")
+	}
+	frozen := h.freezeAttemptPricing(snap, sel, dialect.RequestMetadata{}, true, pricing.DefaultPriceMultiplier, model)
+	if len(frozen.policyFactors) != 0 {
+		t.Fatalf("old attempt priced from replacement quota facts: %+v", frozen.policyFactors)
+	}
+}
+
+// 17. WebSocket turn in-flight freeze preserves snapshot despite concurrent publication; sequential turn picks up new snapshot
+func TestPolicyPricing_WebSocketTurnsFreezeDynamicPricingPerTurn(t *testing.T) {
+	turn1Received := make(chan struct{})
+	turn1Proceed := make(chan struct{})
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for n := 1; n <= 2; n++ {
+			var req map[string]any
+			if conn.ReadJSON(&req) != nil {
+				return
+			}
+			if n == 1 {
+				// Signal that Turn 1 is active/in-flight on upstream
+				close(turn1Received)
+				// Block until concurrent policy publish completes
+				<-turn1Proceed
+			}
+			if conn.WriteMessage(websocket.TextMessage, websocketCompleted(fmt.Sprintf("resp_%d", n), "")) != nil {
+				return
+			}
+		}
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer upstream.Close()
+
+	h, engine, input := websocketTestHandler(t, upstream.URL, channel.OpenAI)
+	sink := &recordingRequestLogSink{}
+	h.requestLogSink = sink
+
+	input.PolicyBindings = []policy.BindingConfig{{
+		Scope: "group", GroupID: 1, Revision: 77,
+		Config: []byte(`{"schema_version":1,"rules":[{"id":"p-ws","name":"ws price","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"public"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+	}}
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "upstream"},
+		Prices: pricing.Prices{
+			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.priceTables = &mutableGatewayPriceTableProvider{table: table}
+	if _, err := h.manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(engine)
+	defer server.Close()
+
+	conn := dialGatewayWebsocket(t, server.URL)
+	defer conn.Close()
+
+	// Turn 1: model "public" matches rule (x2, rev 77)
+	go func() {
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","input":"hello turn 1"}`))
+	}()
+
+	// Wait until Turn 1 is actively in-flight on upstream
+	<-turn1Received
+
+	// Genuine in-flight policy publication while Turn 1 is active
+	input.PolicyBindings[0].Revision = 88
+	input.PolicyBindings[0].Config = []byte(`{"schema_version":1,"rules":[{"id":"p-ws","name":"ws price","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"public"},"then":{"type":"multiply_price","factor":"5"}}]}`)
+	if _, err := h.manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+
+	// Release upstream to complete Turn 1
+	close(turn1Proceed)
+
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatal(err)
+	}
+	events := waitWebsocketLogs(t, sink, 1)
+	if len(events) < 1 || events[0].Usage.Pricing.EstimatedCostNanoUSD == 0 {
+		t.Fatalf("turn 1 not priced: %+v", events)
+	}
+	var r1 pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r1); err != nil {
+		t.Fatal(err)
+	}
+	// Turn 1 froze pricing at turn admission, so it preserves factor 2 and rev 77 despite in-flight publish
+	if len(r1.PolicyFactors) != 1 || r1.PolicyFactors[0].Factor != "2" || r1.PolicyFactors[0].Revision != 77 {
+		t.Fatalf("turn 1 in-flight receipt factors mismatch: %+v", r1.PolicyFactors)
+	}
+
+	// Turn 2: on same connection, new sequential turn picks up updated policy (x5, rev 88)
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","input":"hello turn 2"}`))
+	if _, _, err := conn.ReadMessage(); err != nil {
+		t.Fatal(err)
+	}
+	events2 := waitWebsocketLogs(t, sink, 2)
+	var r2 pricing.Receipt
+	if err := json.Unmarshal([]byte(events2[1].Usage.Pricing.ReceiptJSON), &r2); err != nil {
+		t.Fatal(err)
+	}
+	if len(r2.PolicyFactors) != 1 || r2.PolicyFactors[0].Factor != "5" || r2.PolicyFactors[0].Revision != 88 {
+		t.Fatalf("turn 2 receipt factors mismatch: %+v", r2.PolicyFactors)
+	}
+}
+
+// 18. Unchanged binding gets same billing revision on unrelated publication
+func TestPolicyPricing_BindingRevisionUnchangedByUnrelatedPublication(t *testing.T) {
+	h, m, _ := newHandlerForTest(t, &scriptedForwarder{}, "sk-one")
+	in := policyRegressionCompileInput(h)
+	pv, err := policy.CompileRuntimeView([]policy.BindingConfig{{
+		Scope: "group", GroupID: 1, Revision: 18446744073709551615,
+		Config: []byte(`{"schema_version":1,"rules":[{"id":"p","name":"p","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Policies = pv
+	s1, err := m.Publish(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := "gpt-4o"
+	sel := scheduler.Selection{CredentialID: 1, GroupID: 1, UpstreamModelID: &model, Group: s1.Groups[1]}
+	a := h.freezeAttemptPricing(s1, sel, dialect.RequestMetadata{}, true, pricing.DefaultPriceMultiplier, model)
+	in.Groups[0].Name = "unrelated group rename"
+	s2, err := m.Publish(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel.Group = s2.Groups[1]
+	b := h.freezeAttemptPricing(s2, sel, dialect.RequestMetadata{}, true, pricing.DefaultPriceMultiplier, model)
+	if len(a.policyFactors) != 1 || len(b.policyFactors) != 1 {
+		t.Fatal("missing factors")
+	}
+	if a.policyFactors[0].Revision != 18446744073709551615 || a.policyFactors[0].Revision != b.policyFactors[0].Revision {
+		t.Fatalf("unchanged binding gets different billing revision on unrelated publication: %d -> %d", a.policyFactors[0].Revision, b.policyFactors[0].Revision)
+	}
+}
+
+// 19. Complete dynamic answer + JEV decision total reaches quota with in-flight price and policy update
+func TestPolicyPricing_DynamicJevAuxCostReachesQuota(t *testing.T) {
+	groupMultiplier, _ := pricing.ParsePriceMultiplier("2")
+	accessMultiplier, _ := pricing.ParsePriceMultiplier("3")
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			StatusCode:            http.StatusOK,
+			Header:                http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {"decision-1"}},
+			Body:                  []byte(`{"model":"jev-latest","answers":{"preset":{"choice":"strong","confidence":0.9}},"usage":{"input_tokens":7,"output_tokens":1}}`),
+			Usage:                 usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 7, Output: 1}},
+			UpstreamReportedModel: "decision-key-model",
+			ResponseModelObserved: true,
+			UpstreamProtocol:      protocol.Decisions,
+			UpstreamRequestID:     "decision-key-request",
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"model":"gpt-4.1","choices":[{"message":{"content":"ok"}}]}`),
+			Usage:      usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 5}},
+		},
+	}}
+	handler, manager, registry := newHandlerForTest(t, forwarder, "answer-key")
+	config := automodel.DefaultConfig()
+	config.Enabled = true
+	config.Model = "jev-router"
+	config.Models = []automodel.Entry{{
+		ID: "auto-probe", Name: "auto-probe", Enabled: true, Fallback: "balanced",
+		Presets: []automodel.Preset{
+			{ID: "balanced", Name: "balanced", Description: "Routine", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[]`)},
+			{ID: "strong", Name: "strong", Description: "Complex", Model: "gpt-4.1", ParameterOverrides: json.RawMessage(`[]`)},
+		},
+	}}
+	input := state.CompileInput{
+		AutoModel:       &config,
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{ID: 1, Name: "answers", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}, {ID: "gpt-4.1"}}, Enabled: true},
+			{ID: 2, Name: "decisions", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, PriceMultiplier: &groupMultiplier, Enabled: true},
+		},
+		Credentials: []state.CredentialConfig{testCredentialConfig(1, 1), testCredentialConfig(2, 2)},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"), Status: state.AccessKeyStatusActive, PriceMultiplier: &accessMultiplier,
+			Filters: state.FilterSet{
+				Groups:    map[uint]struct{}{1: {}},
+				Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}},
+				Models:    map[string]struct{}{"auto-probe": {}, "gpt-4o": {}, "gpt-4.1": {}},
+			},
+		}},
+	}
+	runtime := accessquota.NewRuntime()
+	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10000000}}
+	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
+		t.Fatal(err)
+	}
+	handler.accessQuota = runtime
+	input.AccessKeys[0].CostLimitRules = quotaRules
+	input.PolicyBindings = []policy.BindingConfig{
+		{
+			Scope:    "group",
+			GroupID:  2,
+			Revision: 12,
+			Config:   []byte(`{"schema_version":1,"rules":[{"id":"aux","name":"aux","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"jev-router"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+		},
+		{
+			Scope:    "group",
+			GroupID:  1,
+			Revision: 20,
+			Config:   []byte(`{"schema_version":1,"rules":[{"id":"ans-dyn","name":"ans dyn","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"auto-probe"},"then":{"type":"multiply_price","factor":"2"}}]}`),
+		},
+	}
+
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{
+		testCredentialEntry(t, handler.encryption, 1, 1, "answer-key"),
+		testCredentialEntry(t, handler.encryption, 2, 2, "decision-key"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.IncrFailure(2); !ok {
+		t.Fatal("cannot seed decision credential failure")
+	}
+	table, err := pricing.NewTable([]pricing.Rule{
+		{
+			Identity: pricing.Identity{ChannelID: string(channel.Jev), ModelID: "jev-latest"},
+			Prices:   pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 42_000_000, Set: true}},
+		},
+		{
+			Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4.1"},
+			Prices: pricing.Prices{
+				Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+				Output: pricing.Price{NanoUSDPerMillion: 200_000_000, Set: true},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementTable, err := pricing.NewTable([]pricing.Rule{
+		{
+			Identity: pricing.Identity{ChannelID: string(channel.Jev), ModelID: "jev-latest"},
+			Prices:   pricing.Prices{Input: pricing.Price{NanoUSDPerMillion: 420_000_000, Set: true}},
+		},
+		{
+			Identity: pricing.Identity{ChannelID: string(channel.OpenAI), ModelID: "gpt-4.1"},
+			Prices: pricing.Prices{
+				Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+				Output: pricing.Price{NanoUSDPerMillion: 200_000_000, Set: true},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	priceTables := &mutableGatewayPriceTableProvider{table: table}
+	handler.priceTables = priceTables
+	forwarder.onCall = func(index int) {
+		if index == 0 {
+			priceTables.Publish(replacementTable)
+			input.PolicyBindings[0].Config = []byte(`{"schema_version":1,"rules":[{"id":"aux","name":"aux","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"jev-router"},"then":{"type":"multiply_price","factor":"9"}}]}`)
+			_, _ = manager.Publish(input)
+		}
+	}
+	sink := &recordingRequestLogSink{}
+	handler.requestLogSink = sink
+	handler.dialects = dialect.NewSet(dialect.NewOpenAI())
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"auto-probe","messages":[{"role":"user","content":"Design a migration"}]}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].AutoDecision == nil || events[0].AutoDecision.EstimatedCostNanoUSD != 3_528 {
+		t.Fatalf("decision observation = %#v", events)
+	}
+	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 12_000 {
+		t.Fatalf("answer cost = %d, want 12000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
+	}
+	total := telemetry.TotalPricing(events[0].Usage.Pricing, events[0].AutoDecision, events[0].RequestAudit).EstimatedCostNanoUSD
+	if total != 15_528 {
+		t.Fatalf("total cost = %d, want 15528", total)
+	}
+	view := runtime.Snapshot(1, time.Now())
+	if total != 15_528 || len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != total {
+		t.Fatalf("aux dynamic cost mismatch total=%d quota=%+v", total, view)
+	}
+}
+
+// 20. Same-credential auth refresh replay evaluates policy admission and freezes dynamic pricing
+func TestPolicyPricing_SameCredentialAuthRefreshReplay(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusUnauthorized,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+				Hint:         execution.FailureHintRefreshRequired,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "access token expired",
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
+			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+		},
+	}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
+	)
+	runtime := accessquota.NewRuntime()
+	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
+	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
+		t.Fatal(err)
+	}
+	handler.accessQuota = runtime
+
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
+		Prices: pricing.Prices{
+			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+
+	input := state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
+		}},
+		PolicyBindings: []policy.BindingConfig{{
+			Scope: "group", GroupID: 1, Revision: 10,
+			Config: []byte(`{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"then":{"type":"multiply_price","factor":"3"}}]}`),
+		}},
+	}
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+
+	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
+	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: oldEncrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
+	newEncrypted, err := handler.encryption.Encrypt(newCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	forwarder.onCall = func(index int) {
+		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
+			t.Fatal("publish concurrent credential refresh")
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[1].Credential.Version != 2 || string(forwarder.inputs[1].Credential.Data()) != newCredential {
+		t.Fatalf("replay attempt did not use refreshed credential version: %#v", forwarder.inputs[1])
+	}
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 log event, got %d", len(events))
+	}
+	if len(events[0].Attempts) != 2 {
+		t.Fatalf("expected 2 attempts in log, got %d", len(events[0].Attempts))
+	}
+	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized {
+		t.Fatalf("attempt 0 status=%d, want 401", events[0].Attempts[0].StatusCode)
+	}
+	if events[0].Attempts[1].StatusCode != http.StatusOK {
+		t.Fatalf("attempt 1 status=%d, want 200", events[0].Attempts[1].StatusCode)
+	}
+
+	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 6000 {
+		t.Fatalf("cost = %d, want 6000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
+	}
+	var r pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.PolicyFactors) != 1 || r.PolicyFactors[0].Factor != "3" || r.PolicyFactors[0].Revision != 10 {
+		t.Fatalf("replay receipt factors mismatch: %+v", r.PolicyFactors)
+	}
+
+	view := runtime.Snapshot(1, time.Now())
+	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 6000 {
+		t.Fatalf("quota used = %d, want 6000", view.Rules[0].UsedNanoUSD)
+	}
+}
+
+// 21. Replay attempt reevaluates dynamic pricing when time window changes across attempts
+func TestPolicyPricing_RefreshReplayReevaluatesChangedTime(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusUnauthorized,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+				Hint:         execution.FailureHintRefreshRequired,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "access token expired",
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
+			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+		},
+	}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
+	)
+	runtime := accessquota.NewRuntime()
+	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
+	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
+		t.Fatal(err)
+	}
+	handler.accessQuota = runtime
+	now := time.Date(2026, time.June, 1, 9, 59, 59, 0, time.UTC)
+	handler.now = func() time.Time { return now }
+
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
+		Prices: pricing.Prices{
+			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+
+	input := state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
+		}},
+		PolicyBindings: []policy.BindingConfig{{
+			Scope: "group", GroupID: 1, Revision: 10,
+			Config: []byte(`{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"predicate":"time_window","weekdays":[1],"ranges":[["09:00","10:00"]]}]},"then":{"type":"multiply_price","factor":"3"}}]}`),
+		}},
+	}
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+
+	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
+	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: oldEncrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
+	newEncrypted, err := handler.encryption.Encrypt(newCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	forwarder.onCall = func(index int) {
+		if index == 0 {
+			now = now.Add(2 * time.Second)
+		}
+		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
+			t.Fatal("publish concurrent credential refresh")
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[1].Credential.Version != 2 || string(forwarder.inputs[1].Credential.Data()) != newCredential {
+		t.Fatalf("replay attempt did not use refreshed credential version: %#v", forwarder.inputs[1])
+	}
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 log event, got %d", len(events))
+	}
+	if len(events[0].Attempts) != 2 {
+		t.Fatalf("expected 2 attempts in log, got %d", len(events[0].Attempts))
+	}
+	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized {
+		t.Fatalf("attempt 0 status=%d, want 401", events[0].Attempts[0].StatusCode)
+	}
+	if events[0].Attempts[1].StatusCode != http.StatusOK {
+		t.Fatalf("attempt 1 status=%d, want 200", events[0].Attempts[1].StatusCode)
+	}
+
+	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 2000 {
+		t.Fatalf("cost = %d, want 2000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
+	}
+	var r pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.PolicyFactors) != 0 || r.SchemaVersion != 6 {
+		t.Fatalf("replay receipt factors mismatch: %+v", r.PolicyFactors)
+	}
+
+	view := runtime.Snapshot(1, time.Now())
+	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 2000 {
+		t.Fatalf("quota used = %d, want 2000", view.Rules[0].UsedNanoUSD)
+	}
+}
+
+// 22. Replay attempt reevaluates dynamic pricing when quota changes across attempts
+func TestPolicyPricing_RefreshReplayReevaluatesChangedQuota(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusUnauthorized,
+			ExecutionError: &execution.ErrorEvidence{
+				Kind: execution.ErrorKindHTTP, StatusCode: http.StatusUnauthorized,
+				Hint:         execution.FailureHintRefreshRequired,
+				ReplaySafety: execution.ReplaySafetyRejectedBeforeProcessing,
+				Summary:      "access token expired",
+			},
+		},
+		{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body:  []byte(`{"id":"ok","model":"gpt-4o"}`),
+			Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
+		},
+	}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, registry := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "placeholder",
+	)
+	runtime := accessquota.NewRuntime()
+	quotaRules := []accessquota.Rule{{ID: 901, Revision: 1, Kind: accessquota.KindTotal, LimitNanoUSD: 10_000_000}}
+	if err := runtime.Reconcile(map[uint][]accessquota.Rule{1: quotaRules}); err != nil {
+		t.Fatal(err)
+	}
+	handler.accessQuota = runtime
+	now := time.Date(2026, time.June, 1, 9, 59, 59, 0, time.UTC)
+	handler.now = func() time.Time { return now }
+
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ChannelID: string(channel.Codex), ModelID: "gpt-4o"},
+		Prices: pricing.Prices{
+			Input:  pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 100_000_000, Set: true},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+
+	input := state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}},
+		Credentials: []state.CredentialConfig{{
+			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive, CostLimitRules: quotaRules,
+		}},
+		PolicyBindings: []policy.BindingConfig{{
+			Scope: "group", GroupID: 1, Revision: 10,
+			Config: []byte(`{"schema_version":1,"rules":[{"id":"p-replay","name":"replay dyn","domain":"pricing","enabled":true,"when":{"all":[{"fact":"request.model","op":"eq","value":"gpt-4o"},{"fact":"credential.quota.remaining_ratio","select":{"scope":"account","window_seconds":18000},"reduce":"min","op":"lt","value":0.2}]},"then":{"type":"multiply_price","factor":"3"}}]}`),
+		}},
+	}
+	if _, err := manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+
+	oldCredential := `{"type":"codex","access_token":"old-access","refresh_token":"refresh","account_id":"account-1"}`
+	oldEncrypted, err := handler.encryption.Encrypt(oldCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ReplaceCredentials([]state.CredentialEntry{{
+		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
+		EncryptedValue: oldEncrypted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	newCredential := `{"type":"codex","access_token":"new-access","refresh_token":"new-refresh","account_id":"account-1"}`
+	newEncrypted, err := handler.encryption.Encrypt(newCredential)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	forwarder.onCall = func(index int) {
+		if index == 0 {
+			used := 0.95
+			win := int64(18000)
+			reset := now.Add(time.Hour).UnixMilli()
+			observed := now.Add(-time.Second).UnixMilli()
+			if !registry.ApplyQuotaWindows(1, 1, []observation.QuotaWindow{{
+				ID: "primary", SourceID: "account", Scope: "account", Unit: "ratio",
+				Utilization: &used, WindowSeconds: &win, ResetAtMS: &reset,
+				ObservedAtMS: &observed, State: "available",
+			}}) {
+				t.Fatal("quota publication failed")
+			}
+		}
+		if index == 0 && !registry.ReplaceCredentialSecretIfMatch(1, 1, 2, "subscription-secret-v2", newEncrypted) {
+			t.Fatal("publish concurrent credential refresh")
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+		t.Fatalf("status=%d inputs=%d body=%s", response.Code, len(forwarder.inputs), response.Body.String())
+	}
+	if forwarder.inputs[1].Credential.Version != 2 || string(forwarder.inputs[1].Credential.Data()) != newCredential {
+		t.Fatalf("replay attempt did not use refreshed credential version: %#v", forwarder.inputs[1])
+	}
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 log event, got %d", len(events))
+	}
+	if len(events[0].Attempts) != 2 {
+		t.Fatalf("expected 2 attempts in log, got %d", len(events[0].Attempts))
+	}
+	if events[0].Attempts[0].StatusCode != http.StatusUnauthorized {
+		t.Fatalf("attempt 0 status=%d, want 401", events[0].Attempts[0].StatusCode)
+	}
+	if events[0].Attempts[1].StatusCode != http.StatusOK {
+		t.Fatalf("attempt 1 status=%d, want 200", events[0].Attempts[1].StatusCode)
+	}
+
+	if events[0].Usage.Pricing.EstimatedCostNanoUSD != 6000 {
+		t.Fatalf("cost = %d, want 6000", events[0].Usage.Pricing.EstimatedCostNanoUSD)
+	}
+	var r pricing.Receipt
+	if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &r); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.PolicyFactors) != 1 || r.PolicyFactors[0].Factor != "3" || r.PolicyFactors[0].Revision != 10 {
+		t.Fatalf("replay receipt factors mismatch: %+v", r.PolicyFactors)
+	}
+
+	view := runtime.Snapshot(1, time.Now())
+	if len(view.Rules) != 1 || view.Rules[0].UsedNanoUSD != 6000 {
+		t.Fatalf("quota used = %d, want 6000", view.Rules[0].UsedNanoUSD)
 	}
 }

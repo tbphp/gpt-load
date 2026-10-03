@@ -11,6 +11,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { projectChannelID } from '@/app/resources/channels'
 
 import { normalizeRequestLogFilters, requestLogFilterFields } from './request-log-filters'
+import { isValidPriceMultiplier, normalizePriceMultiplier } from '@/lib/price-multiplier'
 
 import {
   assertNoSecretLikeFields,
@@ -21,6 +22,7 @@ import {
   projectEnum,
   projectInt64String,
   projectNonNegativeInt64String,
+  projectPositiveUint64String,
   projectPriceMultiplier,
   projectRecord,
   projectSafeInteger,
@@ -129,13 +131,23 @@ export interface RequestLogPricingLineDto {
   amount_nano_usd: string | null
 }
 
+export interface RequestLogPolicyFactorDto {
+  rule_id: string
+  name_snapshot: string
+  binding_scope: string
+  revision: string
+  factor: string
+  multiplier: string
+}
+
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1 | 2 | 3 | 4 | 5 | 6
+  schema_version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
   pricing_mode: string
   price_multipliers?: { group: string; access_key: string }
+  policy_factors?: RequestLogPolicyFactorDto[]
   rule: { scope_key?: string; channel_id?: string; model_id: string }
   context_threshold_tokens: string | null
   line_items: RequestLogPricingLineDto[]
@@ -422,6 +434,19 @@ function projectAccessKey(value: unknown): RequestLogItemDto['access_key'] {
 
 function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | null {
   if (value === null) return null
+  if (typeof value !== 'object' || Array.isArray(value)) invalidResponse()
+  if (!Object.prototype.hasOwnProperty.call(value, 'schema_version')) invalidResponse()
+  for (const k of [
+    'pricing_mode',
+    'method',
+    'method_version',
+    'currency',
+    'rule',
+    'line_items',
+    'total_nano_usd',
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(value, k)) invalidResponse()
+  }
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, [
     'schema_version',
@@ -430,6 +455,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     'currency',
     'pricing_mode',
     'price_multipliers',
+    'policy_factors',
     'rule',
     'context_threshold_tokens',
     'line_items',
@@ -469,23 +495,109 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
-  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 6 }) as
-    1 | 2 | 3 | 4 | 5 | 6
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 7 }) as
+    1 | 2 | 3 | 4 | 5 | 6 | 7
   let priceMultipliers: RequestLogPricingReceiptDto['price_multipliers']
   if (schemaVersion >= 5) {
+    if (!Object.prototype.hasOwnProperty.call(value, 'price_multipliers')) invalidResponse()
     const multipliers = projectRecord(record.price_multipliers)
     assertNoSecretLikeFields(multipliers, ['group', 'access_key'])
     priceMultipliers = {
       group: projectPriceMultiplier(multipliers.group),
       access_key: projectPriceMultiplier(multipliers.access_key),
     }
-  } else if (record.price_multipliers !== undefined) {
+  } else if (
+    Object.prototype.hasOwnProperty.call(value, 'price_multipliers') ||
+    record.price_multipliers !== undefined
+  ) {
     invalidResponse()
   }
   let baseTotal: string | undefined
-  if (schemaVersion === 6) {
+  if (schemaVersion >= 6) {
+    if (!Object.prototype.hasOwnProperty.call(value, 'base_total_nano_usd')) invalidResponse()
     baseTotal = projectNonNegativeInt64String(record.base_total_nano_usd)
-  } else if (record.base_total_nano_usd !== undefined) {
+  } else if (
+    Object.prototype.hasOwnProperty.call(value, 'base_total_nano_usd') ||
+    record.base_total_nano_usd !== undefined
+  ) {
+    invalidResponse()
+  }
+  let policyFactors: RequestLogPolicyFactorDto[] | undefined
+  if (schemaVersion >= 7) {
+    if (!Object.prototype.hasOwnProperty.call(value, 'policy_factors')) invalidResponse()
+    if (
+      !Array.isArray(record.policy_factors) ||
+      record.policy_factors.length === 0 ||
+      record.policy_factors.length > 200
+    ) {
+      invalidResponse()
+    }
+    const requiredFactorKeys = [
+      'rule_id',
+      'name_snapshot',
+      'binding_scope',
+      'revision',
+      'factor',
+      'multiplier',
+    ] as const
+    policyFactors = projectArray(record.policy_factors, (factorVal) => {
+      const factorObj = projectRecord(factorVal)
+      for (const k of requiredFactorKeys) {
+        if (!Object.prototype.hasOwnProperty.call(factorVal, k)) invalidResponse()
+      }
+      if (Object.keys(factorVal as Record<string, unknown>).length !== requiredFactorKeys.length) {
+        invalidResponse()
+      }
+      const scope = projectNonBlankString(factorObj.binding_scope)
+      if (scope !== 'group' && scope !== 'credential') invalidResponse()
+
+      const factorStr = projectString(factorObj.factor)
+      if (!isValidPriceMultiplier(factorStr)) invalidResponse()
+
+      const multStr = projectPriceMultiplier(factorObj.multiplier)
+      if (normalizePriceMultiplier(factorStr) !== multStr) invalidResponse()
+
+      return {
+        rule_id: projectNonBlankString(factorObj.rule_id),
+        name_snapshot: projectNonBlankString(factorObj.name_snapshot),
+        binding_scope: scope,
+        revision: projectPositiveUint64String(factorObj.revision),
+        factor: factorStr,
+        multiplier: multStr,
+      }
+    })
+
+    let seenCredentialScope = false
+    const seenGroupIDs = new Set<string>()
+    const seenCredIDs = new Set<string>()
+    let groupRevision: string | null = null
+    let credRevision: string | null = null
+    let groupCount = 0
+    let credCount = 0
+
+    for (const factor of policyFactors) {
+      if (factor.binding_scope === 'group') {
+        if (seenCredentialScope) invalidResponse()
+        groupCount++
+        if (groupCount > 100) invalidResponse()
+        if (seenGroupIDs.has(factor.rule_id)) invalidResponse()
+        seenGroupIDs.add(factor.rule_id)
+        if (groupRevision === null) groupRevision = factor.revision
+        else if (groupRevision !== factor.revision) invalidResponse()
+      } else {
+        seenCredentialScope = true
+        credCount++
+        if (credCount > 100) invalidResponse()
+        if (seenCredIDs.has(factor.rule_id)) invalidResponse()
+        seenCredIDs.add(factor.rule_id)
+        if (credRevision === null) credRevision = factor.revision
+        else if (credRevision !== factor.revision) invalidResponse()
+      }
+    }
+  } else if (
+    Object.prototype.hasOwnProperty.call(value, 'policy_factors') ||
+    record.policy_factors !== undefined
+  ) {
     invalidResponse()
   }
   const scopeKey = rule.scope_key === undefined ? undefined : projectNonBlankString(rule.scope_key)
@@ -504,6 +616,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     currency: projectEnum(record.currency, ['USD'] as const),
     pricing_mode: projectPricingMode(record.pricing_mode),
     ...(priceMultipliers === undefined ? {} : { price_multipliers: priceMultipliers }),
+    ...(policyFactors === undefined ? {} : { policy_factors: policyFactors }),
     rule: {
       ...(scopeKey === undefined ? {} : { scope_key: scopeKey }),
       ...(channelID === undefined ? {} : { channel_id: channelID }),

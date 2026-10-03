@@ -118,6 +118,15 @@ type requestLogPricingLineResponse struct {
 	AmountNanoUSD         *string                             `json:"amount_nano_usd"`
 }
 
+type requestLogPolicyFactorResponse struct {
+	RuleID       string `json:"rule_id"`
+	NameSnapshot string `json:"name_snapshot"`
+	BindingScope string `json:"binding_scope"`
+	Revision     string `json:"revision"`
+	Factor       string `json:"factor"`
+	Multiplier   string `json:"multiplier"`
+}
+
 type requestLogPricingReceiptResponse struct {
 	SchemaVersion          int                               `json:"schema_version"`
 	Method                 string                            `json:"method"`
@@ -125,6 +134,7 @@ type requestLogPricingReceiptResponse struct {
 	Currency               string                            `json:"currency"`
 	PricingMode            pricing.Mode                      `json:"pricing_mode"`
 	PriceMultipliers       *pricing.PriceMultipliers         `json:"price_multipliers,omitempty"`
+	PolicyFactors          []requestLogPolicyFactorResponse  `json:"policy_factors,omitempty"`
 	Rule                   requestLogPricingIdentityResponse `json:"rule"`
 	ContextThresholdTokens *string                           `json:"context_threshold_tokens"`
 	LineItems              []requestLogPricingLineResponse   `json:"line_items"`
@@ -1412,6 +1422,19 @@ func mapRequestLogPricingReceipt(
 		Rule:             requestLogPricingIdentityResponse{ModelID: receipt.Rule.ModelID},
 		LineItems:        make([]requestLogPricingLineResponse, 0, len(receipt.LineItems)),
 		TotalNanoUSD:     strconv.FormatInt(receipt.TotalNanoUSD, 10),
+	}
+	if len(receipt.PolicyFactors) > 0 {
+		result.PolicyFactors = make([]requestLogPolicyFactorResponse, len(receipt.PolicyFactors))
+		for i, factor := range receipt.PolicyFactors {
+			result.PolicyFactors[i] = requestLogPolicyFactorResponse{
+				RuleID:       factor.RuleID,
+				NameSnapshot: factor.NameSnapshot,
+				BindingScope: factor.BindingScope,
+				Revision:     strconv.FormatUint(factor.Revision, 10),
+				Factor:       factor.Factor,
+				Multiplier:   pricing.FormatPriceMultiplier(factor.Multiplier),
+			}
+		}
 	}
 	if receipt.SchemaVersion < 4 {
 		result.PricingMode = pricing.ModeStandard

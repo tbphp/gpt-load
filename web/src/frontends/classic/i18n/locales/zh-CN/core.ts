@@ -31,6 +31,9 @@ export default {
         '与实际分组倍率相乘；日志、统计和成本额度均使用调整后金额。默认 1，0 将可计价金额归零；仅影响后续请求。',
       invalid: '请输入 0–1000 的倍率，最多 6 位小数',
     },
+    policyRules: {
+      applied: '应用策略规则',
+    },
     appName: 'GPT-Load',
     retry: '重试',
     modelDiscoveryFailed: '模型发现失败，草稿未变',

@@ -531,7 +531,11 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		recorder.setUsageApplicable(effective.metadata.ObserveUsage)
 		recorder.setPricingMode(effective.metadata.PricingMode)
 		recorder.setUsageDiagnostics(effective.metadata.UsageDiagnostics)
-		recorder.freezeNextAttemptPricing(h.freezeAttemptPricing(selection, effective.metadata, true, key.PriceMultiplier))
+		clientModel := turn.model
+		if clientModel == "" {
+			clientModel = optionalModelValue(effective.metadata.Model)
+		}
+		recorder.freezeNextAttemptPricing(h.freezeAttemptPricing(snapshot, selection, effective.metadata, true, key.PriceMultiplier, clientModel))
 		if sequence == 1 {
 			kind := affinity.kind
 			if requiredRef != nil {

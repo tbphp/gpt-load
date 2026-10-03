@@ -820,6 +820,7 @@ func mapSystemAndGroups(
 				Scope:        string(pb.Scope),
 				GroupID:      pb.GroupID,
 				CredentialID: pb.CredentialID,
+				Revision:     uint64(pb.Revision),
 				Config:       pb.Config,
 			})
 		}

@@ -301,6 +301,8 @@ type PricingMatch struct {
 	Domain       Domain
 	Factor       string
 	Multiplier   pricing.PriceMultiplier
+	BindingScope string
+	Revision     uint64
 }
 
 // PricingResult 定价求值结果

@@ -39,6 +39,8 @@ type Query struct {
 
 type Selection struct {
 	CredentialID             uint
+	CredentialVersion        uint64
+	IdentityGeneration       uint64
 	GroupID                  uint
 	ChannelID                channel.ID
 	ResolvedTarget           channel.ResolvedTarget
@@ -486,6 +488,8 @@ func newSelection(credential state.CredentialMeta, target candidateTarget) Selec
 	resolvedTarget.TargetConfig = append([]byte(nil), resolvedTarget.TargetConfig...)
 	return Selection{
 		CredentialID:             credential.ID,
+		CredentialVersion:        credential.Version,
+		IdentityGeneration:       credential.IdentityGeneration,
 		GroupID:                  credential.GroupID,
 		ChannelID:                resolvedTarget.ChannelID,
 		ResolvedTarget:           resolvedTarget,

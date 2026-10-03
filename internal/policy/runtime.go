@@ -10,35 +10,55 @@ type BindingConfig struct {
 	Scope        string // "group" 或 "credential"
 	GroupID      uint
 	CredentialID uint
+	Revision     uint64
 	Config       []byte
+}
+
+// BoundPolicy 记录策略绑定的目标标识、版本与已编译配置
+type BoundPolicy struct {
+	Scope        string
+	GroupID      uint
+	CredentialID uint
+	Revision     uint64
+	Config       *CompiledConfig
 }
 
 // RuntimeView 是策略引擎在运行时的不可变只读视图
 type RuntimeView struct {
-	groups      map[uint]*CompiledConfig
-	credentials map[uint]*CompiledConfig
+	groups      map[uint]BoundPolicy
+	credentials map[uint]BoundPolicy
 }
 
 // NewEmptyRuntimeView 返回不可变的空策略视图
 func NewEmptyRuntimeView() *RuntimeView {
 	return &RuntimeView{
-		groups:      make(map[uint]*CompiledConfig),
-		credentials: make(map[uint]*CompiledConfig),
+		groups:      make(map[uint]BoundPolicy),
+		credentials: make(map[uint]BoundPolicy),
 	}
 }
 
 // NewRuntimeView 从已编译的配置创建深拷贝不可变视图
 func NewRuntimeView(groups map[uint]*CompiledConfig, credentials map[uint]*CompiledConfig) *RuntimeView {
-	g := make(map[uint]*CompiledConfig, len(groups))
+	g := make(map[uint]BoundPolicy, len(groups))
 	for k, v := range groups {
 		if v != nil {
-			g[k] = v.Clone()
+			g[k] = BoundPolicy{
+				Scope:    "group",
+				GroupID:  k,
+				Revision: 1,
+				Config:   v.Clone(),
+			}
 		}
 	}
-	c := make(map[uint]*CompiledConfig, len(credentials))
+	c := make(map[uint]BoundPolicy, len(credentials))
 	for k, v := range credentials {
 		if v != nil {
-			c[k] = v.Clone()
+			c[k] = BoundPolicy{
+				Scope:        "credential",
+				CredentialID: k,
+				Revision:     1,
+				Config:       v.Clone(),
+			}
 		}
 	}
 	return &RuntimeView{
@@ -50,8 +70,8 @@ func NewRuntimeView(groups map[uint]*CompiledConfig, credentials map[uint]*Compi
 // CompileRuntimeView 编译一组持久化绑定配置并返回不可变 RuntimeView。
 // 若任一绑定配置存在语法或约束错误，整体编译失败并返回错误，绝不生成损坏或部分生效的视图。
 func CompileRuntimeView(bindings []BindingConfig) (*RuntimeView, error) {
-	groups := make(map[uint]*CompiledConfig)
-	credentials := make(map[uint]*CompiledConfig)
+	groups := make(map[uint]BoundPolicy)
+	credentials := make(map[uint]BoundPolicy)
 
 	for _, b := range bindings {
 		switch b.Scope {
@@ -79,11 +99,26 @@ func CompileRuntimeView(bindings []BindingConfig) (*RuntimeView, error) {
 		if err != nil {
 			return nil, fmt.Errorf("compile policy binding (scope=%s, group=%d, cred=%d): %w", b.Scope, b.GroupID, b.CredentialID, err)
 		}
+		rev := b.Revision
+		if rev == 0 {
+			rev = 1
+		}
 		switch b.Scope {
 		case "group":
-			groups[b.GroupID] = compiled
+			groups[b.GroupID] = BoundPolicy{
+				Scope:    "group",
+				GroupID:  b.GroupID,
+				Revision: rev,
+				Config:   compiled,
+			}
 		case "credential":
-			credentials[b.CredentialID] = compiled
+			credentials[b.CredentialID] = BoundPolicy{
+				Scope:        "credential",
+				GroupID:      b.GroupID,
+				CredentialID: b.CredentialID,
+				Revision:     rev,
+				Config:       compiled,
+			}
 		}
 	}
 
@@ -98,7 +133,26 @@ func (v *RuntimeView) Clone() *RuntimeView {
 	if v == nil {
 		return NewEmptyRuntimeView()
 	}
-	return NewRuntimeView(v.groups, v.credentials)
+	g := make(map[uint]BoundPolicy, len(v.groups))
+	for k, bp := range v.groups {
+		bpClone := bp
+		if bp.Config != nil {
+			bpClone.Config = bp.Config.Clone()
+		}
+		g[k] = bpClone
+	}
+	c := make(map[uint]BoundPolicy, len(v.credentials))
+	for k, bp := range v.credentials {
+		bpClone := bp
+		if bp.Config != nil {
+			bpClone.Config = bp.Config.Clone()
+		}
+		c[k] = bpClone
+	}
+	return &RuntimeView{
+		groups:      g,
+		credentials: c,
+	}
 }
 
 // GroupPolicy 获取指定分组 ID 的已编译策略；未配置或未生效返回 nil
@@ -106,7 +160,11 @@ func (v *RuntimeView) GroupPolicy(groupID uint) *CompiledConfig {
 	if v == nil || v.groups == nil {
 		return nil
 	}
-	return v.groups[groupID]
+	bp, ok := v.groups[groupID]
+	if !ok {
+		return nil
+	}
+	return bp.Config
 }
 
 // CredentialPolicy 获取指定凭据 ID 的已编译策略；未配置或未生效返回 nil
@@ -114,7 +172,11 @@ func (v *RuntimeView) CredentialPolicy(credentialID uint) *CompiledConfig {
 	if v == nil || v.credentials == nil {
 		return nil
 	}
-	return v.credentials[credentialID]
+	bp, ok := v.credentials[credentialID]
+	if !ok {
+		return nil
+	}
+	return bp.Config
 }
 
 // EvalCandidate 针对候选凭据及目标执行调度域准入评估。
@@ -137,6 +199,34 @@ func (v *RuntimeView) EvalCandidate(groupID, credentialID uint, ctx *EvalContext
 		}
 	}
 	return false, nil
+}
+
+// EvalPricing 针对候选凭据及目标执行定价域倍率评估。
+// 顺序保证：首先评估当前分组规则（按保存列表顺序），然后评估当前凭据规则（按保存列表顺序）。
+// 所有确定命中 (TruthTrue) 的规则加入有序因子链（包括 x0、x1、总乘积为 1 等）；
+// 未决 (TruthUnknown) 或未命中 (TruthFalse) 的规则跳过并不阻断后续规则。
+func (v *RuntimeView) EvalPricing(groupID, credentialID uint, ctx *EvalContext) []PricingMatch {
+	if v == nil || ctx == nil {
+		return nil
+	}
+	var matches []PricingMatch
+	if gp, ok := v.groups[groupID]; ok && gp.Config != nil {
+		res := gp.Config.EvalPricing(ctx)
+		for _, m := range res.Matches {
+			m.BindingScope = "group"
+			m.Revision = gp.Revision
+			matches = append(matches, m)
+		}
+	}
+	if cp, ok := v.credentials[credentialID]; ok && cp.Config != nil {
+		res := cp.Config.EvalPricing(ctx)
+		for _, m := range res.Matches {
+			m.BindingScope = "credential"
+			m.Revision = cp.Revision
+			matches = append(matches, m)
+		}
+	}
+	return matches
 }
 
 // Runtime 管理不可变 RuntimeView 的发布与原子指针切换。

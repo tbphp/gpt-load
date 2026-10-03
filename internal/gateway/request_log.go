@@ -49,6 +49,7 @@ type frozenAttemptPricing struct {
 	metadataSet      bool
 	pricingMode      pricing.Mode
 	priceMultipliers pricing.PriceMultipliers
+	policyFactors    []pricing.PolicyFactor
 	usageDiagnostics usage.Diagnostics
 	reasoning        reasoning.Config
 }
@@ -646,7 +647,7 @@ func quoteFrozenAttempt(
 		ChannelID: frozen.channelID,
 		ModelID:   frozen.upstreamModel,
 	}
-	quote, receipt := frozen.table.QuoteForModeWithMultipliers(identity, result, pricingMode, frozen.priceMultipliers)
+	quote, receipt := frozen.table.QuoteForModeWithMultipliers(identity, result, pricingMode, frozen.priceMultipliers, frozen.policyFactors...)
 	observation.CostState = string(quote.State)
 	observation.PricingCompleteness = string(quote.Completeness)
 	observation.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)

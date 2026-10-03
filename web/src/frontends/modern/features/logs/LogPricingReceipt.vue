@@ -47,7 +47,9 @@ const decisionRate = computed(() => {
     .join(' · ')
   if (!rates) return '—'
   const multipliers = receipt.price_multipliers
-  return multipliers ? `${rates} × ${multipliers.group} × ${multipliers.access_key}` : rates
+  const base = multipliers ? `${rates} × ${multipliers.group} × ${multipliers.access_key}` : rates
+  const policyStr = receipt.policy_factors?.map((f) => ` × ${f.factor}`).join('') || ''
+  return base + policyStr
 })
 const total = computed(
   () =>
@@ -128,6 +130,11 @@ const total = computed(
     <div v-if="receipt?.price_multipliers" class="modern-log-receipt-meta">
       <span>{{ t('logs.groupMultiplier') }} ×{{ receipt.price_multipliers.group }}</span
       ><span>{{ t('logs.keyMultiplier') }} ×{{ receipt.price_multipliers.access_key }}</span>
+    </div>
+    <div v-if="receipt?.policy_factors?.length" class="modern-log-receipt-meta">
+      <span v-for="f in receipt.policy_factors" :key="f.binding_scope + ':' + f.rule_id">
+        [{{ f.binding_scope }}] {{ f.name_snapshot }} ×{{ f.factor }}
+      </span>
     </div>
     <div class="modern-log-receipt-total">
       <span

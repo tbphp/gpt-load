@@ -813,6 +813,19 @@ function toggleAttemptErrorMessage(sequence: number): void {
               }}
             </dd>
           </div>
+          <div v-if="!selfScoped && receipt?.policy_factors?.length" class="log-detail__wide">
+            <dt>{{ t('common.policyRules.applied') }}</dt>
+            <dd>
+              <span
+                v-for="(rule, rIdx) in receipt.policy_factors"
+                :key="rule.binding_scope + ':' + rule.rule_id"
+              >
+                {{ rIdx > 0 ? ' · ' : '' }}[{{ rule.binding_scope }}] {{ rule.name_snapshot }} ×{{
+                  rule.factor
+                }}
+              </span>
+            </dd>
+          </div>
           <div
             v-if="
               !selfScoped &&
@@ -841,7 +854,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 v-if="
                   receipt &&
                   usageDisplayState === 'reported' &&
-                  receipt.schema_version === 6 &&
+                  receipt.schema_version >= 6 &&
                   receipt.base_total_nano_usd !== undefined &&
                   receipt.price_multipliers
                 "
@@ -853,8 +866,8 @@ function toggleAttemptErrorMessage(sequence: number): void {
                 <span>
                   {{ t('monitor.logs.receipt.finalTotal') }} =
                   {{ formatExactNanoUSD(receipt.base_total_nano_usd, locale) }} ×
-                  {{ receipt.price_multipliers.group }} ×
-                  {{ receipt.price_multipliers.access_key }} =
+                  {{ receipt.price_multipliers.group }} × {{ receipt.price_multipliers.access_key
+                  }}{{ receipt.policy_factors?.map((f) => ' × ' + f.factor).join('') || '' }} =
                   {{ formatExactNanoUSD(receipt.total_nano_usd, locale) }}
                 </span>
                 <small>{{ t('monitor.logs.receipt.totalRounding') }}</small>
