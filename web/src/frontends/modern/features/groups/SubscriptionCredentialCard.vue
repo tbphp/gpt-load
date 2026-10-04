@@ -116,6 +116,13 @@ useLoadingActivity(() => Boolean(props.pending))
         <div class="modern-subscription-card-subtitle">
           <div class="modern-subscription-card-plan">
             <CredentialPlanBadge v-if="plan" :name="plan" :level="observation?.planLevel" />
+            <AppBadge
+              v-if="creditBalanceLabel"
+              class="modern-subscription-card-credit-balance"
+              size="xs"
+            >
+              {{ t('credentialCards.creditBalance') }} {{ creditBalanceLabel }}
+            </AppBadge>
             <CredentialRoutingMeta :row="row" />
           </div>
           <div class="modern-subscription-card-status-actions">
@@ -170,10 +177,6 @@ useLoadingActivity(() => Boolean(props.pending))
             >
           </div>
         </div>
-      </div>
-      <div v-if="creditBalanceLabel" class="modern-subscription-card-credit-balance">
-        <span>{{ t('credentialCards.creditBalance') }}</span>
-        <strong>{{ creditBalanceLabel }}</strong>
       </div>
       <div
         v-if="
@@ -247,16 +250,7 @@ useLoadingActivity(() => Boolean(props.pending))
 
 <style scoped>
 .modern-subscription-card-credit-balance {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-subscription-card-credit-balance strong {
-  color: var(--modern-text);
-  font-weight: var(--modern-weight-medium);
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
