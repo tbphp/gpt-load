@@ -78,11 +78,12 @@ type ObservationWindowUsage struct {
 }
 
 type CredentialObservationSnapshot struct {
-	Plan                  ObservationPlanSummary     `json:"plan_summary"`
-	Account               *ObservationAccountSummary `json:"account_summary,omitempty"`
-	QuotaWindows          []ObservationQuotaWindow   `json:"quota_windows"`
-	ResetCreditsAvailable *int64                     `json:"reset_credits_available,omitempty"`
-	ResetCredits          []ObservationResetCredit   `json:"reset_credits,omitempty"`
+	Plan                  ObservationPlanSummary             `json:"plan_summary"`
+	Account               *ObservationAccountSummary         `json:"account_summary,omitempty"`
+	QuotaWindows          []ObservationQuotaWindow           `json:"quota_windows"`
+	Credits               *providerobservation.CreditSummary `json:"credits,omitempty"`
+	ResetCreditsAvailable *int64                             `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ObservationResetCredit           `json:"reset_credits,omitempty"`
 }
 
 type CredentialObservationResponse struct {
@@ -385,14 +386,11 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 	case observation.Partial && !observation.QuotaObserved && previousQuotaFresh:
 		snapshot.QuotaWindows = previousSnapshot.QuotaWindows
+		snapshot.Credits = previousSnapshot.Credits
 		snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
 		snapshot.ResetCredits = previousSnapshot.ResetCredits
 	case observation.Partial && !observation.QuotaObserved:
 		state = models.CredentialObservationStale
-	}
-	encoded, err := json.Marshal(snapshot)
-	if err != nil {
-		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
 	// The observation time is when this result was actually obtained, not when
 	// the attempt started: a slow refresh would otherwise be stamped older
@@ -402,6 +400,13 @@ func (s *Service) refreshCredentialObservationOnce(
 	completedMS := s.now().UTC().UnixMilli()
 	if completedMS < attemptMS {
 		completedMS = attemptMS
+	}
+	if snapshot.Credits != nil && (!observation.Partial || observation.QuotaObserved) {
+		snapshot.Credits.ObservedAtMS = &completedMS
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
 	row := models.CredentialObservation{
 		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,

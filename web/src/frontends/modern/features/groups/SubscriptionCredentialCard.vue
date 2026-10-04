@@ -44,6 +44,12 @@ const { t, n, locale } = useI18n()
 const state = computed(() => credentialStatus(props.row))
 const observation = computed(() => props.row.observation)
 const plan = computed(() => observation.value?.plan.trim() ?? '')
+const creditBalanceLabel = computed(() => {
+  const credits = observation.value?.credits
+  if (credits?.unlimited) return t('credentialCards.creditUnlimited')
+  const balance = Number(credits?.balance)
+  return Number.isFinite(balance) && balance > 0 ? n(balance, { maximumFractionDigits: 20 }) : ''
+})
 const creditLabel = computed(() => {
   const expirations = observation.value?.creditExpirations ?? []
   const available = observation.value?.resetCredits ?? 0
@@ -165,6 +171,10 @@ useLoadingActivity(() => Boolean(props.pending))
           </div>
         </div>
       </div>
+      <div v-if="creditBalanceLabel" class="modern-subscription-card-credit-balance">
+        <span>{{ t('credentialCards.creditBalance') }}</span>
+        <strong>{{ creditBalanceLabel }}</strong>
+      </div>
       <div
         v-if="
           error ||
@@ -236,6 +246,20 @@ useLoadingActivity(() => Boolean(props.pending))
 </template>
 
 <style scoped>
+.modern-subscription-card-credit-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-subscription-card-credit-balance strong {
+  color: var(--modern-text);
+  font-weight: var(--modern-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
 .modern-subscription-card-error {
   color: var(--modern-danger);
 }

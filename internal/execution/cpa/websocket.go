@@ -97,9 +97,10 @@ func (s *observedWebsocketSession) ExecuteTurn(ctx context.Context, payload []by
 	return s.WebsocketSession.ExecuteTurn(ctx, payload, func(ctx context.Context, event []byte) error {
 		observedAt := time.Now()
 		windows := codex.NormalizeWebsocketQuotaWindows(event, observedAt)
-		if len(windows) > 0 {
+		credits := codex.NormalizeWebsocketCredits(event, observedAt)
+		if len(windows) > 0 || credits != nil {
 			s.adapter.credentials.RecordPassiveQuotaPair(s.spec.Credential.ID, s.spec.Credential.IdentityGeneration,
-				s.handshake, subscription.PassiveQuotaSample{ObservedAtMS: observedAt.UnixMilli(), Windows: windows})
+				s.handshake, subscription.PassiveQuotaSample{ObservedAtMS: observedAt.UnixMilli(), Windows: windows, Credits: credits})
 		}
 		if emit != nil {
 			return emit(ctx, event)
@@ -118,8 +119,9 @@ func (s *observedWebsocketSession) observeHeaders(headers http.Header, observedA
 		signals[name] = strings.Join(values, ",")
 	}
 	windows := codex.NormalizePassiveQuotaWindows(signals, observedAt)
-	s.handshake = subscription.PassiveQuotaSample{ObservedAtMS: observedAt.UnixMilli(), Windows: windows}
-	s.adapter.recordPassiveQuotaObservation(s.spec, observedAt, windows)
+	credits := codex.NormalizePassiveCredits(signals, observedAt)
+	s.handshake = subscription.PassiveQuotaSample{ObservedAtMS: observedAt.UnixMilli(), Windows: windows, Credits: credits}
+	s.adapter.recordPassiveQuotaObservation(s.spec, observedAt, windows, credits)
 }
 
 func (*codexProviderBridge) openWebsocket(spec execution.AttemptSpec, credential providerCredential, baseURL, proxyURL string, observeHeaders func(http.Header, time.Time)) (execution.WebsocketSession, error) {

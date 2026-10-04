@@ -50,19 +50,19 @@ type Adapter struct {
 
 type credentialPreparer interface {
 	Prepare(context.Context, channel.ID, execution.CredentialSnapshot, bool) (subscriptionruntime.Credential, *execution.ErrorEvidence)
-	RecordPassiveQuotaObservation(credentialID uint, identityGeneration uint64, observedAtMS int64, windows []providerobservation.QuotaWindow)
+	RecordPassiveQuotaObservation(credentialID uint, identityGeneration uint64, observedAtMS int64, windows []providerobservation.QuotaWindow, credits ...*providerobservation.CreditSummary)
 	RecordPassiveQuotaPair(credentialID uint, identityGeneration uint64, preceding, latest subscription.PassiveQuotaSample)
 }
 
 // recordPassiveQuotaObservation forwards one execution's passive quota
-// windows, if any, to the credential's pending observation. It is a no-op
-// for providers that never populate a response's QuotaWindows.
+// windows and credits, if any, to the credential's pending observation.
 func (a *Adapter) recordPassiveQuotaObservation(
 	spec execution.AttemptSpec,
 	observedAt time.Time,
 	windows []providerobservation.QuotaWindow,
+	credits *providerobservation.CreditSummary,
 ) {
-	if a == nil || a.credentials == nil || len(windows) == 0 {
+	if a == nil || a.credentials == nil || (len(windows) == 0 && credits == nil) {
 		return
 	}
 	a.credentials.RecordPassiveQuotaObservation(
@@ -70,6 +70,7 @@ func (a *Adapter) recordPassiveQuotaObservation(
 		spec.Credential.IdentityGeneration,
 		observedAt.UnixMilli(),
 		windows,
+		credits,
 	)
 }
 
@@ -210,7 +211,7 @@ func (a *Adapter) Execute(ctx context.Context, spec execution.AttemptSpec) (resu
 			credential,
 			request,
 		)
-		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows)
+		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows, response.Credits)
 	}
 	if err != nil {
 		result := unaryExecutionError(execCtx, provider, err, credential)
@@ -358,7 +359,7 @@ func (a *Adapter) ExecuteStream(
 	upstreamProtocol := provider.UpstreamProtocol()
 	if response != nil {
 		upstreamProtocol = effectiveUpstreamProtocol(provider, response.UpstreamProtocol)
-		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows)
+		a.recordPassiveQuotaObservation(spec, response.QuotaObservedAt, response.QuotaWindows, response.Credits)
 	}
 	if err != nil {
 		result := unaryExecutionError(streamCtx, provider, err, credential)

@@ -38,6 +38,12 @@ export interface CredentialObservation {
   planLevel?: 'free' | 'standard' | 'premium' | 'elite'
   organization: string
   windows: CredentialQuota[]
+  credits?: {
+    balance?: string
+    hasCredits?: boolean
+    unlimited?: boolean
+    observedAt?: number
+  }
   account?: {
     name: string
     seat: string
@@ -65,6 +71,7 @@ export function readObservation(value: unknown): CredentialObservation | undefin
   const snapshot = data.snapshot == null ? undefined : record(data.snapshot)
   const plan = snapshot ? record(snapshot.plan_summary) : undefined
   const account = snapshot?.account_summary == null ? undefined : record(snapshot.account_summary)
+  const credits = snapshot?.credits == null ? undefined : record(snapshot.credits)
   return {
     state: oneOf(data.state, ['fresh', 'stale', 'refreshing', 'error', 'unavailable']),
     observedAt: data.observed_at_ms == null ? null : integer(data.observed_at_ms),
@@ -72,6 +79,14 @@ export function readObservation(value: unknown): CredentialObservation | undefin
     plan: plan?.name == null ? '' : text(plan.name),
     planLevel: planLevels.find((level) => level === plan?.level),
     organization: account?.organization_name == null ? '' : text(account.organization_name),
+    credits: credits
+      ? {
+          balance: credits.balance == null ? undefined : text(credits.balance),
+          hasCredits: credits.has_credits == null ? undefined : boolean(credits.has_credits),
+          unlimited: credits.unlimited == null ? undefined : boolean(credits.unlimited),
+          observedAt: credits.observed_at_ms == null ? undefined : integer(credits.observed_at_ms),
+        }
+      : undefined,
     account: account
       ? {
           name: account.display_name == null ? '' : text(account.display_name),

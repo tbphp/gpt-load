@@ -27,7 +27,7 @@ const passiveQuotaFlushBatchSize = 20
 // only ever touches snapshot_json, observed_at_ms, and updated_at_ms. State,
 // plan/account summaries, reset credits, and the most recent active
 // attempt/error metadata are always left untouched. A credential with no
-// existing observation row, a stale identity generation, or no matching window
+// existing observation row, a stale identity generation, or neither credits nor a matching window
 // in the row is discarded without writing anything, since manual
 // or automatic active observation remains the sole owner of window creation.
 func (manager *CredentialManager) FlushPassiveQuotaObservations(ctx context.Context) (bool, error) {
@@ -101,7 +101,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 			return nil
 		}
 		if !merge.Matched {
-			// 未能唯一匹配已有窗口的样本不能推进同步时间。
+			// 没有点数、也未能唯一匹配已有窗口的样本不能推进同步时间。
 			// 窗口创建和身份变更仍由主动观测负责。
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			return nil
@@ -151,13 +151,18 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 	var observedAtMS int64
 	samples := [2]*PassiveQuotaSample{
 		observation.Preceding,
-		{ObservedAtMS: observation.ObservedAtMS, Windows: observation.Windows},
+		{ObservedAtMS: observation.ObservedAtMS, Windows: observation.Windows, Credits: observation.Credits},
 	}
 	for _, sample := range samples {
 		if sample == nil || (storedAtMS != nil && sample.ObservedAtMS <= *storedAtMS) {
 			continue
 		}
-		merged, err := mergePassiveQuotaSnapshot(result.Encoded, sample.Windows)
+		credits := sample.Credits
+		if credits != nil && credits.ObservedAtMS != nil && storedAtMS != nil && *credits.ObservedAtMS <= *storedAtMS {
+			// 待写点数可能早于本次窗口；必须核对它自己的时间。
+			credits = nil
+		}
+		merged, err := mergePassiveQuotaSnapshot(result.Encoded, sample.Windows, credits)
 		if err != nil {
 			return passiveQuotaMerge{}, 0, err
 		}
@@ -189,6 +194,7 @@ type passiveQuotaMerge struct {
 func mergePassiveQuotaSnapshot(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,
+	credits ...*providerobservation.CreditSummary,
 ) (result passiveQuotaMerge, err error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
@@ -246,14 +252,52 @@ func mergePassiveQuotaSnapshot(
 		}
 		merged[position] = next
 	}
+	windowsChanged := outcome.Changed
+	if len(credits) > 0 && credits[0] != nil {
+		var previous *providerobservation.CreditSummary
+		if encoded, present := fields["credits"]; present {
+			if err := json.Unmarshal(encoded, &previous); err != nil {
+				return passiveQuotaMerge{}, fmt.Errorf("decode credential credit summary: %w", err)
+			}
+		}
+		next := cloneCreditSummary(previous)
+		if next == nil {
+			next = &providerobservation.CreditSummary{}
+		}
+		patch := cloneCreditSummary(credits[0])
+		if patch.Balance != "" {
+			next.Balance = patch.Balance
+			next.ObservedAtMS = cloneInt64(patch.ObservedAtMS)
+		}
+		if patch.HasCredits != nil {
+			next.HasCredits = patch.HasCredits
+		}
+		if patch.Unlimited != nil {
+			next.Unlimited = patch.Unlimited
+			if *patch.Unlimited {
+				next.ObservedAtMS = cloneInt64(patch.ObservedAtMS)
+			}
+		}
+		outcome.Matched = true
+		if !reflect.DeepEqual(previous, next) {
+			encoded, err := json.Marshal(next)
+			if err != nil {
+				return passiveQuotaMerge{}, fmt.Errorf("encode credential credit summary: %w", err)
+			}
+			fields["credits"] = encoded
+			outcome.Changed = true
+		}
+	}
 	if !outcome.Changed {
 		return outcome, nil
 	}
-	encodedWindows, err := json.Marshal(merged)
-	if err != nil {
-		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation quota windows: %w", err)
+	if windowsChanged {
+		encodedWindows, err := json.Marshal(merged)
+		if err != nil {
+			return passiveQuotaMerge{}, fmt.Errorf("encode credential observation quota windows: %w", err)
+		}
+		fields["quota_windows"] = encodedWindows
 	}
-	fields["quota_windows"] = encodedWindows
 	encoded, err := json.Marshal(fields)
 	if err != nil {
 		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation snapshot: %w", err)

@@ -174,6 +174,12 @@ const supportsResetCredit = computed(() =>
   props.capabilities.credential_actions.includes('reset_credit'),
 )
 const snapshot = computed(() => observation.value?.snapshot)
+const creditBalanceLabel = computed(() => {
+  const credits = snapshot.value?.credits
+  if (credits?.unlimited) return t('group.credentials.subscription.creditUnlimited')
+  const balance = Number(credits?.balance)
+  return Number.isFinite(balance) && balance > 0 ? n(balance, { maximumFractionDigits: 20 }) : ''
+})
 function isAccountWideQuotaWindow(window: CredentialQuotaWindowDto): boolean {
   return window.scope === 'account'
 }
@@ -996,9 +1002,9 @@ function runMenuAction(
         {{ t('group.credentials.subscription.noQuota') }}
       </p>
 
-      <div v-if="hasResetCredits" class="subscription-account__credits">
-        <span>{{ t('group.credentials.subscription.resetCredits') }}</span>
-        <AppTooltip :content="resetCreditsTooltip">
+      <div v-if="hasResetCredits || creditBalanceLabel" class="subscription-account__credits">
+        <span v-if="hasResetCredits">{{ t('group.credentials.subscription.resetCredits') }}</span>
+        <AppTooltip v-if="hasResetCredits" :content="resetCreditsTooltip">
           <span
             class="subscription-account__credits-summary"
             tabindex="0"
@@ -1019,7 +1025,9 @@ function runMenuAction(
           </span>
         </AppTooltip>
         <span
-          v-if="nearestResetCredit && nearestResetCredit.expires_at_ms !== undefined"
+          v-if="
+            hasResetCredits && nearestResetCredit && nearestResetCredit.expires_at_ms !== undefined
+          "
           class="subscription-account__credits-expiry"
         >
           {{ t('group.credentials.subscription.nearestResetCredit') }}
@@ -1030,8 +1038,15 @@ function runMenuAction(
             hint
           />
         </span>
+        <span v-if="creditBalanceLabel" class="subscription-account__credit-balance">
+          <span>{{ t('group.credentials.subscription.creditBalance') }}</span>
+          <strong>{{ creditBalanceLabel }}</strong>
+        </span>
         <span class="subscription-account__spacer"></span>
-        <AppTooltip :content="t('group.credentials.subscription.resetCreditsActionTooltip')">
+        <AppTooltip
+          v-if="hasResetCredits"
+          :content="t('group.credentials.subscription.resetCreditsActionTooltip')"
+        >
           <AppButton
             class="subscription-account__credits-action"
             variant="ghost"
@@ -1795,6 +1810,7 @@ function runMenuAction(
 }
 .subscription-account__credits {
   display: flex;
+  flex-wrap: wrap;
   min-height: var(--control-compact);
   align-items: center;
   gap: var(--space-2);
@@ -1807,6 +1823,17 @@ function runMenuAction(
   width: 26px;
   min-height: 26px;
   padding: 0;
+}
+.subscription-account__credit-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+.subscription-account__credit-balance strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
 }
 .subscription-account__credits > span:first-child,
 .subscription-account__credits-expiry {

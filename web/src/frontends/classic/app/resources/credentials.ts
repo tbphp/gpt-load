@@ -185,6 +185,7 @@ const observationSnapshotFields = [
   'plan_summary',
   'account_summary',
   'quota_windows',
+  'credits',
   'reset_credits_available',
   'reset_credits',
 ] as const
@@ -206,6 +207,7 @@ const observationAccountFields = [
   'subscription_created_at_ms',
 ] as const
 const resetCreditFields = ['expires_at_ms'] as const
+const creditSummaryFields = ['balance', 'has_credits', 'unlimited', 'observed_at_ms'] as const
 const resetCreditConsumeFields = [
   'status',
   'windows_reset',
@@ -427,6 +429,25 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
     invalidResponse()
   }
   let accountSummary: CredentialObservationSnapshotDto['account_summary']
+  let credits: CredentialObservationSnapshotDto['credits']
+  if (record.credits != null) {
+    const creditRecord = projectRecord(record.credits)
+    assertNoSecretLikeFields(creditRecord, creditSummaryFields)
+    credits = {
+      ...(creditRecord.balance == null
+        ? {}
+        : { balance: projectString(creditRecord.balance, { allowEmpty: false }) }),
+      ...(creditRecord.has_credits == null
+        ? {}
+        : { has_credits: projectBoolean(creditRecord.has_credits) }),
+      ...(creditRecord.unlimited == null
+        ? {}
+        : { unlimited: projectBoolean(creditRecord.unlimited) }),
+      ...(creditRecord.observed_at_ms == null
+        ? {}
+        : { observed_at_ms: projectEpochMilliseconds(creditRecord.observed_at_ms) }),
+    }
+  }
   if (record.account_summary !== undefined) {
     const accountRecord = projectRecord(record.account_summary)
     assertNoSecretLikeFields(accountRecord, observationAccountFields)
@@ -469,6 +490,7 @@ function projectObservationSnapshot(value: unknown): CredentialObservationSnapsh
     },
     ...(accountSummary === undefined ? {} : { account_summary: accountSummary }),
     quota_windows: quotaWindows,
+    ...(credits === undefined ? {} : { credits }),
     ...(record.reset_credits_available === undefined
       ? {}
       : {

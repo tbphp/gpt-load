@@ -590,6 +590,8 @@ export default {
         moreActions: 'More actions',
         autoRenews: 'renews when used',
         resetCredits: 'Reset credits',
+        creditBalance: 'Credits',
+        creditUnlimited: 'Unlimited',
         resetCreditsCount: '{count} available',
         resetCreditsTooltipTitle: 'Reset credit details',
         resetCreditsTooltipItem: 'Credit {index}: {expires}',

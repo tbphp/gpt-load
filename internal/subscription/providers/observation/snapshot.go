@@ -65,10 +65,19 @@ type ResetCredit struct {
 	ExpiresAtMS *int64 `json:"expires_at_ms,omitempty"`
 }
 
+// CreditSummary 保存账号点数；余额使用字符串，保留上游小数及零余额。
+type CreditSummary struct {
+	Balance      string `json:"balance,omitempty"`
+	HasCredits   *bool  `json:"has_credits,omitempty"`
+	Unlimited    *bool  `json:"unlimited,omitempty"`
+	ObservedAtMS *int64 `json:"observed_at_ms,omitempty"`
+}
+
 type Snapshot struct {
 	Plan                  PlanSummary     `json:"plan_summary"`
 	Account               *AccountSummary `json:"account_summary,omitempty"`
 	QuotaWindows          []QuotaWindow   `json:"quota_windows"`
+	Credits               *CreditSummary  `json:"credits,omitempty"`
 	ResetCreditsAvailable *int64          `json:"reset_credits_available,omitempty"`
 	ResetCredits          []ResetCredit   `json:"reset_credits,omitempty"`
 }

@@ -12,6 +12,7 @@ import (
 type PassiveQuotaSample struct {
 	ObservedAtMS int64
 	Windows      []providerobservation.QuotaWindow
+	Credits      *providerobservation.CreditSummary
 }
 
 // PassiveQuotaObservation 保存一个凭据的最新待写样本。
@@ -21,6 +22,7 @@ type PassiveQuotaObservation struct {
 	IdentityGeneration uint64
 	ObservedAtMS       int64
 	Windows            []providerobservation.QuotaWindow
+	Credits            *providerobservation.CreditSummary
 	Preceding          *PassiveQuotaSample
 	Version            uint64
 }
@@ -29,6 +31,7 @@ type passiveQuotaEntry struct {
 	identityGeneration uint64
 	observedAtMS       int64
 	windows            []providerobservation.QuotaWindow
+	credits            *providerobservation.CreditSummary
 	preceding          *PassiveQuotaSample
 	version            uint64
 	dirty              bool
@@ -63,14 +66,10 @@ func newPassiveQuotaPending() *passiveQuotaPending {
 // as the pending snapshot for credentialID, replacing whatever the previous
 // response left there.
 //
-// Responses are deliberately never combined. A pending entry carries a single
-// observation time, so mixing fields captured at different instants would let
-// an older value be persisted under a newer timestamp and outrank an active
-// refresh committed in between. Dropping the older response loses nothing:
-// the stored snapshot keeps its current value for any window this response
-// omits, and the next response carrying that window refreshes it.
+// 窗口仍由最新响应替换。点数有自己的观测时间，未携带点数的响应保留
+// 待写余额及其原始时间，落盘时独立校验，不能借窗口的新时间覆盖主动刷新。
 //
-// A response with no windows is a no-op: it must not advance the pending
+// A response with neither windows nor credits is a no-op: it must not advance the pending
 // observation time. An observedAtMS older than the pending entry is dropped.
 // Removed credentials and responses from an outdated target are also ignored.
 func (manager *CredentialManager) RecordPassiveQuotaObservation(
@@ -78,8 +77,13 @@ func (manager *CredentialManager) RecordPassiveQuotaObservation(
 	identityGeneration uint64,
 	observedAtMS int64,
 	windows []providerobservation.QuotaWindow,
+	credits ...*providerobservation.CreditSummary,
 ) {
-	manager.recordPassiveQuotaObservation(credentialID, identityGeneration, observedAtMS, windows, nil)
+	var summary *providerobservation.CreditSummary
+	if len(credits) > 0 {
+		summary = credits[0]
+	}
+	manager.recordPassiveQuotaObservation(credentialID, identityGeneration, observedAtMS, windows, nil, summary)
 }
 
 // RecordPassiveQuotaPair 让 WS 的最新事件携带同一连接的握手证据。
@@ -90,10 +94,10 @@ func (manager *CredentialManager) RecordPassiveQuotaPair(
 	preceding, latest PassiveQuotaSample,
 ) {
 	var earlier *PassiveQuotaSample
-	if len(preceding.Windows) > 0 && preceding.ObservedAtMS <= latest.ObservedAtMS {
+	if (len(preceding.Windows) > 0 || preceding.Credits != nil) && preceding.ObservedAtMS <= latest.ObservedAtMS {
 		earlier = &preceding
 	}
-	manager.recordPassiveQuotaObservation(credentialID, identityGeneration, latest.ObservedAtMS, latest.Windows, earlier)
+	manager.recordPassiveQuotaObservation(credentialID, identityGeneration, latest.ObservedAtMS, latest.Windows, earlier, latest.Credits)
 }
 
 func (manager *CredentialManager) recordPassiveQuotaObservation(
@@ -102,8 +106,9 @@ func (manager *CredentialManager) recordPassiveQuotaObservation(
 	observedAtMS int64,
 	windows []providerobservation.QuotaWindow,
 	preceding *PassiveQuotaSample,
+	credits *providerobservation.CreditSummary,
 ) {
-	if manager == nil || manager.passiveQuota == nil || manager.registry == nil || credentialID == 0 || len(windows) == 0 {
+	if manager == nil || manager.passiveQuota == nil || manager.registry == nil || credentialID == 0 || (len(windows) == 0 && credits == nil) {
 		return
 	}
 	manager.passiveQuota.record(credentialID, identityGeneration, observedAtMS, windows, preceding, func() (uint, bool) {
@@ -113,7 +118,7 @@ func (manager *CredentialManager) recordPassiveQuotaObservation(
 			return 0, false
 		}
 		return ref.GroupID, true
-	})
+	}, credits)
 }
 
 // DirtyPassiveQuotaObservations returns up to limit pending observations that
@@ -143,6 +148,7 @@ func (pending *passiveQuotaPending) record(
 	windows []providerobservation.QuotaWindow,
 	preceding *PassiveQuotaSample,
 	current func() (uint, bool),
+	credits *providerobservation.CreditSummary,
 ) {
 	pending.mu.Lock()
 	groupID, accepted := current()
@@ -159,6 +165,20 @@ func (pending *passiveQuotaPending) record(
 		return
 	}
 	entry.windows = cloneQuotaWindows(windows)
+	creditAtMS := observedAtMS
+	if credits == nil && preceding != nil {
+		credits = preceding.Credits
+		creditAtMS = preceding.ObservedAtMS
+	}
+	if credits != nil {
+		summary := cloneCreditSummary(credits)
+		if summary.ObservedAtMS == nil {
+			summary.ObservedAtMS = cloneInt64(&creditAtMS)
+		}
+		if entry.credits == nil || entry.credits.ObservedAtMS == nil || *summary.ObservedAtMS >= *entry.credits.ObservedAtMS {
+			entry.credits = summary
+		}
+	}
 	entry.preceding = clonePassiveQuotaSample(preceding)
 	entry.observedAtMS = observedAtMS
 	pending.nextVersion++
@@ -197,6 +217,7 @@ func (pending *passiveQuotaPending) dirtyObservations(limit int) []PassiveQuotaO
 			IdentityGeneration: entry.identityGeneration,
 			ObservedAtMS:       entry.observedAtMS,
 			Windows:            cloneQuotaWindows(entry.windows),
+			Credits:            cloneCreditSummary(entry.credits),
 			Preceding:          clonePassiveQuotaSample(entry.preceding),
 			Version:            entry.version,
 		})
@@ -211,7 +232,24 @@ func clonePassiveQuotaSample(sample *PassiveQuotaSample) *PassiveQuotaSample {
 	if sample == nil {
 		return nil
 	}
-	return &PassiveQuotaSample{ObservedAtMS: sample.ObservedAtMS, Windows: cloneQuotaWindows(sample.Windows)}
+	return &PassiveQuotaSample{ObservedAtMS: sample.ObservedAtMS, Windows: cloneQuotaWindows(sample.Windows), Credits: cloneCreditSummary(sample.Credits)}
+}
+
+func cloneCreditSummary(credits *providerobservation.CreditSummary) *providerobservation.CreditSummary {
+	if credits == nil {
+		return nil
+	}
+	cloned := *credits
+	cloned.ObservedAtMS = cloneInt64(credits.ObservedAtMS)
+	if credits.HasCredits != nil {
+		value := *credits.HasCredits
+		cloned.HasCredits = &value
+	}
+	if credits.Unlimited != nil {
+		value := *credits.Unlimited
+		cloned.Unlimited = &value
+	}
+	return &cloned
 }
 
 // cloneQuotaWindows detaches a window slice from its caller, including the
