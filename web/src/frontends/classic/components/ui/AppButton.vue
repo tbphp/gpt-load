@@ -6,7 +6,7 @@ withDefaults(
     busy?: boolean
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'link'
     tone?: 'neutral' | 'action' | 'success' | 'warning' | 'danger'
-    size?: 'inline' | 'compact' | 'sm' | 'md' | 'cta' | 'lg'
+    size?: 'xs' | 'inline' | 'compact' | 'sm' | 'md' | 'cta' | 'lg'
   }>(),
   {
     type: 'button',
@@ -51,6 +51,13 @@ withDefaults(
     border-color var(--duration-fast) var(--easing-standard),
     color var(--duration-fast) var(--easing-standard),
     opacity var(--duration-fast) var(--easing-standard);
+}
+
+.app-button--xs {
+  min-height: var(--control-xxs);
+  padding-inline: var(--space-2);
+  gap: var(--space-1);
+  font-size: var(--text-sm);
 }
 
 .app-button--sm {
@@ -190,5 +197,10 @@ withDefaults(
 
 .app-button[aria-busy='true'] {
   cursor: wait;
+}
+@media (max-width: 860px) {
+  .app-button--xs {
+    min-height: var(--touch-target);
+  }
 }
 </style>

@@ -119,39 +119,42 @@ async function submit(): Promise<void> {
     @update:open="!$event && close()"
   >
     <template #filters>
-      <div class="catalog-toolbar">
-        <span>{{ t('models.clientCatalog.selectedCount', { count: n(selected.length) }) }}</span
-        ><AppButton
-          variant="secondary"
-          size="compact"
-          :disabled="saving || sort.active.value || !base"
-          @click="picking = !picking"
-          >{{ t('models.clientCatalog.addModels') }}</AppButton
+      <div class="catalog-controls">
+        <div class="catalog-toolbar">
+          <span>{{ t('models.clientCatalog.selectedCount', { count: n(selected.length) }) }}</span
+          ><AppButton
+            variant="secondary"
+            size="xs"
+            :disabled="saving || sort.active.value || !base"
+            @click="picking = !picking"
+            >{{ t('models.clientCatalog.addModels') }}</AppButton
+          >
+        </div>
+        <AsyncRefreshIndicator
+          :active="query.isFetching.value || previewing || saving"
+          :label="t('models.clientCatalog.loading')"
+        />
+        <InlineFeedback v-if="overflow" tone="warning">{{
+          t('models.clientCatalog.capacityWarning', { count: n(overflow) })
+        }}</InlineFeedback>
+        <InlineFeedback v-if="previewError" tone="warning"
+          >{{ t('models.clientCatalog.previewFailed')
+          }}<template #action
+            ><AppButton variant="link" size="inline" :disabled="saving" @click="schedulePreview">{{
+              t('common.retry')
+            }}</AppButton></template
+          ></InlineFeedback
         >
+        <InlineFeedback v-if="saveError" tone="danger">{{ saveError }}</InlineFeedback>
+        <InlineFeedback v-if="saved" tone="success">{{
+          t('models.clientCatalog.saveSuccess')
+        }}</InlineFeedback>
       </div>
-      <AsyncRefreshIndicator
-        :active="query.isFetching.value || previewing || saving"
-        :label="t('models.clientCatalog.loading')"
-      />
-      <InlineFeedback v-if="overflow" tone="warning">{{
-        t('models.clientCatalog.capacityWarning', { count: n(overflow) })
-      }}</InlineFeedback>
-      <InlineFeedback v-if="previewError" tone="warning"
-        >{{ t('models.clientCatalog.previewFailed')
-        }}<template #action
-          ><AppButton variant="link" size="inline" :disabled="saving" @click="schedulePreview">{{
-            t('common.retry')
-          }}</AppButton></template
-        ></InlineFeedback
-      >
-      <InlineFeedback v-if="saveError" tone="danger">{{ saveError }}</InlineFeedback>
-      <InlineFeedback v-if="saved" tone="success">{{
-        t('models.clientCatalog.saveSuccess')
-      }}</InlineFeedback>
     </template>
     <div v-if="picking" class="catalog-picker">
       <AppSearchInput
         v-model="search"
+        size="xs"
         :label="t('models.clientCatalog.addLabel')"
         :placeholder="t('models.clientCatalog.search')"
         :clear-label="t('models.filters.clearSearch')"
@@ -173,11 +176,11 @@ async function submit(): Promise<void> {
       <div class="catalog-toolbar">
         <AppButton
           variant="secondary"
-          size="compact"
+          size="xs"
           :disabled="saving || results.every((model) => picked.includes(model.clientModel))"
           @click="selectResults"
           >{{ t('models.clientCatalog.selectResults') }}</AppButton
-        ><AppButton size="compact" :disabled="saving || !picked.length" @click="confirmAdd">{{
+        ><AppButton size="xs" :disabled="saving || !picked.length" @click="confirmAdd">{{
           t('models.clientCatalog.add', { count: n(picked.length) })
         }}</AppButton>
       </div>
@@ -230,7 +233,8 @@ async function submit(): Promise<void> {
               :content="t('models.clientCatalog.drag', { model: name })"
               :disabled="sort.active.value"
               ><IconButton
-                size="compact"
+                variant="ghost"
+                size="xxs"
                 :label="t('models.clientCatalog.drag', { model: name })"
                 :disabled="saving"
                 class="catalog-grip"
@@ -248,8 +252,9 @@ async function submit(): Promise<void> {
             }}</span>
             <AppTooltip :content="t('models.clientCatalog.editAttributes', { model: name })"
               ><IconButton
+                variant="ghost"
                 :label="t('models.clientCatalog.editAttributes', { model: name })"
-                size="compact"
+                size="xxs"
                 :aria-expanded="expanded === name"
                 :disabled="saving || sort.active.value"
                 @click="expanded = expanded === name ? '' : name"
@@ -264,12 +269,13 @@ async function submit(): Promise<void> {
                   : t('models.clientCatalog.remove', { model: name })
               "
               ><IconButton
+                variant="ghost"
                 :label="
                   outsideSet.has(name)
                     ? t('models.profile.resetAll')
                     : t('models.clientCatalog.remove', { model: name })
                 "
-                size="compact"
+                size="xxs"
                 :disabled="saving || sort.active.value"
                 @click="outsideSet.has(name) ? resetProfile(name) : remove(name)"
                 ><RotateCcw v-if="outsideSet.has(name)" :size="15" /><X
@@ -285,8 +291,9 @@ async function submit(): Promise<void> {
               :disabled="saving"
             /><AppButton
               v-if="Object.values(drafts[name]!.custom).some(Boolean)"
+              class="catalog-properties-reset"
               variant="link"
-              size="compact"
+              size="xs"
               :disabled="saving"
               @click="resetProfile(name)"
               >{{ t('models.profile.resetAll') }}</AppButton
@@ -300,19 +307,19 @@ async function submit(): Promise<void> {
       ><AppTooltip :content="t('models.clientCatalog.rule')"
         ><AppButton
           variant="link"
-          size="compact"
+          size="xs"
           :disabled="saving || sort.active.value || !base"
           @click="restoreDirectory"
           >{{ t('models.clientCatalog.restore') }}</AppButton
         ></AppTooltip
       ><AppButton
         variant="secondary"
-        size="compact"
+        size="xs"
         :disabled="saving || sort.active.value"
         @click="close"
         >{{ t('common.cancel') }}</AppButton
       ><AppButton
-        size="compact"
+        size="xs"
         :busy="saving"
         :disabled="!dirty || sort.active.value"
         @click="submit"
@@ -322,11 +329,20 @@ async function submit(): Promise<void> {
   </AppDrawer>
 </template>
 <style scoped>
+.catalog-controls {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
 .catalog-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  justify-content: flex-start;
+  gap: var(--space-3);
 }
 .catalog-picker {
   display: grid;
@@ -364,18 +380,20 @@ async function submit(): Promise<void> {
 .catalog-row__heading {
   display: grid;
   grid-template-columns:
-    var(--control-compact) minmax(0, 1fr) max-content var(--control-compact)
-    var(--control-compact);
+    var(--control-xxs) minmax(0, 1fr) max-content var(--control-xxs)
+    var(--control-xxs);
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) 0;
+  padding: var(--space-1) var(--space-2);
 }
 .catalog-name {
+  font-size: var(--text-meta);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .catalog-context {
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
 }
@@ -384,13 +402,25 @@ async function submit(): Promise<void> {
   cursor: grab;
 }
 .catalog-properties {
-  padding: var(--space-3) 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  background: var(--color-surface-sunken);
+  border-top: 1px solid var(--color-border-subtle);
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 .catalog-row.is-expanded {
-  border: 1px solid var(--color-action);
-  padding-inline: var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-action) 28%, var(--color-border-subtle));
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.catalog-row.is-expanded .catalog-row__heading {
+  background: var(--color-action-soft);
+}
+.catalog-row.is-expanded .catalog-name {
+  color: var(--color-action);
+}
+.catalog-properties-reset {
+  justify-self: end;
 }
 .catalog-placeholder {
   position: absolute;
@@ -417,5 +447,12 @@ async function submit(): Promise<void> {
 .catalog-row.is-lifted {
   z-index: 1;
   box-shadow: var(--shadow-overlay);
+}
+@media (max-width: 860px) {
+  .catalog-row__heading {
+    grid-template-columns: var(--touch-target) minmax(0, 1fr) max-content var(--touch-target) var(
+        --touch-target
+      );
+  }
 }
 </style>

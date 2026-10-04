@@ -7,7 +7,7 @@ withDefaults(
     pressed?: boolean
     variant?: 'default' | 'surface' | 'ghost' | 'danger'
     tone?: 'neutral' | 'action' | 'success' | 'warning' | 'danger'
-    size?: 'md' | 'compact' | 'xs'
+    size?: 'xxs' | 'md' | 'compact' | 'xs'
   }>(),
   {
     disabled: false,
@@ -68,6 +68,11 @@ withDefaults(
 .icon-button--compact {
   width: var(--control-compact);
   height: var(--control-compact);
+}
+
+.icon-button--xxs {
+  width: var(--control-xxs);
+  height: var(--control-xxs);
 }
 
 .icon-button--xs {
@@ -140,5 +145,11 @@ withDefaults(
 
 .icon-button[aria-busy='true'] {
   cursor: wait;
+}
+@media (max-width: 860px) {
+  .icon-button--xxs {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
 }
 </style>

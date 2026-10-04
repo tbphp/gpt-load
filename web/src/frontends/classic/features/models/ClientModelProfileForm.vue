@@ -145,8 +145,9 @@ function defaultReasoning(value: string): void {
             v-if="draft.custom[field]"
             :content="t('models.profile.restoreField', { value: automatic(field) })"
             ><IconButton
+              variant="ghost"
               :label="t('models.profile.restoreField', { value: automatic(field) })"
-              size="xs"
+              size="xxs"
               :disabled="disabled"
               @click="reset(field)"
               ><RotateCcw :size="14" /></IconButton></AppTooltip
@@ -156,7 +157,7 @@ function defaultReasoning(value: string): void {
         :id="`${prefix}-${field}`"
         :model-value="value(field)"
         :label="t(`models.profile.fields.${labels[field]}`)"
-        size="compact"
+        size="xs"
         :disabled="disabled"
         :invalid="Boolean(errors[field])"
         :described-by="errors[field] ? `${prefix}-${field}-error` : undefined"
@@ -186,10 +187,11 @@ function defaultReasoning(value: string): void {
               t('models.profile.restoreField', { value: automatic('default_reasoning_level') })
             "
             ><IconButton
+              variant="ghost"
               :label="
                 t('models.profile.restoreField', { value: automatic('default_reasoning_level') })
               "
-              size="xs"
+              size="xxs"
               :disabled="disabled"
               @click="reset('default_reasoning_level')"
               ><RotateCcw :size="14" /></IconButton></AppTooltip
@@ -200,7 +202,7 @@ function defaultReasoning(value: string): void {
         :model-value="draft.values.default_reasoning_level"
         :options="reasoningOptions"
         :label="t('models.profile.fields.defaultReasoningLevel')"
-        size="compact"
+        size="xs"
         :disabled="disabled || !reasoningOptions.length"
         @update:model-value="defaultReasoning"
       />
@@ -222,8 +224,9 @@ function defaultReasoning(value: string): void {
             v-if="draft.custom[group.field]"
             :content="t('models.profile.restoreField', { value: automatic(group.field) })"
             ><IconButton
+              variant="ghost"
               :label="t('models.profile.restoreField', { value: automatic(group.field) })"
-              size="xs"
+              size="xxs"
               :disabled="disabled"
               @click="reset(group.field)"
               ><RotateCcw :size="14" /></IconButton></AppTooltip
@@ -246,7 +249,7 @@ function defaultReasoning(value: string): void {
             "
             ><AppButton
               variant="secondary"
-              size="compact"
+              size="xs"
               :tone="
                 draft.values[group.field].some((value) => value === item) ? 'action' : 'neutral'
               "
@@ -259,7 +262,7 @@ function defaultReasoning(value: string): void {
           <AppButton
             v-else
             variant="secondary"
-            size="compact"
+            size="xs"
             :tone="draft.values[group.field].some((value) => value === item) ? 'action' : 'neutral'"
             :aria-pressed="draft.values[group.field].some((value) => value === item)"
             :disabled="disabled || (group.field === 'input_modalities' && item === 'text')"
@@ -278,7 +281,7 @@ function defaultReasoning(value: string): void {
 .catalog-profile {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) var(--space-4) max-content minmax(0, 1fr);
-  gap: var(--space-2) 0;
+  gap: var(--space-1-75) 0;
 }
 .catalog-profile__field {
   display: grid;
@@ -302,8 +305,8 @@ function defaultReasoning(value: string): void {
 }
 .catalog-profile__reset {
   display: inline-flex;
-  width: var(--control-compact);
-  min-height: var(--control-compact);
+  width: var(--control-xxs);
+  min-height: var(--control-xxs);
   justify-content: center;
 }
 .catalog-profile__wide > :nth-child(2) {
@@ -319,6 +322,12 @@ function defaultReasoning(value: string): void {
   grid-column: 2 / -1;
   color: var(--color-danger);
   font-size: var(--text-sm);
+}
+@media (max-width: 860px) {
+  .catalog-profile__reset {
+    width: var(--touch-target);
+    min-height: var(--touch-target);
+  }
 }
 @media (max-width: 680px) {
   .catalog-profile {

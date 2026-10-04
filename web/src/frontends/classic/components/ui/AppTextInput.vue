@@ -18,7 +18,7 @@ const props = withDefaults(
     describedBy?: string
     clearLabel?: string
     appearance?: 'surface' | 'sunken'
-    size?: 'compact' | 'sm' | 'md' | 'lg' | 'touch'
+    size?: 'xs' | 'compact' | 'sm' | 'md' | 'lg' | 'touch'
     autocomplete?: string
     spellcheck?: boolean
     monospace?: boolean
@@ -130,6 +130,16 @@ defineExpose({ focus })
   min-height: var(--control-md);
 }
 
+.app-text-input--xs {
+  min-height: var(--control-xxs);
+  padding-left: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.app-text-input.app-text-input--xs input {
+  min-height: calc(var(--control-xxs) - 2px);
+}
+
 .app-text-input--compact {
   min-height: var(--control-xs);
   font-size: var(--text-meta);
@@ -199,6 +209,10 @@ defineExpose({ focus })
 }
 
 @media (max-width: 860px) {
+  .app-text-input.app-text-input--xs input {
+    min-height: calc(var(--touch-target) - 2px);
+  }
+  .app-text-input--xs,
   .app-text-input--compact {
     min-height: var(--touch-target);
   }
