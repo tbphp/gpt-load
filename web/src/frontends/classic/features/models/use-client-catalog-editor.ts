@@ -199,7 +199,11 @@ export function useClientCatalogEditor() {
       await cache.invalidateQueries({ queryKey: [...modelsKey, 'collection'] })
       saved.value = true
     } catch {
-      if (!controller.signal.aborted) saveError.value = t('models.clientCatalog.saveFailed')
+      if (!controller.signal.aborted) {
+        saving.value = false
+        schedulePreview()
+        saveError.value = t('models.clientCatalog.saveFailed')
+      }
     } finally {
       saving.value = false
     }

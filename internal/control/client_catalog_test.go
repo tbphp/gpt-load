@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,8 +14,55 @@ import (
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestClientCatalogDirectorySavePreservesCommittedMetadataAfterPublishFailure(t *testing.T) {
+	t.Parallel()
+	fixture := newServiceFixture(t)
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "catalog-recovery", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"gpt-6"},{"id":"gpt-5"}]`), Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	mustPublishClientModelSnapshot(t, fixture)
+	before := fixture.manager.Current()
+	publish := fixture.service.publishSnapshot
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	fixture.service.publishSnapshot = func(state.CompileInput) (*state.ConfigSnapshot, error) {
+		cancel()
+		return nil, errors.New("forced publication failure after commit")
+	}
+	description := "Committed model description"
+	metadata := catalog.ClientModelOverrides{Description: &description}
+	_, err := fixture.service.UpdateClientCatalog(ctx, ClientCatalogRequest{
+		Profiles: []ClientModelProfileUpdateRequest{{ClientModel: "gpt-6", Overrides: &metadata}},
+	})
+	if !errors.Is(err, context.Canceled) || fixture.manager.Current() != before {
+		t.Fatalf("failed publication did not leave the expected stale snapshot: %v", err)
+	}
+	persisted := mustBuildCompileInput(t, fixture.db).ClientModelOverrides["gpt-6"]
+	if persisted.Description == nil || *persisted.Description != description {
+		t.Fatal("metadata was not committed before publication failed")
+	}
+	fixture.service.publishSnapshot = publish
+	result, err := fixture.service.UpdateClientCatalog(t.Context(), ClientCatalogRequest{
+		Models: []string{"gpt-5", "gpt-6"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.Selected, []string{"gpt-5", "gpt-6"}) {
+		t.Fatalf("saved order = %v", result.Selected)
+	}
+	persisted = mustBuildCompileInput(t, fixture.db).ClientModelOverrides["gpt-6"]
+	effective := fixture.manager.Current().ClientModelOverrides["gpt-6"]
+	if persisted.Description == nil || *persisted.Description != description ||
+		effective.Description == nil || *effective.Description != description {
+		t.Fatal("directory save overwrote committed metadata from a stale snapshot")
+	}
+}
 
 func TestClientCatalogAtomicSavePreviewAndIndependentResets(t *testing.T) {
 	t.Parallel()

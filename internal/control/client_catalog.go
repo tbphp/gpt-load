@@ -11,6 +11,7 @@ import (
 	"gpt-load/internal/clientcatalog"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 )
 
 type ClientCatalogDTO struct {
@@ -52,7 +53,14 @@ func (s *Service) PreviewClientCatalog(ctx context.Context, request ClientCatalo
 
 func (s *Service) UpdateClientCatalog(ctx context.Context, request ClientCatalogRequest) (ClientCatalogDTO, error) {
 	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
-		current := s.manager.Current()
+		input, err := stateloader.BuildCompileInputWithProxy(ctx, tx, s.encryption, s.environmentProxy, s.channelRegistry)
+		if err != nil {
+			return err
+		}
+		current, err := state.Compile(input)
+		if err != nil {
+			return err
+		}
 		draft, err := applyClientCatalogDraft(current, request)
 		if err != nil {
 			return err

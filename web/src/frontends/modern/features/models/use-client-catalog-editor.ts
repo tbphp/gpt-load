@@ -203,7 +203,11 @@ export function useClientCatalogEditor() {
       ])
       messages.show({ tone: 'success', text: t('modelManager.clientCatalog.saveSuccess') })
     } catch {
-      if (!controller.signal.aborted) saveError.value = t('modelManager.clientCatalog.saveFailed')
+      if (!controller.signal.aborted) {
+        saving.value = false
+        schedulePreview()
+        saveError.value = t('modelManager.clientCatalog.saveFailed')
+      }
     } finally {
       saving.value = false
     }
