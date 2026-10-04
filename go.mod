@@ -3,16 +3,16 @@ module gpt-load
 go 1.27.0
 
 require (
-	github.com/andybalholm/brotli v1.2.4
+	github.com/andybalholm/brotli v1.2.6
 	github.com/buger/jsonparser v1.6.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
-	github.com/klauspost/compress v1.20.0
+	github.com/klauspost/compress v1.20.1
 	github.com/maximhq/bifrost/core v1.11.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
-	github.com/pion/ice/v4 v4.4.4
+	github.com/pion/ice/v4 v4.4.5
 	github.com/pion/interceptor v0.1.49
 	github.com/pion/rtp v1.10.5
 	github.com/pion/sdp/v3 v3.0.20
@@ -105,7 +105,7 @@ require (
 	github.com/pion/datachannel v1.6.3 // indirect
 	github.com/pion/dtls/v3 v3.1.9 // indirect
 	github.com/pion/logging v0.2.4 // indirect
-	github.com/pion/mdns/v2 v2.2.1 // indirect
+	github.com/pion/mdns/v2 v2.2.2 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.18 // indirect
 	github.com/pion/sctp v1.11.3 // indirect
