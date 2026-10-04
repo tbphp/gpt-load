@@ -15,6 +15,7 @@ import OverflowTooltip from './OverflowTooltip.vue'
 
 const props = withDefaults(
   defineProps<{
+    size?: 'default' | 'wide'
     open: boolean
     title: string
     description: string
@@ -23,7 +24,7 @@ const props = withDefaults(
     showDescription?: boolean
     appearance?: 'default' | 'ledger'
   }>(),
-  { dismissible: true, showDescription: false, appearance: 'default' },
+  { size: 'default', dismissible: true, showDescription: false, appearance: 'default' },
 )
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
@@ -44,7 +45,7 @@ function guardDismiss(event: Event): void {
       <DialogOverlay class="app-drawer__overlay" :class="`app-drawer__overlay--${appearance}`" />
       <DialogContent
         class="app-drawer__content"
-        :class="`app-drawer__content--${appearance}`"
+        :class="[`app-drawer__content--${appearance}`, `app-drawer__content--${size}`]"
         @escape-key-down="guardDismiss"
         @interact-outside="guardDismiss"
       >
@@ -101,6 +102,9 @@ function guardDismiss(event: Event): void {
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
+}
+.app-drawer__content--wide {
+  width: min(96vw, 960px);
 }
 .app-drawer__content[data-state='open'] {
   transform: translateX(0);

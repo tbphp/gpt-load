@@ -1,5 +1,8 @@
+import clientCatalog from './client-catalog'
+
 export default {
   models: {
+    ...clientCatalog,
     title: 'Models',
     loading: 'Loading models…',
     loadFailed: 'Unable to load models',

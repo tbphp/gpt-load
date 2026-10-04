@@ -1,0 +1,78 @@
+export default {
+  profile: {
+    restoreField: 'Restore automatic value: {value}',
+    fields: {
+      displayName: 'Display name',
+      description: 'Description',
+      contextWindow: 'Context window',
+      autoCompactTokenLimit: 'Auto-compaction threshold',
+      supportedReasoningLevels: 'Reasoning levels',
+      inputModalities: 'Input modalities',
+      serviceTiers: 'Service tiers',
+      defaultReasoningLevel: 'Default reasoning level',
+    },
+    unknownContext: 'Unknown',
+    emptyDescription: 'No description',
+    noServiceTiers: 'No accelerated tiers shown',
+    serviceTierNames: { priority: 'Fast', ultrafast: 'Ultrafast' },
+    presetTierEnabled:
+      'Enabled by the preset. Choose whether to show it in Codex. Use requires upstream support.',
+    presetTierDisabled:
+      'Not enabled by the preset. You can enable it manually. Use requires upstream support.',
+    autoCompactHelp:
+      'When unset, this is calculated as 90% of the current context window. The window and local client settings constrain the effective threshold.',
+    errors: {
+      invalidDisplayName: 'Name is required and must be at most 512 bytes.',
+      invalidDescription: 'The model description is too long. Please shorten it.',
+      invalidContextWindow: 'Enter a positive safe integer.',
+      invalidAutoCompactTokenLimit: 'Enter a positive safe integer.',
+      invalidReasoningLevels: 'Select at least one reasoning level.',
+      invalidModalities: 'Input modalities must include text.',
+      invalidServiceTiers: 'Select valid service tiers.',
+      invalidDefaultReasoningLevel:
+        'The default reasoning level must be one of the selected levels.',
+    },
+    resetAll: 'Restore default attributes',
+  },
+  clientCatalog: {
+    addModels: 'Add models',
+    resultCount: '{count} results',
+    selectResults: 'Select all',
+    modelColumn: 'Model',
+    moved: '{model} moved to position {position}',
+    editAttributes: 'Edit metadata for {model}',
+    capacityWarning:
+      'All-permissions preview exceeds Codex capacity; the last {count} models may be omitted. Visibility depends on each access key.',
+    title: 'Client model catalog',
+    help: 'Manage Codex model visibility and order. Removing a model keeps its API access and access-key permissions.',
+    loading: 'Loading client catalog',
+    failed: 'Unable to load client catalog',
+    selectedCount: '{count} models selected',
+    previewFailed:
+      'Unable to calculate capacity. Retry; if model configuration changed, close and reopen.',
+    addLabel: 'Search models to add to the catalog',
+    search: 'Search and select models…',
+    add: 'Add to catalog ({count})',
+    rule: 'Defaults include gpt- models except gpt-image, newest version first. Restoring the catalog preserves model metadata.',
+    empty: 'No models in the catalog',
+    emptyHelp: 'Use Add models to select models, or restore the default catalog.',
+    drag: 'Drag {model} to reorder, or use the up and down arrow keys',
+    remove: 'Remove {model} from the catalog',
+    overflow: 'Over capacity',
+    invalid: 'Invalid attributes',
+    editedOutside: 'Metadata changes outside the catalog (saved together)',
+    restore: 'Restore default catalog',
+    save: 'Save all changes',
+    saveSuccess: 'Client model catalog saved',
+    saveFailed:
+      'Unable to save the catalog. Retry; if model configuration changed, close and reopen.',
+  },
+  modality: {
+    audio: 'Audio',
+    embedding: 'Embedding',
+    image: 'Image',
+    pdf: 'PDF',
+    text: 'Text',
+    video: 'Video',
+  },
+}

@@ -1,5 +1,8 @@
+import clientCatalog from './client-catalog'
+
 export default {
   models: {
+    ...clientCatalog,
     title: 'モデル',
     loading: 'モデルを読み込み中…',
     loadFailed: 'モデルを読み込めません',
