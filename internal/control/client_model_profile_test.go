@@ -100,6 +100,10 @@ func TestClientModelProfileHTTPRejectsInvalidAndAccessKeyMutations(t *testing.T)
 		{http.MethodGet, "/api/models/profile?model=client&model=other", ""},
 		{http.MethodPut, "/api/models/profile", `{"client_model":"client"}`},
 		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"unknown":true}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_order":-1}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_order":1.5}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_order":9007199254740992}}`},
+		{http.MethodPut, "/api/models/profile", `{"client_model":"client","overrides":{"catalog_enabled":true}}`},
 		{http.MethodPut, "/api/models/profile", `{"client_model":"missing","overrides":{"display_name":"x"}}`},
 	} {
 		recorder := serveClientModelRequest(engine, request.method, request.path, request.body, authTestKey)

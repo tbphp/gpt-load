@@ -20,6 +20,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -1909,8 +1910,14 @@ func newModelListHandlerEngineWithLimit(
 	t.Helper()
 	keyService := encryptiontest.Service(t, "model-handler-test-master-key")
 	manager := state.NewManager()
+	catalogEnabled := true
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
+		ClientModelOverrides: map[string]catalog.ClientModelOverrides{
+			"alpha": {CatalogEnabled: &catalogEnabled},
+			"beta":  {CatalogEnabled: &catalogEnabled},
+			"zeta":  {CatalogEnabled: &catalogEnabled},
+		},
 		Groups: []state.GroupConfig{
 			{ConnectionType: "api_key", ID: 1, Name: "multi", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`),
 				Models: []state.ModelConfig{{ID: "zeta"}, {ID: "alpha"}}, Enabled: true,

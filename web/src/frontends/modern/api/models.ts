@@ -7,13 +7,16 @@ export const modelsKey = ['modern', 'models'] as const
 export const modelContextKey = (model: string, groups: string) =>
   [...modelsKey, 'context', model, groups] as const
 export const modelSourceKey = (id: number) => [...modelsKey, 'source', id] as const
-export const modelProfileKey = (model: string) => [...modelsKey, 'profile', model] as const
 export const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 export const modelProfileFields = [
   'display_name',
+  'description',
   'context_window',
+  'auto_compact_token_limit',
   'supported_reasoning_levels',
+  'default_reasoning_level',
   'input_modalities',
+  'service_tiers',
 ] as const
 export const modelReasoningLevels = [
   'none',
@@ -27,10 +30,12 @@ export const modelReasoningLevels = [
   'persistent',
 ] as const
 export const modelInputModalities = ['text', 'image', 'audio'] as const
+export const modelServiceTiers = ['priority', 'ultrafast'] as const
 export type PriceField = (typeof priceFields)[number]
 export type ModelProfileField = (typeof modelProfileFields)[number]
 export type ModelReasoningLevel = (typeof modelReasoningLevels)[number]
 export type ModelInputModality = (typeof modelInputModalities)[number]
+export type ModelServiceTier = (typeof modelServiceTiers)[number]
 export type PriceSlots = Record<PriceField, string | null>
 export interface PriceTier {
   threshold_tokens: number
@@ -81,13 +86,16 @@ export interface RequestModel {
   name: string
   protocols: string[]
   sources: ModelSource[]
-  hasOverrides?: boolean
 }
 export interface ModelProfileValues {
   display_name: string
+  description: string
   context_window: number | null
+  auto_compact_token_limit: number | null
   supported_reasoning_levels: ModelReasoningLevel[]
+  default_reasoning_level: ModelReasoningLevel
   input_modalities: ModelInputModality[]
+  service_tiers: ModelServiceTier[]
 }
 export type ModelProfileOverrides = Partial<{
   [Field in ModelProfileField]: ModelProfileValues[Field]
@@ -223,6 +231,14 @@ function inputModalities(value: unknown): ModelInputModality[] {
   if (!values.length || !values.includes('text')) throw new InvalidResponseError()
   return values
 }
+export function resolveDefaultReasoningLevel(
+  levels: readonly ModelReasoningLevel[],
+  preferred: string | undefined,
+): ModelReasoningLevel | '' {
+  const selected = levels.find((level) => level === preferred)
+  if (selected) return selected
+  return levels.includes('medium') ? 'medium' : (levels[0] ?? '')
+}
 function profileValues(value: unknown): ModelProfileValues {
   const row = record(value)
   const supportedReasoningLevels = uniqueOptions(
@@ -230,11 +246,23 @@ function profileValues(value: unknown): ModelProfileValues {
     modelReasoningLevels,
   )
   if (!supportedReasoningLevels.length) throw new InvalidResponseError()
+  const defaultReasoningLevel =
+    row.default_reasoning_level == null
+      ? resolveDefaultReasoningLevel(supportedReasoningLevels, undefined)
+      : oneOf(row.default_reasoning_level, modelReasoningLevels)
+  if (defaultReasoningLevel === '' || !supportedReasoningLevels.includes(defaultReasoningLevel))
+    throw new InvalidResponseError()
   return {
     display_name: text(row.display_name),
+    description: row.description == null ? '' : text(row.description),
     context_window: row.context_window === null ? null : integer(row.context_window, 1),
+    auto_compact_token_limit:
+      row.auto_compact_token_limit == null ? null : integer(row.auto_compact_token_limit, 1),
     supported_reasoning_levels: supportedReasoningLevels,
+    default_reasoning_level: defaultReasoningLevel,
     input_modalities: inputModalities(row.input_modalities),
+    service_tiers:
+      row.service_tiers == null ? [] : uniqueOptions(row.service_tiers, modelServiceTiers),
   }
 }
 function profileOverrides(value: unknown): ModelProfileOverrides {
@@ -242,15 +270,23 @@ function profileOverrides(value: unknown): ModelProfileOverrides {
   const overrides: ModelProfileOverrides = {}
   if (row.display_name !== undefined && row.display_name !== null)
     overrides.display_name = text(row.display_name)
+  if (row.description !== undefined && row.description !== null)
+    overrides.description = text(row.description)
   if (row.context_window !== undefined && row.context_window !== null)
     overrides.context_window = integer(row.context_window, 1)
+  if (row.auto_compact_token_limit !== undefined && row.auto_compact_token_limit !== null)
+    overrides.auto_compact_token_limit = integer(row.auto_compact_token_limit, 1)
   if (row.supported_reasoning_levels !== undefined && row.supported_reasoning_levels !== null)
     overrides.supported_reasoning_levels = uniqueOptions(
       row.supported_reasoning_levels,
       modelReasoningLevels,
     )
+  if (row.default_reasoning_level !== undefined && row.default_reasoning_level !== null)
+    overrides.default_reasoning_level = oneOf(row.default_reasoning_level, modelReasoningLevels)
   if (row.input_modalities !== undefined && row.input_modalities !== null)
     overrides.input_modalities = inputModalities(row.input_modalities)
+  if (row.service_tiers !== undefined && row.service_tiers !== null)
+    overrides.service_tiers = uniqueOptions(row.service_tiers, modelServiceTiers)
   return overrides
 }
 export function readModelProfile(value: unknown): ModelProfile {
@@ -296,39 +332,11 @@ export async function getModels(client: ApiClient, filters: ModelFilters, signal
         name: text(model.client_model),
         protocols: sortProtocols(list(model.protocols).map(text)),
         sources: list(model.upstream_models).map(source),
-        hasOverrides: model.has_overrides === undefined ? undefined : boolean(model.has_overrides),
       }
     }),
     total: integer(pagination.total_items),
     pages: integer(pagination.total_pages),
   }
-}
-export async function getModelProfile(
-  client: ApiClient,
-  model: string,
-  signal: AbortSignal,
-): Promise<ModelProfile> {
-  const params = new URLSearchParams({ model })
-  const path = `/api/models/profile?${params}` as const
-  const profile = readModelProfile(await client.request(path, { signal }))
-  if (profile.clientModel !== model) throw new InvalidResponseError()
-  return profile
-}
-export async function saveModelProfile(
-  client: ApiClient,
-  model: string,
-  overrides: ModelProfileOverrides,
-  signal: AbortSignal,
-): Promise<ModelProfile> {
-  const profile = readModelProfile(
-    await client.request('/api/models/profile', {
-      method: 'PUT',
-      json: { client_model: model, overrides },
-      signal,
-    }),
-  )
-  if (profile.clientModel !== model) throw new InvalidResponseError()
-  return profile
 }
 // 详情不依赖列表当前页或计价筛选，硬刷新与跨页进入同样能取到完整来源。
 export async function getModelContext(
@@ -399,4 +407,98 @@ export async function resetModelPrice(client: ApiClient, id: number, signal: Abo
 export async function syncModelPrices(client: ApiClient, signal: AbortSignal): Promise<void> {
   const result = record(await client.request('/api/model-prices/sync', { method: 'POST', signal }))
   if (result.error_code) throw new InvalidResponseError()
+}
+
+export const clientCatalogKey = [...modelsKey, 'client-catalog'] as const
+export interface ClientCatalogBudget {
+  limitBytes: number
+  responseBytes: number
+  selectedBytes: number
+  includedCount: number
+  entries: { model: string; bytes: number; included: boolean }[]
+}
+export interface ClientCatalog {
+  models: ModelProfile[]
+  selected: string[]
+  defaults: string[]
+  budget: ClientCatalogBudget
+  clientVersion: string
+}
+export interface ClientCatalogDraft {
+  known_models: string[]
+  models?: string[]
+  reset_directory?: boolean
+  profiles: { client_model: string; overrides: ModelProfileOverrides }[]
+}
+function readClientCatalog(value: unknown): ClientCatalog {
+  const row = record(value)
+  const budget = record(row.budget)
+  const models = list(row.models).map(readModelProfile)
+  const selected = list(row.selected).map(text)
+  const defaults = list(row.defaults).map(text)
+  const names = new Set(models.map((model) => model.clientModel))
+  if (
+    names.size !== models.length ||
+    new Set(selected).size !== selected.length ||
+    selected.some((model) => !names.has(model)) ||
+    defaults.some((model) => !names.has(model))
+  )
+    throw new InvalidResponseError()
+  const entries = list(budget.entries).map((value) => {
+    const entry = record(value)
+    return {
+      model: text(entry.client_model),
+      bytes: integer(entry.bytes),
+      included: boolean(entry.included),
+    }
+  })
+  const includedCount = integer(budget.included_count)
+  if (
+    entries.length !== selected.length ||
+    entries.some(
+      (entry, index) => entry.model !== selected[index] || entry.included !== index < includedCount,
+    )
+  )
+    throw new InvalidResponseError()
+  return {
+    models,
+    selected,
+    defaults,
+    clientVersion: text(row.client_version),
+    budget: {
+      limitBytes: integer(budget.limit_bytes, 1),
+      responseBytes: integer(budget.response_bytes),
+      selectedBytes: integer(budget.selected_bytes),
+      includedCount,
+      entries,
+    },
+  }
+}
+export async function getClientCatalog(
+  client: ApiClient,
+  signal: AbortSignal,
+): Promise<ClientCatalog> {
+  return readClientCatalog(await client.request('/api/models/client-catalog', { signal }))
+}
+export async function previewClientCatalog(
+  client: ApiClient,
+  draft: ClientCatalogDraft,
+  signal: AbortSignal,
+): Promise<ClientCatalog> {
+  return readClientCatalog(
+    await client.request('/api/models/client-catalog/preview', {
+      method: 'POST',
+      json: draft,
+      signal,
+    }),
+  )
+}
+export async function saveClientCatalog(
+  client: ApiClient,
+  draft: ClientCatalogDraft,
+  signal: AbortSignal,
+): Promise<ClientCatalog> {
+  return readClientCatalog(
+    await client.request('/api/models/client-catalog', { method: 'PUT', json: draft, signal }),
+  )
 }

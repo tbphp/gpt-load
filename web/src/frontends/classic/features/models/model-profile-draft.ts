@@ -9,7 +9,7 @@ import {
   type ModelProfileOverrides,
   type ModelProfileValues,
   type ModelReasoningLevel,
-} from '@modern/api/models'
+} from '@/app/resources/client-catalog'
 
 export type ModelProfileDraftValues = Omit<
   ModelProfileValues,

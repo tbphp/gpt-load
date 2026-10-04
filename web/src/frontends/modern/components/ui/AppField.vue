@@ -25,7 +25,15 @@ const describedBy = computed(
 </script>
 
 <template>
-  <div v-bind="layoutAttrs($attrs)" class="modern-field" :class="{ 'is-disabled': disabled }">
+  <div
+    v-bind="layoutAttrs($attrs)"
+    class="modern-field"
+    :class="{
+      'is-disabled': disabled,
+      'modern-field--inline': inline,
+      'modern-field--subgrid': inline === 'subgrid',
+    }"
+  >
     <div v-if="$slots['label-extra']" class="modern-field-heading">
       <label :id="`${fieldId}-label`" :for="fieldId" :class="{ 'modern-sr-only': labelHidden }">{{
         label
@@ -60,6 +68,40 @@ const describedBy = computed(
   align-content: start;
   min-width: 0;
   gap: var(--modern-space-1-5);
+}
+.modern-field--inline {
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0;
+}
+.modern-field--subgrid {
+  grid-template-columns: subgrid;
+}
+.modern-field--subgrid > :slotted(*) {
+  grid-column: 2 / -1;
+}
+.modern-field--inline > label,
+.modern-field--inline .modern-field-heading > label {
+  min-width: 0;
+  text-align: right;
+}
+.modern-field--inline .modern-field-heading {
+  justify-content: flex-end;
+  gap: 0;
+}
+.modern-field--inline .modern-field-heading > label {
+  flex: 1;
+}
+.modern-field--inline .modern-field-label-extra {
+  flex: none;
+  min-width: var(--modern-control-xxs);
+  min-height: var(--modern-control-xxs);
+  justify-content: center;
+  gap: 0;
+}
+.modern-field--inline .modern-field-description,
+.modern-field--inline .modern-field-error {
+  grid-column: 2 / -1;
 }
 .modern-field label {
   color: var(--modern-text);
@@ -102,5 +144,11 @@ const describedBy = computed(
 }
 .modern-field-warning {
   color: var(--modern-warning);
+}
+@media (max-width: 760px) {
+  .modern-field--inline .modern-field-label-extra {
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+  }
 }
 </style>

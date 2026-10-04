@@ -35,6 +35,7 @@ import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 
+import ClientModelCatalogDrawer from './ClientModelCatalogDrawer.vue'
 import ModelTree from './ModelTree.vue'
 import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
 import {
@@ -44,6 +45,7 @@ import {
   type ModelsRouteState,
 } from './models-route'
 
+const catalogOpen = ref(false)
 const client = useApiClient()
 const session = useAuthSession()
 const route = useRoute()
@@ -262,6 +264,13 @@ function goToGroups(): void {
     <LedgerSheet class="models-page" :aria-busy="collectionBusy ? 'true' : undefined">
       <PageHeader id="models-title" :title="t('models.title')">
         <template #actions>
+          <AppButton
+            v-if="!isAccessKey"
+            variant="secondary"
+            size="compact"
+            @click="catalogOpen = true"
+            >{{ t('models.clientCatalog.title') }}</AppButton
+          >
           <AppButton v-if="!isAccessKey" size="compact" :busy="syncPending" @click="runSync">
             <RefreshCw :size="15" aria-hidden="true" />{{ t('models.actions.sync') }}
           </AppButton>
@@ -453,6 +462,7 @@ function goToGroups(): void {
         @close="closeDrawer"
       />
     </LedgerSheet>
+    <ClientModelCatalogDrawer v-if="catalogOpen && !isAccessKey" @close="catalogOpen = false" />
   </PageFrame>
 </template>
 

@@ -8,6 +8,7 @@ defineOptions({ inheritAttrs: false })
 
 withDefaults(
   defineProps<{
+    size?: 'xs' | 'md'
     modelValue: string
     label: string
     placeholder: string
@@ -19,6 +20,7 @@ withDefaults(
     activeDescendant?: string
   }>(),
   {
+    size: 'md',
     id: undefined,
     list: undefined,
     disabled: false,
@@ -48,7 +50,7 @@ defineExpose({ focus })
 </script>
 
 <template>
-  <span v-bind="attrs" class="app-search-input">
+  <span v-bind="attrs" class="app-search-input" :class="`app-search-input--${size}`">
     <Search :size="15" aria-hidden="true" />
     <input
       :id="id"
@@ -71,7 +73,7 @@ defineExpose({ focus })
     <IconButton
       v-if="modelValue"
       class="app-search-input__clear"
-      size="xs"
+      :size="size === 'xs' ? 'xxs' : 'xs'"
       variant="ghost"
       :disabled="disabled"
       :label="clearLabel"
@@ -114,6 +116,14 @@ defineExpose({ focus })
   font-size: var(--text-meta);
 }
 
+.app-search-input--xs .app-search-input__control {
+  height: var(--control-xxs);
+  font-size: var(--text-sm);
+}
+.app-search-input--xs .app-search-input__clear {
+  top: 0;
+}
+
 .app-search-input__control:hover:not(:disabled) {
   border-color: var(--color-text-faint);
 }
@@ -139,6 +149,7 @@ defineExpose({ focus })
 }
 
 @media (max-width: 860px) {
+  .app-search-input--xs .app-search-input__control,
   .app-search-input__control {
     height: var(--touch-target);
   }

@@ -307,9 +307,13 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 	summary := projectModelSummary(records, priceRecords)
 	result := make([]ProjectModelDTO, 0, len(records))
 	for _, record := range records {
+		overrides := catalog.ClientModelOverrides{}
+		if configSnapshot != nil {
+			overrides = configSnapshot.ClientModelOverrides[record.clientModel]
+		}
 		dto := ProjectModelDTO{
 			ClientModel:    record.clientModel,
-			HasOverrides:   configSnapshot != nil && configSnapshot.ClientModelOverrides[record.clientModel].IsEmpty() == false,
+			HasOverrides:   !overrides.Metadata().IsEmpty(),
 			Protocols:      append([]protocol.Protocol(nil), record.protocols...),
 			UpstreamModels: []ProjectUpstreamModelDTO{},
 		}

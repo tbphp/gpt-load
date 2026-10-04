@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -53,21 +54,7 @@ func (s *Service) GetClientModelProfile(ctx context.Context, model string) (Clie
 	if s.manager != nil {
 		snapshot = s.manager.Current()
 	}
-	overrides := catalog.ClientModelOverrides{}
-	if snapshot != nil {
-		overrides = snapshot.ClientModelOverrides[model].Clone()
-	}
-	automatic, effective, err := catalog.ResolveClientModelProfile(model, overrides)
-	if err != nil {
-		return ClientModelProfileDTO{}, err
-	}
-	return ClientModelProfileDTO{
-		ClientModel:  model,
-		Automatic:    automatic,
-		Overrides:    overrides,
-		Effective:    effective,
-		HasOverrides: !overrides.IsEmpty(),
-	}, nil
+	return clientModelProfile(snapshot, model)
 }
 
 func (s *Service) UpdateClientModelProfile(
@@ -80,20 +67,13 @@ func (s *Service) UpdateClientModelProfile(
 	if request.Overrides == nil {
 		return ClientModelProfileDTO{}, app_errors.ErrValidation
 	}
-	overrides := request.Overrides.Clone()
-	if err := overrides.Validate(); err != nil {
+	if request.Overrides.CatalogEnabled != nil || request.Overrides.CatalogOrder != nil {
 		return ClientModelProfileDTO{}, app_errors.ErrValidation
 	}
-	var encoded models.JSON
-	if !overrides.IsEmpty() {
-		value, err := canonicaljson.Marshal(overrides)
-		if err != nil {
-			return ClientModelProfileDTO{}, fmt.Errorf("encode client model overrides: %w", err)
-		}
-		encoded = models.JSON(value)
+	metadata := request.Overrides.Metadata()
+	if err := metadata.Validate(); err != nil {
+		return ClientModelProfileDTO{}, app_errors.ErrValidation
 	}
-
-	modelHash := models.ClientModelHash(request.ClientModel)
 	_, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
 		configured, err := clientModelIsConfigured(ctx, tx, request.ClientModel)
 		if err != nil {
@@ -102,28 +82,35 @@ func (s *Service) UpdateClientModelProfile(
 		if !configured {
 			return app_errors.ErrResourceNotFound
 		}
-		if overrides.IsEmpty() {
-			if err := tx.Where("model_hash = ?", modelHash).
-				Delete(&models.ClientModelOverride{}).Error; err != nil {
-				return app_errors.ParseDBError(err)
-			}
-			return nil
+		if err := validateClientModelDefaultReasoningLevel(s.manager.Current(), request.ClientModel, metadata); err != nil {
+			return err
 		}
-		row := models.ClientModelOverride{
-			ModelHash: modelHash, ClientModel: request.ClientModel, Overrides: encoded,
-		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "model_hash"}},
-			DoUpdates: clause.AssignmentColumns([]string{"client_model", "overrides"}),
-		}).Create(&row).Error; err != nil {
-			return app_errors.ParseDBError(err)
-		}
-		return nil
+		existing := s.manager.Current().ClientModelOverrides[request.ClientModel]
+		metadata.CatalogEnabled, metadata.CatalogOrder = existing.CatalogEnabled, existing.CatalogOrder
+		return saveClientModelOverrides(tx, request.ClientModel, metadata)
 	}, nil)
 	if err != nil {
 		return ClientModelProfileDTO{}, err
 	}
 	return s.GetClientModelProfile(ctx, request.ClientModel)
+}
+
+func validateClientModelDefaultReasoningLevel(snapshot *state.ConfigSnapshot, model string, overrides catalog.ClientModelOverrides) error {
+	if overrides.DefaultReasoningLevel == nil || overrides.SupportedReasoningLevels != nil {
+		return nil
+	}
+	fallback := false
+	if snapshot != nil && snapshot.AutoModels != nil {
+		_, fallback = snapshot.AutoModels.Lookup(model)
+	}
+	_, automatic, _, err := catalog.BuildCodexCatalogModel(model, 0, catalog.ClientModelOverrides{}, fallback)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(automatic.SupportedReasoningLevels, *overrides.DefaultReasoningLevel) {
+		return app_errors.ErrValidation
+	}
+	return nil
 }
 
 func validateClientModelName(model string) error {
@@ -154,4 +141,41 @@ func clientModelIsConfigured(ctx context.Context, db *gorm.DB, model string) (bo
 		}
 	}
 	return false, nil
+}
+
+func clientModelProfile(snapshot *state.ConfigSnapshot, model string) (ClientModelProfileDTO, error) {
+	overrides := catalog.ClientModelOverrides{}
+	fallback := false
+	if snapshot != nil {
+		overrides = snapshot.ClientModelOverrides[model].Metadata()
+		if snapshot.AutoModels != nil {
+			_, fallback = snapshot.AutoModels.Lookup(model)
+		}
+	}
+	_, automatic, effective, err := catalog.BuildCodexCatalogModel(model, 0, overrides, fallback)
+	if err != nil {
+		return ClientModelProfileDTO{}, err
+	}
+	return ClientModelProfileDTO{ClientModel: model, Automatic: automatic, Overrides: overrides, Effective: effective, HasOverrides: !overrides.IsEmpty()}, nil
+}
+
+func saveClientModelOverrides(tx *gorm.DB, model string, overrides catalog.ClientModelOverrides) error {
+	hash := models.ClientModelHash(model)
+	if overrides.IsEmpty() {
+		if err := tx.Where("model_hash = ?", hash).Delete(&models.ClientModelOverride{}).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		return nil
+	}
+	encoded, err := canonicaljson.Marshal(overrides)
+	if err != nil {
+		return fmt.Errorf("encode client model overrides: %w", err)
+	}
+	row := models.ClientModelOverride{ModelHash: hash, ClientModel: model, Overrides: models.JSON(encoded)}
+	if err := tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "model_hash"}}, DoUpdates: clause.AssignmentColumns([]string{"client_model", "overrides"}),
+	}).Create(&row).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	return nil
 }

@@ -672,17 +672,25 @@ func mapSystemAndGroups(
 		if models.ClientModelHash(row.ClientModel) != row.ModelHash {
 			return state.CompileInput{}, fmt.Errorf("client model override has invalid identity")
 		}
-		var overrides catalog.ClientModelOverrides
+		var persisted struct {
+			catalog.ClientModelOverrides
+			// 读取旧版配置时忽略已移除的默认档位，其余字段仍严格校验。
+			RetiredDefaultServiceTier *string `json:"default_service_tier"`
+		}
 		canonical, err := canonicaljson.Canonicalize(row.Overrides)
 		if err != nil {
 			return state.CompileInput{}, fmt.Errorf("decode client model override %q: %w", row.ClientModel, err)
 		}
-		if err := decodeJSONDocument(models.JSON(canonical), &overrides, true); err != nil {
+		if err := decodeJSONDocument(models.JSON(canonical), &persisted, true); err != nil {
 			return state.CompileInput{}, fmt.Errorf("decode client model override %q: %w", row.ClientModel, err)
 		}
+		overrides := persisted.ClientModelOverrides
 		if err := overrides.Validate(); err != nil || overrides.IsEmpty() {
 			if err != nil {
 				return state.CompileInput{}, fmt.Errorf("validate client model override %q: %w", row.ClientModel, err)
+			}
+			if persisted.RetiredDefaultServiceTier != nil {
+				continue
 			}
 			return state.CompileInput{}, fmt.Errorf("client model override %q is empty", row.ClientModel)
 		}

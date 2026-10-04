@@ -98,6 +98,7 @@
   --radius-card: var(--radius-sheet);
   --radius-control: 7px;
   --radius-tag: 6px;
+  --control-xxs: 26px;
   --control-compact: 30px;
   /* 设置页与分组设置页行内控件的统一高度 */
   --setting-control-height: 26px;

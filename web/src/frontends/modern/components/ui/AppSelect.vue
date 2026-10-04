@@ -46,53 +46,56 @@ const selectedLabel = computed(
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
-    <SelectRoot v-model="selected" :disabled="disabled" :name="name" :required="required">
-      <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
-        <SelectTrigger
-          v-bind="controlAttrs($attrs)"
-          :id="id"
-          class="modern-select-trigger"
-          :class="{ 'is-invalid': invalid }"
-          :aria-labelledby="`${id}-label`"
-          :aria-invalid="invalid || undefined"
-          :aria-describedby="describedBy"
-        >
-          <AppIcon
-            v-if="icon"
-            :icon="icon"
-            size="sm"
-            :label="tooltip === false ? undefined : label"
-          />
-          <SelectValue class="modern-select-value"
-            ><slot name="value" :value="model" :label="selectedLabel"
-              ><AppOverflowText :text="selectedLabel" /></slot
-          ></SelectValue>
-          <AppIcon :icon="ChevronDown" size="sm" :label="tooltip === false ? undefined : label" />
-        </SelectTrigger>
-      </AppFieldControl>
-      <SelectPortal>
-        <AppMenuSurface>
-          <SelectContent position="popper" align="start" :side-offset="overlaySideOffset">
-            <SelectViewport>
-              <SelectItem
-                v-for="option in options"
-                :key="option.value"
-                :value="option.value === '' ? null : option.value"
-                :disabled="option.disabled"
-                :text-value="option.label"
-                class="modern-menu-option"
-              >
-                <SelectItemText
-                  ><slot name="option" :option="option">{{ option.label }}</slot></SelectItemText
+  <AppField v-bind="{ ...props, ...layoutAttrs($attrs) }">
+    <template v-if="$slots['label-extra']" #label-extra><slot name="label-extra" /></template>
+    <template #default="{ id, describedBy, invalid }">
+      <SelectRoot v-model="selected" :disabled="disabled" :name="name" :required="required">
+        <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
+          <SelectTrigger
+            v-bind="controlAttrs($attrs)"
+            :id="id"
+            class="modern-select-trigger"
+            :class="{ 'is-invalid': invalid }"
+            :aria-labelledby="`${id}-label`"
+            :aria-invalid="invalid || undefined"
+            :aria-describedby="describedBy"
+          >
+            <AppIcon
+              v-if="icon"
+              :icon="icon"
+              size="sm"
+              :label="tooltip === false ? undefined : label"
+            />
+            <SelectValue class="modern-select-value"
+              ><slot name="value" :value="model" :label="selectedLabel"
+                ><AppOverflowText :text="selectedLabel" /></slot
+            ></SelectValue>
+            <AppIcon :icon="ChevronDown" size="sm" :label="tooltip === false ? undefined : label" />
+          </SelectTrigger>
+        </AppFieldControl>
+        <SelectPortal>
+          <AppMenuSurface>
+            <SelectContent position="popper" align="start" :side-offset="overlaySideOffset">
+              <SelectViewport>
+                <SelectItem
+                  v-for="option in options"
+                  :key="option.value"
+                  :value="option.value === '' ? null : option.value"
+                  :disabled="option.disabled"
+                  :text-value="option.label"
+                  class="modern-menu-option"
                 >
-                <SelectItemIndicator><AppIcon :icon="Check" size="sm" /></SelectItemIndicator>
-              </SelectItem>
-            </SelectViewport>
-          </SelectContent>
-        </AppMenuSurface>
-      </SelectPortal>
-    </SelectRoot>
+                  <SelectItemText
+                    ><slot name="option" :option="option">{{ option.label }}</slot></SelectItemText
+                  >
+                  <SelectItemIndicator><AppIcon :icon="Check" size="sm" /></SelectItemIndicator>
+                </SelectItem>
+              </SelectViewport>
+            </SelectContent>
+          </AppMenuSurface>
+        </SelectPortal>
+      </SelectRoot>
+    </template>
   </AppField>
 </template>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Boxes, RefreshCw, Search } from '@lucide/vue'
+import { Boxes, ListOrdered, RefreshCw, Search } from '@lucide/vue'
 import { keepPreviousData, useIsFetching, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -29,7 +29,7 @@ import {
 } from '@modern/components/ui'
 import { modelStateKeys, parseModelsState, serializeModelsState } from './models-state'
 import ModelCard from './ModelCard.vue'
-import ModelCatalogSettingsDialog from './ModelCatalogSettingsDialog.vue'
+import ClientModelCatalogDialog from './ClientModelCatalogDialog.vue'
 import ModelDetailPanel from './ModelDetailPanel.vue'
 
 const { t } = useI18n()
@@ -55,7 +55,7 @@ const query = useQuery(
 )
 const data = computed(() => query.data.value)
 const search = ref(state.value.q)
-const profileModel = ref('')
+const catalogOpen = ref(false)
 const composing = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 const frame = ref<InstanceType<typeof AppListFrame>>()
@@ -226,6 +226,9 @@ useMessageSource(() =>
         class="modern-models-filter"
         @update:model-value="change({ groups: $event === 'all' ? 'all' : 'enabled' })"
       />
+      <AppButton v-if="admin" :icon="ListOrdered" @click="catalogOpen = true">{{
+        t('modelManager.clientCatalog.title')
+      }}</AppButton>
       <AppButton v-if="admin" :icon="RefreshCw" :loading="syncing" @click="sync">{{
         t('modelManager.sync')
       }}</AppButton>
@@ -281,7 +284,6 @@ useMessageSource(() =>
           :selected="model.name === state.model"
           :disabled="query.isPlaceholderData.value"
           @open="open(model, $event)"
-          @settings="profileModel = model.name"
         />
       </div>
       <template #footer>
@@ -307,13 +309,7 @@ useMessageSource(() =>
       @select="state = { ...state, source: $event }"
       @changed="changed"
     />
-    <ModelCatalogSettingsDialog
-      v-if="admin && profileModel"
-      :key="profileModel"
-      :model="profileModel"
-      :editable="admin"
-      @close="profileModel = ''"
-    />
+    <ClientModelCatalogDialog v-if="admin && catalogOpen" @close="catalogOpen = false" />
   </div>
 </template>
 

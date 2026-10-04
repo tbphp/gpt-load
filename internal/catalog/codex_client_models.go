@@ -42,16 +42,11 @@ func BuildCodexClientModel(
 	priority int,
 	overrides ClientModelOverrides,
 ) (map[string]any, ClientModelProfile, ClientModelProfile, error) {
-	return buildCodexClientModel(model, priority, overrides, false)
+	return BuildCodexCatalogModel(model, priority, overrides, false)
 }
 
-// BuildCodexFallbackClientModel resolves a virtual client model from the pinned fallback template.
-func BuildCodexFallbackClientModel(model string, priority int) (map[string]any, error) {
-	resolved, _, _, err := buildCodexClientModel(model, priority, ClientModelOverrides{}, true)
-	return resolved, err
-}
-
-func buildCodexClientModel(
+// BuildCodexCatalogModel 用同一资料契约生成普通模型或虚拟模型的目录条目。
+func BuildCodexCatalogModel(
 	model string,
 	priority int,
 	overrides ClientModelOverrides,
@@ -88,15 +83,6 @@ func buildCodexClientModel(
 		return nil, ClientModelProfile{}, ClientModelProfile{}, fmt.Errorf("resolve Codex model %q: %w", model, err)
 	}
 	return resolved, automatic, effective, nil
-}
-
-// ResolveClientModelProfile returns the automatic and manually overridden values exposed by the control plane.
-func ResolveClientModelProfile(
-	model string,
-	overrides ClientModelOverrides,
-) (ClientModelProfile, ClientModelProfile, error) {
-	_, automatic, effective, err := BuildCodexClientModel(model, 0, overrides)
-	return automatic, effective, err
 }
 
 func loadCodexModelCatalog() (codexModelCatalog, error) {
@@ -142,6 +128,15 @@ func clientModelProfileFromTemplate(model map[string]any) (ClientModelProfile, e
 	if err != nil || contextWindow < 1 {
 		return ClientModelProfile{}, fmt.Errorf("context_window is invalid")
 	}
+	description, _ := model["description"].(string)
+	var autoCompactTokenLimit *int64
+	if model["auto_compact_token_limit"] != nil {
+		limit, err := codexInteger(model["auto_compact_token_limit"])
+		if err != nil || limit < 1 || limit > 9_007_199_254_740_991 {
+			return ClientModelProfile{}, fmt.Errorf("auto_compact_token_limit is invalid")
+		}
+		autoCompactTokenLimit = &limit
+	}
 	reasoningLevels, err := codexReasoningEfforts(model["supported_reasoning_levels"])
 	if err != nil || len(reasoningLevels) == 0 {
 		return ClientModelProfile{}, fmt.Errorf("supported_reasoning_levels is invalid")
@@ -150,11 +145,20 @@ func clientModelProfileFromTemplate(model map[string]any) (ClientModelProfile, e
 	if err != nil || len(inputModalities) == 0 {
 		return ClientModelProfile{}, fmt.Errorf("input_modalities is invalid")
 	}
+	serviceTiers, err := codexServiceTierIDs(model["service_tiers"])
+	if err != nil {
+		return ClientModelProfile{}, fmt.Errorf("service_tiers: %w", err)
+	}
+	defaultReasoningLevel, _ := model["default_reasoning_level"].(string)
 	return ClientModelProfile{
 		DisplayName:              displayName,
+		Description:              description,
 		ContextWindow:            &contextWindow,
+		AutoCompactTokenLimit:    autoCompactTokenLimit,
 		SupportedReasoningLevels: reasoningLevels,
+		DefaultReasoningLevel:    resolveDefaultReasoningLevel(reasoningLevels, defaultReasoningLevel),
 		InputModalities:          inputModalities,
+		ServiceTiers:             serviceTiers,
 	}, nil
 }
 
@@ -164,27 +168,88 @@ func applyClientModelProfile(
 	overrides ClientModelOverrides,
 ) {
 	model["display_name"] = effective.DisplayName
+	model["description"] = effective.Description
 	if overrides.ContextWindow != nil {
 		model["context_window"] = *effective.ContextWindow
 		model["max_context_window"] = *effective.ContextWindow
+	}
+	if overrides.AutoCompactTokenLimit != nil {
+		model["auto_compact_token_limit"] = *effective.AutoCompactTokenLimit
 	}
 	if overrides.SupportedReasoningLevels != nil {
 		model["supported_reasoning_levels"] = codexReasoningLevels(
 			model["supported_reasoning_levels"],
 			effective.SupportedReasoningLevels,
 		)
-		defaultLevel, _ := model["default_reasoning_level"].(string)
-		if !slices.Contains(effective.SupportedReasoningLevels, defaultLevel) {
-			if slices.Contains(effective.SupportedReasoningLevels, "medium") {
-				model["default_reasoning_level"] = "medium"
-			} else {
-				model["default_reasoning_level"] = effective.SupportedReasoningLevels[0]
-			}
-		}
 	}
+	model["default_reasoning_level"] = effective.DefaultReasoningLevel
 	if overrides.InputModalities != nil {
 		model["input_modalities"] = append([]string{}, effective.InputModalities...)
 	}
+	if overrides.ServiceTiers != nil {
+		model["service_tiers"] = codexServiceTiers(model["service_tiers"], effective.ServiceTiers)
+		// 旧字段仍被部分客户端读取，隐藏 Fast 时一并清除，避免继续显示。
+		legacy := []string{}
+		if slices.Contains(effective.ServiceTiers, "priority") {
+			legacy = append(legacy, "fast")
+		}
+		model["additional_speed_tiers"] = legacy
+	}
+	// 目录默认使用标准档位，加速档位由客户端显式选择。
+	model["default_service_tier"] = nil
+}
+
+func codexServiceTierIDs(value any) ([]string, error) {
+	result := []string{}
+	if value == nil {
+		return result, nil
+	}
+	tiers, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("must be an array")
+	}
+	for _, value := range tiers {
+		tier, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("entry must be an object")
+		}
+		id, _ := tier["id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("entry id is missing")
+		}
+		// 编辑器只管理网关已有的 Fast / Ultrafast 处理模式。
+		if slices.Contains([]string{"priority", "ultrafast"}, id) && !slices.Contains(result, id) {
+			result = append(result, id)
+		}
+	}
+	return result, nil
+}
+
+func codexServiceTiers(existing any, ids []string) []any {
+	presets := map[string]map[string]any{}
+	if tiers, ok := existing.([]any); ok {
+		for _, value := range tiers {
+			if tier, ok := value.(map[string]any); ok {
+				id, _ := tier["id"].(string)
+				presets[id] = tier
+			}
+		}
+	}
+	result := make([]any, 0, len(ids))
+	for _, id := range ids {
+		if preset := presets[id]; preset != nil {
+			result = append(result, preset)
+			continue
+		}
+		name := "Fast"
+		if id == "ultrafast" {
+			name = "Ultrafast"
+		}
+		result = append(result, map[string]any{
+			"id": id, "name": name, "description": name + " processing",
+		})
+	}
+	return result
 }
 
 func applyLegacyBaseInstructions(model map[string]any) error {

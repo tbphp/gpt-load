@@ -97,6 +97,11 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.channels.list", http.MethodGet, "/channels", s.handleListChannels),
 			controlRoute("control.models.list", http.MethodGet, "/models", s.handleListProjectModels),
+			controlRoute("control.models.client-catalog.get", http.MethodGet, "/models/client-catalog", s.handleGetClientCatalog),
+			controlRoute("control.models.client-catalog.preview", http.MethodPost, "/models/client-catalog/preview", s.handlePreviewClientCatalog),
+			controlRoute("control.models.client-catalog.update", http.MethodPut, "/models/client-catalog",
+				s.auditMutation(newMutationDescriptor("client_catalog_update", "client_catalog", staticMutationLocator("client-catalog"))),
+				s.handleUpdateClientCatalog),
 			controlRoute("control.models.profile.get", http.MethodGet, "/models/profile", s.handleGetClientModelProfile),
 			controlRoute(
 				"control.models.profile.update",

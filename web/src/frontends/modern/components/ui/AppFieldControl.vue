@@ -57,6 +57,11 @@ withDefaults(
 .modern-field-control--sm {
   min-height: var(--modern-control-sm);
 }
+.modern-field-control--xxs {
+  min-height: var(--modern-control-xxs);
+  padding-inline: var(--modern-space-1-5);
+  font-size: var(--modern-font-size-caption);
+}
 .modern-field-control--xs {
   min-height: var(--modern-control-xs);
   padding-inline: var(--modern-space-2);
