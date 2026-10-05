@@ -83,6 +83,12 @@ svg {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* 说明性小字：业务面板的提示/帮助段落共用。 */
+.modern-hint {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-caption);
+  line-height: var(--modern-leading-body);
+}
 .modern-page {
   display: grid;
   gap: var(--modern-page-gap);

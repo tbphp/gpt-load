@@ -180,6 +180,15 @@ export interface LogPricingLine {
   state: 'priced' | 'unpriced'
   amount_nano_usd: string | null
 }
+export interface LogPolicyFactor {
+  rule_id: string
+  name_snapshot: string
+  binding_scope: string
+  revision: string
+  factor: string
+  multiplier: string
+}
+
 export interface LogReceipt {
   schema_version: number
   currency: string
@@ -187,6 +196,7 @@ export interface LogReceipt {
   method_version: number
   pricing_mode: string
   price_multipliers: { group: string; access_key: string } | null
+  policy_factors: LogPolicyFactor[] | null
   rule: { scope_key: string | null; channel_id: string | null; model_id: string }
   context_threshold_tokens: string | null
   line_items: LogPricingLine[]
@@ -257,10 +267,116 @@ function reasoning(value: unknown): LogReasoning | null {
 function receipt(value: unknown): LogReceipt | null {
   if (value == null) return null
   const row = record(value)
-  const rule = record(row.rule)
+  const schemaVersion = integer(row.schema_version, 1)
+  if (schemaVersion < 1 || schemaVersion > 7) throw new InvalidResponseError()
+  if (row.pricing_mode == null) throw new InvalidResponseError()
+
+  if (schemaVersion < 5) {
+    if (row.price_multipliers != null) throw new InvalidResponseError()
+  } else if (row.price_multipliers == null) {
+    throw new InvalidResponseError()
+  }
   const multipliers = row.price_multipliers == null ? null : record(row.price_multipliers)
+
+  if (schemaVersion < 6) {
+    if (row.base_total_nano_usd != null) throw new InvalidResponseError()
+  } else if (row.base_total_nano_usd == null) {
+    throw new InvalidResponseError()
+  }
+
+  if (schemaVersion < 7) {
+    if (row.policy_factors != null) throw new InvalidResponseError()
+  } else if (row.policy_factors == null) {
+    throw new InvalidResponseError()
+  }
+
+  let policyFactors: LogPolicyFactor[] | null = null
+  if (schemaVersion >= 7) {
+    if (!Array.isArray(row.policy_factors)) throw new InvalidResponseError()
+    const rawFactors = row.policy_factors
+    if (rawFactors.length === 0) throw new InvalidResponseError()
+
+    const requiredKeys = [
+      'rule_id',
+      'name_snapshot',
+      'binding_scope',
+      'revision',
+      'factor',
+      'multiplier',
+    ] as const
+
+    const isValidMultiplier = (s: string): boolean => {
+      if (typeof s !== 'string') return false
+      if (!/^\d+(?:\.\d{1,6})?$/u.test(s)) return false
+      const [whole = '0', fraction = ''] = s.split('.')
+      const normalizedWhole = whole.replace(/^0+/u, '') || '0'
+      if (normalizedWhole.length > 4) return false
+      const millionths = BigInt(normalizedWhole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'))
+      return millionths <= 1_000_000_000n
+    }
+    const normalizeMultiplier = (s: string): string => {
+      if (!isValidMultiplier(s)) return s
+      const [whole = '0', fraction = ''] = s.split('.')
+      const normalizedWhole = whole.replace(/^0+/u, '') || '0'
+      const normalizedFraction = fraction.replace(/0+$/u, '')
+      return normalizedFraction ? `${normalizedWhole}.${normalizedFraction}` : normalizedWhole
+    }
+    const isValidPositiveUint64 = (s: string): boolean => {
+      if (typeof s !== 'string' || !/^[1-9]\d{0,19}$/u.test(s)) return false
+      try {
+        const n = BigInt(s)
+        return n > 0n && n <= 18446744073709551615n
+      } catch {
+        return false
+      }
+    }
+
+    policyFactors = rawFactors.map((v) => {
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new InvalidResponseError()
+      for (const k of requiredKeys) {
+        if (!Object.prototype.hasOwnProperty.call(v, k)) throw new InvalidResponseError()
+      }
+      if (Object.keys(v as Record<string, unknown>).length !== requiredKeys.length) {
+        throw new InvalidResponseError()
+      }
+
+      const f = v as Record<string, unknown>
+      const ruleId = text(f.rule_id)
+      if (ruleId.trim().length === 0) throw new InvalidResponseError()
+      const nameSnapshot = text(f.name_snapshot)
+      if (nameSnapshot.trim().length === 0) throw new InvalidResponseError()
+
+      const scope = text(f.binding_scope)
+      if (scope !== 'group' && scope !== 'credential') throw new InvalidResponseError()
+
+      if (typeof f.revision !== 'string' || !isValidPositiveUint64(f.revision)) {
+        throw new InvalidResponseError()
+      }
+      const rev = f.revision
+
+      const factor = text(f.factor)
+      if (!isValidMultiplier(factor)) throw new InvalidResponseError()
+
+      const multiplier = text(f.multiplier)
+      if (!isValidMultiplier(multiplier) || multiplier !== normalizeMultiplier(multiplier)) {
+        throw new InvalidResponseError()
+      }
+      if (normalizeMultiplier(factor) !== multiplier) throw new InvalidResponseError()
+
+      return {
+        rule_id: ruleId,
+        name_snapshot: nameSnapshot,
+        binding_scope: scope,
+        revision: rev,
+        factor: factor,
+        multiplier: multiplier,
+      }
+    })
+  }
+
+  const rule = record(row.rule)
   return {
-    schema_version: integer(row.schema_version, 1),
+    schema_version: schemaVersion,
     currency: text(row.currency),
     method: text(row.method),
     method_version: integer(row.method_version, 1),
@@ -268,6 +384,7 @@ function receipt(value: unknown): LogReceipt | null {
     price_multipliers: multipliers
       ? { group: text(multipliers.group), access_key: text(multipliers.access_key) }
       : null,
+    policy_factors: policyFactors,
     rule: {
       scope_key: optionalText(rule.scope_key),
       channel_id: optionalText(rule.channel_id),

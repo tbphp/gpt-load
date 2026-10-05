@@ -30,20 +30,42 @@ const props = withDefaults(
     FieldProps & {
       options: readonly SearchSelectOption[]
       allowCustom?: boolean
+      commitOnBlur?: boolean
+      delimiters?: readonly string[]
+      removeOnBackspace?: boolean
+      maxCustomLength?: number
+      maxValues?: number
       placeholder?: string
       loading?: boolean
       size?: ControlSize
     }
   >(),
-  { size: 'sm', placeholder: undefined },
+  {
+    size: 'sm',
+    placeholder: undefined,
+    commitOnBlur: false,
+    delimiters: () => [],
+    removeOnBackspace: false,
+    maxCustomLength: undefined,
+    maxValues: undefined,
+  },
 )
 const model = defineModel<string[]>({ required: true })
+const emit = defineEmits<{ draftChange: [value: string] }>()
+
 const { t, n } = useI18n()
 const search = ref('')
 const open = ref(false)
+watch(search, (value) => emit('draftChange', value), { flush: 'sync', immediate: true })
 const input = ref<{ $el: HTMLInputElement }>()
 const browsing = ref(false)
 const labels = computed(() => new Map(props.options.map((option) => [option.value, option.label])))
+const customBlocked = computed(
+  () =>
+    (props.maxCustomLength !== undefined &&
+      [...search.value.trim()].length > props.maxCustomLength) ||
+    (props.maxValues !== undefined && model.value.length >= props.maxValues),
+)
 const candidates = computed(() => {
   const options = props.options.filter((option) => matchesSearchOption(option, search.value))
   const custom = search.value.trim()
@@ -51,9 +73,27 @@ const candidates = computed(() => {
     custom &&
     !props.options.some((option) => option.value === custom) &&
     !model.value.includes(custom)
-    ? [{ value: custom, label: t('ui.select.add', { value: custom }) }, ...options]
+    ? [
+        {
+          value: custom,
+          label: t('ui.select.add', { value: custom }),
+          disabled: customBlocked.value,
+        },
+        ...options,
+      ]
     : options
 })
+function commitCustom(): void {
+  const value = search.value.trim()
+  if (props.disabled || !value) return
+  if (model.value.includes(value)) {
+    search.value = ''
+    return
+  }
+  if (customBlocked.value) return
+  model.value = [...model.value, value]
+  search.value = ''
+}
 async function removeValue(value: string): Promise<void> {
   if (props.disabled) return
   model.value = model.value.filter((item) => item !== value)
@@ -67,21 +107,31 @@ function change(value: string): void {
 function keydown(event: KeyboardEvent): void {
   if (event.isComposing || event.keyCode === 229) return
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') browsing.value = true
-  if (event.key === 'Enter' && props.allowCustom && !browsing.value && search.value.trim()) {
+  if (
+    (event.key === 'Enter' || props.delimiters?.includes(event.key)) &&
+    props.allowCustom &&
+    !browsing.value &&
+    search.value.trim()
+  ) {
     event.preventDefault()
     event.stopImmediatePropagation()
-    const value = search.value.trim()
-    if (!props.disabled && !model.value.includes(value)) model.value = [...model.value, value]
-    search.value = ''
+    commitCustom()
     open.value = true
   }
+  if (props.removeOnBackspace && event.key === 'Backspace' && !search.value && model.value.length) {
+    if (!props.disabled) model.value = model.value.slice(0, -1)
+  }
+}
+function blur(): void {
+  if (props.commitOnBlur && props.allowCustom) commitCustom()
 }
 function preventSubmit(event: KeyboardEvent): void {
   if (!event.isComposing && event.keyCode !== 229) event.preventDefault()
 }
 watch(open, (value) => {
   if (!value) {
-    search.value = ''
+    if (props.commitOnBlur) commitCustom()
+    else search.value = ''
     browsing.value = false
   }
 })
@@ -120,6 +170,7 @@ defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
             class="modern-multi-input"
             @update:model-value="change"
             @keydown.capture="keydown"
+            @blur="blur"
             @keydown.enter="preventSubmit"
           />
           <AppTooltip :label="label" :disabled="open"

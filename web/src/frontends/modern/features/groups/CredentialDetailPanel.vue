@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
-import { Info } from '@lucide/vue'
+import { Info, Scale } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
@@ -16,7 +16,6 @@ import type { GroupRow } from '@modern/api/groups'
 import {
   AppBadge,
   AppButton,
-  AppCollectionState,
   AppIcon,
   AppOverflowText,
   AppSegmentedField,
@@ -34,7 +33,7 @@ import RPMTrend from '../rpm/RPMTrend.vue'
 import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
-const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
+const emit = defineEmits<{ close: []; saved: [row: CredentialRow]; policy: [] }>()
 const { t, n, locale, te } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
@@ -45,6 +44,12 @@ const query = useQuery({
 const item = computed(() => query.data.value ?? props.row)
 const state = computed(() => credentialStatus(item.value))
 const saved = ref<CredentialRow>()
+// 只有“无数据的初次失败”才是不可用；isError && saved 是刷新失败（警告条），仍渲染 body。
+const bodyState = computed(() => {
+  if (query.isPending.value) return 'loading'
+  if (query.isError.value && !saved.value) return 'unavailable'
+  return 'ready'
+})
 const nameDirty = ref(false)
 const namePending = ref(false)
 const weight = ref('')
@@ -179,17 +184,13 @@ useMessageSource(() =>
     :pending="saving || namePending"
     :loading="query.isFetching.value"
     :save-disabled="!saved || nameDirty"
+    :body-state="bodyState"
+    :unavailable-label="t('groups.edit.loadFailed')"
     @close="emit('close')"
+    @retry="query.refetch()"
     @save="save"
   >
-    <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
-    <AppCollectionState
-      v-else-if="query.isError.value && !saved"
-      :title="t('groups.edit.loadFailed')"
-      error
-      ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
-    >
-    <template v-else>
+    <template v-if="bodyState === 'ready'">
       <CredentialDisplay
         :name="item.name"
         :value="item.account || item.mask"
@@ -285,6 +286,14 @@ useMessageSource(() =>
             credentialTime(cooldown.until, locale)
           }}</small>
         </div>
+      </section>
+      <section class="modern-credential-detail-section">
+        <div class="modern-credential-detail-settings-title">
+          <h3>{{ t('groupDetail.policy.credentialTitle') }}</h3>
+        </div>
+        <AppButton variant="outline" :icon="Scale" @click="emit('policy')">
+          {{ t('credentialCards.managePolicy') }}
+        </AppButton>
       </section>
       <section class="modern-credential-detail-section">
         <div class="modern-credential-detail-settings-title">

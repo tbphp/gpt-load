@@ -14,7 +14,7 @@ import {
 import type { GroupChannel } from '@modern/api/group-create'
 import type { GroupRow } from '@modern/api/groups'
 import type { ModelCandidate } from '@modern/api/model-discovery'
-import { AppButton, AppCollectionState } from '@modern/components/ui'
+import { AppButton } from '@modern/components/ui'
 import { useApiClient } from '@shared/http/client-context'
 import { modelErrors, type GroupDraftModel } from './group-create-rules'
 import GroupModelPicker from './GroupModelPicker.vue'
@@ -70,6 +70,11 @@ watch(
   },
   { immediate: true },
 )
+// 骨架只表达初次加载/无可用数据；已初始化后的刷新由 :loading 走后台活动。
+const bodyState = computed(() => {
+  if (query.isPending.value) return 'loading'
+  return initialized.value ? 'ready' : 'unavailable'
+})
 const prices = computed(
   () =>
     new Map(
@@ -143,16 +148,15 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     :pending="saving"
     :loading="query.isFetching.value"
     :save-disabled="!initialized"
+    :body-state="bodyState"
+    :unavailable-label="t('groups.edit.loadFailed')"
     wide
     fill
     @close="emit('close')"
+    @retry="query.refetch()"
     @save="save"
   >
-    <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
-    <AppCollectionState v-else-if="!initialized" :title="t('groups.edit.loadFailed')" error
-      ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
-    >
-    <template v-else>
+    <template v-if="bodyState === 'ready'">
       <GroupModelPicker
         ref="picker"
         v-model="draft"

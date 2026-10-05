@@ -25,8 +25,6 @@ import { getGroupChannels, type GroupChannel } from '@modern/api/group-create'
 import type { GroupRow } from '@modern/api/groups'
 import {
   AppProtocolTag,
-  AppButton,
-  AppCollectionState,
   AppConfirmDialog,
   AppIconButton,
   AppNotice,
@@ -99,6 +97,9 @@ function snapshot(): string {
 }
 const dirty = computed(
   () => Boolean(saved.value) && (snapshot() !== baseline.value || !rulesValid.value),
+)
+const bodyState = computed<'loading' | 'unavailable' | 'ready'>(() =>
+  query.isPending.value ? 'loading' : saved.value ? 'ready' : 'unavailable',
 )
 watch(
   query.data,
@@ -360,14 +361,13 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     :pending="saving || switching"
     :loading="query.isFetching.value"
     :save-disabled="!saved"
+    :body-state="bodyState"
+    :unavailable-label="t('groups.edit.loadFailed')"
     @close="emit('close')"
     @save="save"
+    @retry="query.refetch()"
   >
-    <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
-    <AppCollectionState v-else-if="!saved" :title="t('groups.edit.loadFailed')" error
-      ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
-    >
-    <template v-else>
+    <template v-if="saved">
       <AppFormSection :title="t('groupDetail.connection')">
         <GroupChannelSelect
           v-if="switchable"

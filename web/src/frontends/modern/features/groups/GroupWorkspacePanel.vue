@@ -2,7 +2,7 @@
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton } from '@modern/components/ui'
+import { AppButton, AppCollectionState } from '@modern/components/ui'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import GroupEditorSurface from './GroupEditorSurface.vue'
 
@@ -17,8 +17,11 @@ const props = defineProps<{
   saveLabel?: string
   wide?: boolean
   fill?: boolean
+  // 初次加载/无可用数据由调用方推导；后台刷新（isFetching）不得切换状态，避免卸载本地未提交输入。
+  bodyState?: 'loading' | 'unavailable' | 'ready'
+  unavailableLabel?: string
 }>()
-const emit = defineEmits<{ close: []; save: [] }>()
+const emit = defineEmits<{ close: []; save: []; retry: [] }>()
 const { t } = useI18n()
 const guard = ref<InstanceType<typeof AppDraftGuard>>()
 async function close(): Promise<void> {
@@ -37,7 +40,21 @@ useLoadingActivity(() => Boolean(props.loading || props.pending))
     @close="close"
   >
     <form class="modern-workspace-panel-form" novalidate @submit.prevent="emit('save')">
-      <div class="modern-workspace-panel-body" :class="{ 'is-filled': fill }"><slot /></div>
+      <div class="modern-workspace-panel-body" :class="{ 'is-filled': fill }">
+        <AppCollectionState
+          v-if="bodyState === 'loading'"
+          :title="t('collection.loading')"
+          loading
+        />
+        <AppCollectionState
+          v-else-if="bodyState === 'unavailable'"
+          :title="unavailableLabel ?? t('groups.edit.loadFailed')"
+          error
+        >
+          <AppButton @click="emit('retry')">{{ t('ui.retry') }}</AppButton>
+        </AppCollectionState>
+        <slot v-else />
+      </div>
       <footer class="modern-workspace-panel-footer">
         <div class="modern-workspace-panel-feedback"><slot name="feedback" /></div>
         <div class="modern-workspace-panel-actions">

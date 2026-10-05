@@ -82,6 +82,17 @@ export function projectNonNegativeInt64String(value: unknown): string {
   return value
 }
 
+export function projectPositiveUint64String(value: unknown): string {
+  if (typeof value !== 'string' || !/^[1-9]\d{0,19}$/u.test(value)) invalidResponse()
+  try {
+    const n = BigInt(value)
+    if (n <= 0n || n > 18446744073709551615n) invalidResponse()
+  } catch {
+    invalidResponse()
+  }
+  return value
+}
+
 export function projectInt64String(value: unknown): string {
   if (typeof value !== 'string' || !canonicalInteger.test(value)) invalidResponse()
   const parsed = BigInt(value)
