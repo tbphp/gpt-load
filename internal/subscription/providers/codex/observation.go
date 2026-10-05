@@ -30,6 +30,9 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 	}
 	result := quotaSnapshot{QuotaWindows: []quotaWindow{}}
 	result.Plan = codexPlan(cleanString(firstValue(payload, "plan_type", "planType")))
+	if credits, ok := object(payload["credits"]); ok {
+		result.Credits = normalizeCredits(credits)
+	}
 	if credits, ok := object(firstValue(payload, "rate_limit_reset_credits", "rateLimitResetCredits")); ok {
 		if value, ok := integer(firstValue(credits, "available_count", "availableCount")); ok {
 			result.ResetCreditsAvailable = &value

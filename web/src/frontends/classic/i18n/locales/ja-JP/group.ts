@@ -596,6 +596,8 @@ export default {
         moreActions: 'その他の操作',
         autoRenews: '使用時に自動更新',
         resetCredits: 'リセットクレジット',
+        creditBalance: 'クレジット',
+        creditUnlimited: '無制限',
         resetCreditsCount: '{count} 件利用可能',
         resetCreditsTooltipTitle: 'リセットクレジットの詳細',
         resetCreditsTooltipItem: '{index} 件目：{expires}',

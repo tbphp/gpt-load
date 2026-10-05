@@ -166,6 +166,7 @@ type providerResponse struct {
 	Local                        bool
 	QuotaObservedAt              time.Time
 	QuotaWindows                 []providerobservation.QuotaWindow
+	Credits                      *providerobservation.CreditSummary
 }
 
 type providerStreamResponse struct {
@@ -177,6 +178,7 @@ type providerStreamResponse struct {
 	UpstreamProtocol             protocol.Protocol
 	QuotaObservedAt              time.Time
 	QuotaWindows                 []providerobservation.QuotaWindow
+	Credits                      *providerobservation.CreditSummary
 }
 
 type providerStreamChunk struct {

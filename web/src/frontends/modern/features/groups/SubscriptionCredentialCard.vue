@@ -44,6 +44,12 @@ const { t, n, locale } = useI18n()
 const state = computed(() => credentialStatus(props.row))
 const observation = computed(() => props.row.observation)
 const plan = computed(() => observation.value?.plan.trim() ?? '')
+const creditBalanceLabel = computed(() => {
+  const credits = observation.value?.credits
+  if (credits?.unlimited) return t('credentialCards.creditUnlimited')
+  const balance = Number(credits?.balance)
+  return Number.isFinite(balance) && balance > 0 ? n(balance, { maximumFractionDigits: 20 }) : ''
+})
 const creditLabel = computed(() => {
   const expirations = observation.value?.creditExpirations ?? []
   const available = observation.value?.resetCredits ?? 0
@@ -110,6 +116,13 @@ useLoadingActivity(() => Boolean(props.pending))
         <div class="modern-subscription-card-subtitle">
           <div class="modern-subscription-card-plan">
             <CredentialPlanBadge v-if="plan" :name="plan" :level="observation?.planLevel" />
+            <AppBadge
+              v-if="creditBalanceLabel"
+              class="modern-subscription-card-credit-balance"
+              size="xs"
+            >
+              {{ t('credentialCards.creditBalance') }} {{ creditBalanceLabel }}
+            </AppBadge>
             <CredentialRoutingMeta :row="row" />
           </div>
           <div class="modern-subscription-card-status-actions">
@@ -236,6 +249,11 @@ useLoadingActivity(() => Boolean(props.pending))
 </template>
 
 <style scoped>
+.modern-subscription-card-credit-balance {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .modern-subscription-card-error {
   color: var(--modern-danger);
 }

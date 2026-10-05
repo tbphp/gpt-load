@@ -246,8 +246,16 @@ export interface CredentialObservationSnapshotDto {
   plan_summary: { name?: string; level?: CredentialPlanLevel }
   account_summary?: CredentialObservationAccountSummaryDto
   quota_windows: CredentialQuotaWindowDto[]
+  credits?: CredentialCreditSummaryDto
   reset_credits_available?: number
   reset_credits?: CredentialResetCreditDto[]
+}
+
+export interface CredentialCreditSummaryDto {
+  balance?: string
+  has_credits?: boolean
+  unlimited?: boolean
+  observed_at_ms?: number
 }
 
 export interface CredentialResetCreditDto {

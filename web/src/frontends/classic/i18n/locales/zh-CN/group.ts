@@ -569,6 +569,8 @@ export default {
         moreActions: '更多操作',
         autoRenews: '使用时自动续期',
         resetCredits: '重置卡',
+        creditBalance: '点数',
+        creditUnlimited: '不限量',
         resetCreditsCount: '{count} 张可用',
         resetCreditsTooltipTitle: '重置卡明细',
         resetCreditsTooltipItem: '第 {index} 张：{expires}',

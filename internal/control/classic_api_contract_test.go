@@ -10,6 +10,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/outboundproxy"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
 // 核对后端公开 JSON 字段与经典版读取契约，不执行前端或浏览器测试。
@@ -51,6 +52,7 @@ func TestSharedAPIResponseFieldsMatchClassicContracts(t *testing.T) {
 		{"credentials", "accountFields", CredentialAccountResponse{}},
 		{"credentials", "observationFields", CredentialObservationResponse{}},
 		{"credentials", "observationSnapshotFields", CredentialObservationSnapshot{}},
+		{"credentials", "creditSummaryFields", providerobservation.CreditSummary{}},
 		{"credentials", "planFields", ObservationPlanSummary{}},
 		{"credentials", "observationAccountFields", ObservationAccountSummary{}},
 		{"credentials", "quotaWindowFields", ObservationQuotaWindow{}},

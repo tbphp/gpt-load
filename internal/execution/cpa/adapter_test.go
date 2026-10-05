@@ -81,9 +81,10 @@ func (f *fakeCredentialPreparer) RecordPassiveQuotaObservation(
 	identityGeneration uint64,
 	observedAtMS int64,
 	windows []providerobservation.QuotaWindow,
+	credits ...*providerobservation.CreditSummary,
 ) {
 	if f.delegate != nil {
-		f.delegate.RecordPassiveQuotaObservation(credentialID, identityGeneration, observedAtMS, windows)
+		f.delegate.RecordPassiveQuotaObservation(credentialID, identityGeneration, observedAtMS, windows, credits...)
 	}
 }
 
