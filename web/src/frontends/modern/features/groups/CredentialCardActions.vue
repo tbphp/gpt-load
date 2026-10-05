@@ -18,7 +18,7 @@ const actions = computed(() => [
         },
         { id: 'download', label: t('credentialCards.export'), icon: Download },
       ]
-    : [{ id: 'test', label: t('credentialCards.test'), icon: Stethoscope }]),
+    : []),
   ...(props.row.state === 'cooldown' ||
   props.row.state === 'blacklisted' ||
   props.row.modelCooldowns.length
@@ -35,6 +35,14 @@ const actions = computed(() => [
       size="xxs"
       :disabled="disabled"
       @click="$emit('action', 'details')"
+    />
+    <AppIconButton
+      v-if="!subscription"
+      :icon="Stethoscope"
+      :label="t('credentialCards.test')"
+      size="xxs"
+      :disabled="disabled"
+      @click="$emit('action', 'test')"
     />
     <AppActionMenu
       size="xxs"
