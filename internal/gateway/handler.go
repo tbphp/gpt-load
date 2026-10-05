@@ -1465,6 +1465,9 @@ func (handler *Handler) executeAttempts(
 			!authRefreshReplayUsed && forwardAttempts < forwardAttemptLimit {
 			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
 		}
+		if decision.Retry != health.RetryNone {
+			iterator.AdvancePriority(selection)
+		}
 		if decision.Effect == health.EffectSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}

@@ -1,3 +1,5 @@
+import { isValidGroupPriority } from '@shared/group-priority'
+
 import type {
   ChannelParamsDto,
   GroupSettingsDto,
@@ -15,6 +17,7 @@ export type GroupTimeoutKey = 'first_byte_timeout' | 'request_timeout' | 'stream
 export type GroupPolicyCountKey = 'blacklist_threshold' | 'concurrency_limit'
 
 export interface GroupSettingsDraft {
+  priority: string
   channel_id: string
   connection_type: GroupSettingsDto['connection_type']
   params: ChannelParamsDto
@@ -145,7 +148,12 @@ function normalizeParameterValue(value: unknown): ParameterJSONValue {
 }
 
 export function createGroupSettingsDraft(group: GroupSettingsDto): GroupSettingsDraft {
-  return { ...group, params: { ...group.params }, overrides: cloneOverrides(group.overrides) }
+  return {
+    ...group,
+    priority: String(group.priority),
+    params: { ...group.params },
+    overrides: cloneOverrides(group.overrides),
+  }
 }
 
 export function setGroupConfigOverride(
@@ -195,6 +203,10 @@ export function buildGroupSettingsPatch(
   if (draft.enabled !== base.enabled) patch.enabled = draft.enabled
   const priceMultiplier = normalizePriceMultiplier(draft.price_multiplier)
   if (priceMultiplier !== base.price_multiplier) patch.price_multiplier = priceMultiplier
+  if (isValidGroupPriority(draft.priority)) {
+    const priority = Number(draft.priority)
+    if (priority !== base.priority) patch.priority = priority
+  }
   if (draft.weight_manual !== base.weight_manual) patch.weight_manual = draft.weight_manual
   if (JSON.stringify(overrides) !== JSON.stringify(normalizeOverrides(base.overrides))) {
     patch.overrides = overrides

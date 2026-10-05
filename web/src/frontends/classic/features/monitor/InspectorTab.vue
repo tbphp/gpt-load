@@ -187,6 +187,8 @@ const excludedGroups = computed(() =>
 const weightedMix = computed(() => observation.value?.route_strategy === 'weighted_mix')
 const orderedIncludedGroups = computed(() =>
   [...includedGroups.value].sort((left, right) => {
+    const priorityOrder = right.priority - left.priority
+    if (priorityOrder !== 0) return priorityOrder
     const routeModeOrder = routeModePriority(left) - routeModePriority(right)
     if (routeModeOrder !== 0) return routeModeOrder
     if (left.routable !== right.routable) return left.routable ? -1 : 1
@@ -194,11 +196,19 @@ const orderedIncludedGroups = computed(() =>
     return weightOrder !== 0 ? weightOrder : left.group_id - right.group_id
   }),
 )
+const activePriority = computed(() =>
+  Math.max(
+    ...includedGroups.value.filter((group) => group.routable).map((group) => group.priority),
+  ),
+)
+const priorityGroups = computed(() =>
+  includedGroups.value.filter((group) => group.priority === activePriority.value),
+)
 const activeRouteMode = computed<'native' | 'converted' | null>(() => {
-  if (includedGroups.value.some((group) => group.routable && group.route_mode === 'native')) {
+  if (priorityGroups.value.some((group) => group.routable && group.route_mode === 'native')) {
     return 'native'
   }
-  if (includedGroups.value.some((group) => group.routable && group.route_mode === 'converted')) {
+  if (priorityGroups.value.some((group) => group.routable && group.route_mode === 'converted')) {
     return 'converted'
   }
   return null
@@ -442,7 +452,11 @@ function routeModePriority(group: RouteInspectGroupDto): number {
 }
 
 function isActiveCandidate(group: RouteInspectGroupDto): boolean {
-  return group.routable && (weightedMix.value || group.route_mode === activeRouteMode.value)
+  return (
+    group.routable &&
+    group.priority === activePriority.value &&
+    (weightedMix.value || group.route_mode === activeRouteMode.value)
+  )
 }
 
 function routePriorityTone(group: RouteInspectGroupDto): StatusTone {
@@ -451,9 +465,7 @@ function routePriorityTone(group: RouteInspectGroupDto): StatusTone {
 }
 
 function routePriorityLabel(group: RouteInspectGroupDto): string {
-  return weightedMix.value
-    ? t(`monitor.inspector.routeModes.${group.route_mode}`)
-    : t(`monitor.inspector.groups.priority.${group.route_mode}`)
+  return t(`monitor.inspector.routeModes.${group.route_mode}`)
 }
 
 function groupStatusLabel(group: RouteInspectGroupDto): string {
@@ -758,7 +770,6 @@ onBeforeUnmount(() => {
           <MonitorSectionHeading
             id="route-candidates-title"
             :title="t('monitor.inspector.groups.title')"
-            :description="t(`monitor.inspector.groups.description.${observation.route_strategy}`)"
             :meta="
               t('monitor.inspector.groups.count', {
                 count: formattedInteger(includedGroups.length),
@@ -865,6 +876,8 @@ onBeforeUnmount(() => {
                     <span>{{ candidateCredentialSummary(group) }}</span>
                   </div>
                   <span>
+                    {{ t('group.settings.base.priority') }} {{ formattedInteger(group.priority) }}
+                    ·
                     {{
                       t('monitor.inspector.weights.group', {
                         value: formattedInteger(group.weight_manual ?? 50),

@@ -14,6 +14,7 @@ import (
 
 // ModernGroupItem 只提供工作区需要的展示事实，不改变分组的配置或健康状态。
 type ModernGroupItem struct {
+	Priority               int32                           `json:"priority"`
 	Concurrency            ConcurrencyView                 `json:"concurrency"`
 	ID                     uint                            `json:"id"`
 	Name                   string                          `json:"name"`
@@ -67,6 +68,7 @@ func (s *Service) ListModernGroups(ctx context.Context) (ModernGroupsResponse, e
 			endpoint = definition.DefaultBaseURL
 		}
 		result.Items = append(result.Items, ModernGroupItem{
+			Priority:    record.Priority,
 			Concurrency: record.Concurrency,
 			ID:          record.ID, Name: record.Name, ChannelID: record.ChannelID,
 			ChannelName: definition.Name, ChannelMark: definition.Mark, ChannelIcon: definition.Icon,

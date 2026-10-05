@@ -4014,14 +4014,21 @@ func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testin
 		SystemSettings:  config.Settings{state.SettingRetryCount: 1},
 		ChannelRegistry: channel.NewRegistry(),
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "subscription", ChannelID: channel.Codex,
+			ID: 1, Name: "subscription", ChannelID: channel.Codex, Priority: 100,
 			Settings:       config.Settings{state.SettingRetryCount: 0},
+			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
+			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+		}, {
+			ID: 2, Name: "backup", ChannelID: channel.Codex, Priority: 0,
 			ConnectionType: "subscription", Params: json.RawMessage(`{}`),
 			Models: []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
 		Credentials: []state.CredentialConfig{{
 			ID: 1, GroupID: 1, Status: state.CredentialStatusActive,
 			Version: 1, IdentityGeneration: 1, Fingerprint: "subscription-account",
+		}, {
+			ID: 2, GroupID: 2, Status: state.CredentialStatusActive,
+			Version: 1, IdentityGeneration: 1, Fingerprint: "backup-account",
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
 			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
@@ -4039,6 +4046,9 @@ func TestSubscriptionExplicit401RetriesSameCredentialWithForcedRefresh(t *testin
 		ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1,
 		Fingerprint: "subscription-account", Status: state.CredentialStatusActive,
 		EncryptedValue: encrypted,
+	}, {
+		ID: 2, GroupID: 2, Version: 1, IdentityGeneration: 1,
+		Fingerprint: "backup-account", Status: state.CredentialStatusActive, EncryptedValue: encrypted,
 	}}); err != nil {
 		t.Fatal(err)
 	}

@@ -386,6 +386,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 			if decision.Effect == health.EffectSkipGroup {
 				iterator.SkipGroup(selection.GroupID)
 			}
+			iterator.AdvancePriority(selection)
 			if decision.Retry == health.RetryRefreshCredential && !refreshUsed {
 				refreshUsed = true
 				refreshSelection = &selection

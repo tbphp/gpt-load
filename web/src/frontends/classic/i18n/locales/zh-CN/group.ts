@@ -209,10 +209,6 @@ export default {
         headers: '上游请求头规则',
         danger: '危险区域',
       },
-      routing: {
-        description: '调整分组参与请求分配的相对权重。',
-        weightHelp: '默认 50，范围 1–100；与凭据权重相乘，决定分配比例。',
-      },
       headers: {
         description: '发往上游前设置、覆盖或移除的请求头规则；覆盖后将完整替换全局规则，不做合并。',
       },
@@ -313,7 +309,9 @@ export default {
         validationModel: '测试模型（可选）',
         validationModelPlaceholder: '搜索或输入模型 ID',
         validationModelHelp: '留空时使用分组的第一个模型；这里填上游模型 ID，不是别名。',
-        weight: '分组权重',
+        priority: '优先级',
+        priorityError: '请输入 -2147483648～2147483647 的整数',
+        weight: '权重',
         auto: '自动',
         manual: '手动',
         weightError: '请输入 1–100 之间的整数',

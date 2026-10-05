@@ -206,6 +206,7 @@ func (handler *Handler) dialMistralRealtime(ctx context.Context, c *gin.Context,
 			handler.setMistralRealtimeRetryAfter(c, failure, cooldownUntil)
 			return nil, "", nil, &failure
 		}
+		iterator.AdvancePriority(selection)
 	}
 	handler.setMistralRealtimeRetryAfter(c, failure, cooldownUntil)
 	return nil, "", nil, &failure

@@ -211,11 +211,6 @@ export default {
         headers: 'Upstream request header rules',
         danger: 'Danger zone',
       },
-      routing: {
-        description: 'Adjust the relative weight used for request allocation.',
-        weightHelp:
-          'Default: 50. Range: 1–100. Multiplied by credential weight to determine allocation shares.',
-      },
       headers: {
         description:
           'Header rules applied to outgoing upstream requests — set, override, or remove; overriding fully replaces the global rules instead of merging with them.',
@@ -324,7 +319,9 @@ export default {
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
           'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
-        weight: 'Group weight',
+        priority: 'Priority',
+        priorityError: 'Enter an integer from -2147483648 to 2147483647',
+        weight: 'Weight',
         auto: 'Auto',
         manual: 'Manual',
         weightError: 'Enter a whole number from 1 to 100',

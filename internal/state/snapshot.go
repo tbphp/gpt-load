@@ -44,6 +44,7 @@ type CompileInput struct {
 }
 
 type GroupConfig struct {
+	Priority           int32
 	PriceMultiplier    *pricing.PriceMultiplier
 	ID                 uint
 	Name               string
@@ -151,6 +152,7 @@ func (rules HeaderRules) ConfiguredNames() []string {
 }
 
 type GroupView struct {
+	Priority                  int32
 	ConcurrencyLimit          int64
 	PriceMultiplier           pricing.PriceMultiplier
 	ID                        uint
@@ -176,6 +178,7 @@ type GroupView struct {
 }
 
 type GroupCatalogView struct {
+	Priority       int32
 	ID             uint
 	Name           string
 	ChannelID      channel.ID
@@ -325,7 +328,8 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 
 	for _, group := range input.Groups {
 		catalogView := GroupCatalogView{
-			ID: group.ID, Name: group.Name, Enabled: group.Enabled,
+			Priority: group.Priority,
+			ID:       group.ID, Name: group.Name, Enabled: group.Enabled,
 			ChannelID:      group.ChannelID,
 			ConnectionType: connection.Normalize(group.ConnectionType),
 			WeightManual:   cloneWeight(group.WeightManual),
@@ -347,6 +351,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 
 		view := GroupView{
+			Priority:                  group.Priority,
 			PriceMultiplier:           resolvePriceMultiplier(group.PriceMultiplier),
 			ID:                        group.ID,
 			Name:                      group.Name,

@@ -211,11 +211,6 @@ export default {
         headers: 'アップストリームリクエストヘッダールール',
         danger: '危険な操作',
       },
-      routing: {
-        description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
-        weightHelp:
-          '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
-      },
       headers: {
         description:
           'アップストリームへのリクエストに適用するヘッダーの設定・上書き・削除ルール。オーバーライドするとグローバルルール全体を置き換え、マージはされません。',
@@ -324,7 +319,9 @@ export default {
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
-        weight: 'グループの重み',
+        priority: '優先度',
+        priorityError: '-2147483648～2147483647 の整数を入力してください',
+        weight: '重み',
         auto: '自動',
         manual: '手動',
         weightError: '1～100 の整数を入力してください',

@@ -18,6 +18,7 @@ type Group struct {
 	ConnectionType        ConnectionType `gorm:"type:varchar(32);not null;default:'api_key';check:chk_group_connection_type,connection_type IN ('api_key','subscription')"`
 	Params                JSON           `gorm:"type:json;not null"`
 	Models                JSON           `gorm:"type:json;not null"`
+	Priority              int32          `gorm:"type:integer;not null;default:0"`
 	WeightManual          *int
 	ValidationProtocol    *string      `gorm:"type:varchar(32)"`
 	ValidationModel       *string      `gorm:"type:varchar(255)"`

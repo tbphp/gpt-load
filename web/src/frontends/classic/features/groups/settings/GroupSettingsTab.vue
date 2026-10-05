@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isValidGroupPriority } from '@shared/group-priority'
 import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -184,6 +185,7 @@ const dirty = computed(
   () =>
     !deleted.value &&
     (Object.keys(patch.value).length > 0 ||
+      (draft.value !== undefined && !isValidGroupPriority(draft.value.priority)) ||
       headerRulesInvalidEdits.value ||
       parameterOverridesInvalidEdits.value ||
       proxyState.value.dirty),
@@ -240,6 +242,7 @@ const valid = computed(
   () =>
     !nameError.value &&
     Object.keys(paramErrors.value).length === 0 &&
+    isValidGroupPriority(draft.value?.priority ?? '') &&
     weightValid.value &&
     isValidPriceMultiplier(draft.value?.price_multiplier ?? '') &&
     timeoutValid.value &&
@@ -705,6 +708,7 @@ onBeforeUnmount(() => {
             :validation-protocol="draft.validation_protocol"
             :validation-protocols="saved?.validation_protocols ?? []"
             :models="modelsQuery.data.value?.items ?? []"
+            :priority="draft.priority"
             :weight-manual="draft.weight_manual"
             :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
@@ -717,6 +721,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:validation-protocol="draft.validation_protocol = $event"
+            @update:priority="draft.priority = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
@@ -734,6 +739,7 @@ onBeforeUnmount(() => {
             :validation-protocol="draft.validation_protocol"
             :validation-protocols="saved?.validation_protocols ?? []"
             :models="modelsQuery.data.value?.items ?? []"
+            :priority="draft.priority"
             :weight-manual="draft.weight_manual"
             :price-multiplier="draft.price_multiplier"
             :enabled="draft.enabled"
@@ -745,6 +751,7 @@ onBeforeUnmount(() => {
             @update:name="draft.name = $event"
             @update:validation-model="draft.validation_model = $event"
             @update:validation-protocol="draft.validation_protocol = $event"
+            @update:priority="draft.priority = $event"
             @update:weight-manual="draft.weight_manual = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:enabled="draft.enabled = $event"
@@ -763,11 +770,6 @@ onBeforeUnmount(() => {
                   :disabled="mutationPending"
                   @update:model-value="setLiveMode"
                 />
-                <p>
-                  {{ t('settings.runtime.liveModeHelp') }} ·
-                  {{ t('settings.runtime.currentEffective') }}:
-                  {{ t('settings.runtime.liveModes.' + saved.effective.codex_live_mode) }}
-                </p>
               </div>
               <SettingRow
                 :label="t('group.settings.runtime.responses_websocket_enabled')"

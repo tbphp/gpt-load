@@ -60,6 +60,8 @@ type weightedCredential struct {
 type candidatePool struct {
 	targetsByGroup map[uint][]candidateTarget
 	groupIDsByMode map[channel.RouteMode][]uint
+	priorityLimit  *int32
+	lowerPriority  bool
 }
 
 type Iterator struct {
@@ -211,6 +213,19 @@ func (iterator *Iterator) SkipGroup(groupID uint) {
 	iterator.skippedGroups[groupID] = struct{}{}
 }
 
+// AdvancePriority 记录可重试的执行失败，下一次换目标时降档；刷新重放不经 Next。
+func (iterator *Iterator) AdvancePriority(selection Selection) {
+	if iterator == nil {
+		return
+	}
+	pool := &iterator.regular
+	if selection.ResponsesStoreDowngraded {
+		pool = &iterator.storeDowngraded
+	}
+	priority := selection.Group.Priority
+	pool.priorityLimit, pool.lowerPriority = &priority, true
+}
+
 func (iterator *Iterator) weightedPoolForMode(
 	mode channel.RouteMode,
 	now time.Time,
@@ -285,26 +300,73 @@ func (iterator *Iterator) Next() (Selection, error) {
 		return Selection{}, ErrExhausted
 	}
 	for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
-		for _, modes := range iterator.routeModeTiers {
-			var selected state.CredentialMeta
-			var target candidateTarget
-			var found bool
-			now := iterator.now()
-			iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
-				selected, found = iterator.selectCredential(weighted, iterator.preferredCredentialID)
+		var selected state.CredentialMeta
+		var target candidateTarget
+		var found bool
+		now := iterator.now()
+		iterator.withWeightedPool(pool, []channel.RouteMode{channel.RouteNative, channel.RouteConverted}, now, func(weighted []weightedCredential) {
+			weighted = iterator.priorityCandidates(pool, weighted)
+			for _, modes := range iterator.routeModeTiers {
+				eligible := make([]weightedCredential, 0, len(weighted))
+				for _, candidate := range weighted {
+					for _, candidateTarget := range pool.targetsByGroup[candidate.meta.GroupID] {
+						if iterator.targetAvailable(candidateTarget, candidate.meta, modes, now) {
+							eligible = append(eligible, candidate)
+							break
+						}
+					}
+				}
+				selected, found = iterator.selectCredential(eligible, iterator.preferredCredentialID)
 				if !found {
-					return
+					continue
 				}
 				target = iterator.selectTarget(pool, modes, selected, now)
-			})
-			if !found {
-				continue
+				return
 			}
-			iterator.tried[selected.ID] = struct{}{}
-			return newSelection(selected, target), nil
+		})
+		if !found {
+			continue
 		}
+		iterator.tried[selected.ID] = struct{}{}
+		if pool.priorityLimit != nil {
+			priority := target.group.Priority
+			pool.priorityLimit, pool.lowerPriority = &priority, false
+		}
+		return newSelection(selected, target), nil
 	}
 	return Selection{}, ErrExhausted
+}
+
+// priorityCandidates 跨原生与转换选档；失败后降至下一可用档，最低档保留未试候选。
+func (iterator *Iterator) priorityCandidates(pool *candidatePool, candidates []weightedCredential) []weightedCredential {
+	var priority, lower int32
+	var found, lowerFound bool
+	for _, candidate := range candidates {
+		value := iterator.snapshot.Groups[candidate.meta.GroupID].Priority
+		if pool.priorityLimit != nil && value > *pool.priorityLimit {
+			continue
+		}
+		if !found || value > priority {
+			priority, found = value, true
+		}
+		if pool.lowerPriority && pool.priorityLimit != nil && value < *pool.priorityLimit &&
+			(!lowerFound || value > lower) {
+			lower, lowerFound = value, true
+		}
+	}
+	if !found {
+		return nil
+	}
+	if lowerFound {
+		priority = lower
+	}
+	eligible := candidates[:0]
+	for _, candidate := range candidates {
+		if iterator.snapshot.Groups[candidate.meta.GroupID].Priority == priority {
+			eligible = append(eligible, candidate)
+		}
+	}
+	return eligible
 }
 
 func (iterator *Iterator) targetAvailable(target candidateTarget, credential state.CredentialMeta, modes []channel.RouteMode, now time.Time) bool {

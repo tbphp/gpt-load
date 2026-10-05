@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppTooltip from './AppTooltip.vue'
-import { LoaderCircle, Pencil, Save, X } from '@lucide/vue'
+import { LoaderCircle, Save, X } from '@lucide/vue'
 import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui'
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -31,11 +31,10 @@ const draft = ref(String(props.modelValue))
 const attempted = ref(false)
 const submitted = ref(false)
 const input = ref<HTMLInputElement>()
-const action = ref<HTMLButtonElement>()
 const dirty = computed(() => editing.value && draft.value !== String(props.modelValue))
 const invalid = computed(
   () =>
-    !/^\d+$/u.test(draft.value) ||
+    !/^-?\d+$/u.test(draft.value) ||
     Number(draft.value) < props.min ||
     Number(draft.value) > props.max,
 )
@@ -75,12 +74,16 @@ async function start(): Promise<void> {
 }
 async function cancel(): Promise<void> {
   if (props.pending) return
-  editing.value = false
   draft.value = String(props.modelValue)
   attempted.value = false
   emit('clearError')
   await nextTick()
-  action.value?.focus({ preventScroll: true })
+  input.value?.focus({ preventScroll: true })
+  editing.value = false
+}
+function edit(): void {
+  editing.value = true
+  emit('clearError')
 }
 function submit(): void {
   if (props.pending || props.disabled) return
@@ -109,35 +112,51 @@ defineExpose({ cancel })
   <div class="modern-inline-number" @keydown.esc.stop.prevent="cancel">
     <PopoverRoot :open="Boolean(error)">
       <PopoverAnchor as-child>
-        <AppFieldControl size="xs" :invalid="Boolean(error)" :disabled="disabled || pending">
+        <AppFieldControl
+          class="modern-inline-number-field"
+          size="xs"
+          :invalid="Boolean(error)"
+          :disabled="disabled || pending"
+        >
           <input
             ref="input"
             v-model="draft"
             :aria-label="label"
             :aria-invalid="Boolean(error) || undefined"
             :aria-describedby="error ? id : undefined"
-            :readonly="!editing"
             :disabled="disabled || pending"
-            inputmode="numeric"
+            :inputmode="min < 0 ? 'text' : 'numeric'"
+            @focus="start"
             @click="start"
-            @input="emit('clearError')"
+            @input="edit"
             @keydown.enter="enter"
           />
-          <AppTooltip :label="editing ? t('ui.save') : t('ui.edit')">
-            <button
-              ref="action"
-              type="button"
-              :disabled="disabled || pending"
-              :aria-label="editing ? t('ui.save') : t('ui.edit')"
-              @click="editing ? submit() : start()"
-            >
-              <AppIcon
-                :icon="pending ? LoaderCircle : editing ? Save : Pencil"
-                size="xs"
-                :class="{ 'modern-spin': pending }"
-              />
-            </button>
-          </AppTooltip>
+          <div v-if="editing" class="modern-inline-number-actions">
+            <AppTooltip :label="t('ui.save')">
+              <button
+                type="button"
+                :disabled="disabled || pending"
+                :aria-label="t('ui.save')"
+                @click="submit"
+              >
+                <AppIcon
+                  :icon="pending ? LoaderCircle : Save"
+                  size="xs"
+                  :class="{ 'modern-spin': pending }"
+                />
+              </button>
+            </AppTooltip>
+            <AppTooltip :label="t('ui.cancel')">
+              <button
+                type="button"
+                :disabled="disabled || pending"
+                :aria-label="t('ui.cancel')"
+                @click="cancel"
+              >
+                <AppIcon :icon="X" size="xs" />
+              </button>
+            </AppTooltip>
+          </div>
         </AppFieldControl>
       </PopoverAnchor>
       <PopoverPortal>
@@ -153,18 +172,6 @@ defineExpose({ cancel })
         </AppMenuSurface>
       </PopoverPortal>
     </PopoverRoot>
-    <AppTooltip :label="t('ui.cancel')" :disabled="!editing">
-      <button
-        type="button"
-        class="modern-inline-number-cancel"
-        :class="{ 'is-hidden': !editing }"
-        :disabled="!editing || disabled || pending"
-        :aria-label="t('ui.cancel')"
-        @click="cancel"
-      >
-        <AppIcon :icon="X" size="xs" />
-      </button>
-    </AppTooltip>
   </div>
 </template>
 
@@ -172,19 +179,21 @@ defineExpose({ cancel })
 .modern-inline-number {
   display: flex;
   align-items: center;
-  gap: var(--modern-space-1);
   width: var(--modern-inline-number-width);
+  max-width: 100%;
   flex: none;
 }
 .modern-inline-number > :first-child {
   flex: 1;
   min-width: 0;
 }
-.modern-inline-number-cancel.is-hidden {
-  visibility: hidden;
+.modern-inline-number .modern-inline-number-field {
+  gap: calc(var(--modern-space-1) / 2);
+  padding-inline: var(--modern-space-1);
 }
 .modern-inline-number input {
-  width: 100%;
+  flex: 1;
+  width: 0;
   min-width: 0;
   border: 0;
   outline: none;
@@ -193,6 +202,12 @@ defineExpose({ cancel })
   font: inherit;
   text-align: left;
   font-variant-numeric: tabular-nums;
+}
+.modern-inline-number-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0;
 }
 .modern-inline-number button {
   display: grid;
@@ -218,15 +233,8 @@ defineExpose({ cancel })
   overflow-wrap: anywhere;
 }
 @media (max-width: 760px) {
-  .modern-inline-number {
-    width: 160px;
-  }
   .modern-inline-number input {
     font-size: var(--modern-font-size-input-mobile);
-  }
-  .modern-inline-number button {
-    min-width: var(--modern-touch-target);
-    min-height: var(--modern-touch-target);
   }
 }
 </style>

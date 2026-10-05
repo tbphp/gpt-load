@@ -92,6 +92,9 @@ function setPageSize(value: number): void {
   <div class="modern-inspection-credentials">
     <div class="modern-inspection-weights">
       <span
+        >{{ t('groups.edit.priority') }} <strong>{{ n(group.priority) }}</strong></span
+      >
+      <span
         >{{ t('inspector.groupWeight') }} <strong>{{ n(group.weight ?? 50) }}</strong></span
       >
       <span

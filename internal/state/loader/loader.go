@@ -802,6 +802,7 @@ func mapSystemAndGroups(
 			ValidationModel:    validationModel,
 			Models:             runtimeModels,
 			Settings:           settings,
+			Priority:           row.Priority,
 			WeightManual:       cloneWeight(row.WeightManual),
 			Enabled:            row.Enabled,
 		}
