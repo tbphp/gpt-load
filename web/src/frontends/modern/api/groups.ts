@@ -1,3 +1,4 @@
+import { readGroupPriority } from '@shared/group-priority'
 import { credentialDisplayText } from '@shared/credential-display'
 import { readConcurrency, type ConcurrencyView } from '@shared/concurrency'
 import type { ApiClient } from '@shared/http/client'
@@ -36,6 +37,7 @@ export interface CredentialCounts {
   modelCooldown: number
 }
 export interface GroupRow {
+  priority: number
   concurrency: ConcurrencyView
   id: number
   name: string
@@ -61,12 +63,14 @@ export interface GroupWorkspace {
   items: GroupRow[]
 }
 export interface GroupBasics {
+  priority: number
   name: string
   enabled: boolean
   weight: number | null
   priceMultiplier: string
 }
 export type GroupBasicsPatch = Partial<{
+  priority: number
   name: string
   enabled: boolean
   weight_manual: number | null
@@ -143,6 +147,7 @@ export async function getGroupWorkspace(
       endpoint: text(item.endpoint),
       enabled: boolean(item.enabled),
       availability: oneOf(item.availability, availabilityStates),
+      priority: readGroupPriority(item.priority),
       weight: integer(item.weight),
       priceMultiplier: text(item.price_multiplier),
       modelCount: integer(item.model_count),
@@ -179,6 +184,7 @@ export function readGroupBasics(value: unknown): GroupBasics {
   return {
     name: text(data.name),
     enabled: boolean(data.enabled),
+    priority: readGroupPriority(data.priority),
     weight,
     priceMultiplier: text(data.price_multiplier),
   }

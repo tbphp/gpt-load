@@ -212,9 +212,9 @@ export default {
         danger: '危険な操作',
       },
       routing: {
-        description: 'リクエスト分配に使うグループの相対的な重みを設定します。',
+        description: 'グループの優先度と同じ階層内の重みを設定します。',
         weightHelp:
-          '既定値は 50、範囲は 1–100 です。認証情報の重みと掛け合わせて分配比率を決定します。',
+          '既定値は 50、範囲は 1–100。同じ優先度内では認証情報の重みと掛け合わせて分配します。',
       },
       headers: {
         description:
@@ -324,6 +324,10 @@ export default {
         validationModelPlaceholder: 'モデル ID を検索または入力',
         validationModelHelp:
           '空欄の場合はグループの最初のモデルを使用します。エイリアスではなくアップストリームのモデル ID を入力してください。',
+        priority: '優先度',
+        priorityHelp:
+          '既定は 0。数値が大きいほど優先され、負数は予備に使えます。再試行では次の利用可能な下位階層へ移り、総再試行回数の上限を維持します。',
+        priorityError: '-2147483648～2147483647 の整数を入力してください',
         weight: 'グループの重み',
         auto: '自動',
         manual: '手動',

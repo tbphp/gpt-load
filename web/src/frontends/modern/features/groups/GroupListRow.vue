@@ -190,6 +190,9 @@ const lastActive = computed(() =>
             }}</AppBadge>
           </div>
           <div class="modern-group-secondary modern-group-connection">
+            <AppBadge variant="plain" size="xs"
+              >{{ t('groups.edit.priority') }} {{ n(group.priority) }}</AppBadge
+            >
             <AppBadge
               :icon="group.connectionType === 'subscription' ? UserRound : KeyRound"
               :tone="group.connectionType === 'subscription' ? 'brand' : 'neutral'"

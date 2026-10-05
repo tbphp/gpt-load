@@ -1,3 +1,4 @@
+import { readGroupPriority } from '@shared/group-priority'
 import type { ApiClient } from '@shared/http/client'
 import { protocolOrder } from '@modern/i18n/protocols'
 import { routeStrategies, type RouteStrategy } from './settings'
@@ -17,6 +18,7 @@ export interface InspectionCredential {
   cooldownUntil: number | null
 }
 export interface InspectionGroup {
+  priority: number
   id: number
   name: string
   channelID: string
@@ -78,6 +80,7 @@ export async function inspectRoute(
         mode: oneOf(group.route_mode, ['native', 'converted']),
         requirementSatisfied: boolean(group.route_requirement_satisfied),
         model: optionalText(group.upstream_model),
+        priority: readGroupPriority(group.priority),
         weight: optionalNumber(group.weight_manual),
         included: boolean(group.included),
         routable: boolean(group.routable),

@@ -212,9 +212,9 @@ export default {
         danger: 'Danger zone',
       },
       routing: {
-        description: 'Adjust the relative weight used for request allocation.',
+        description: 'Set group priority and allocation weight within each tier.',
         weightHelp:
-          'Default: 50. Range: 1–100. Multiplied by credential weight to determine allocation shares.',
+          'Default: 50. Range: 1–100. Multiplied by credential weight to allocate requests within the same priority tier.',
       },
       headers: {
         description:
@@ -324,6 +324,10 @@ export default {
         validationModelPlaceholder: 'Search or enter a model ID',
         validationModelHelp:
           'Leave empty to use the first model in this Group; enter the upstream model ID, not an alias.',
+        priority: 'Priority',
+        priorityHelp:
+          'Defaults to 0; higher values run first. Negative values can serve as backups. Retries move to the next available lower tier within the total retry limit.',
+        priorityError: 'Enter an integer from -2147483648 to 2147483647',
         weight: 'Group weight',
         auto: 'Auto',
         manual: 'Manual',

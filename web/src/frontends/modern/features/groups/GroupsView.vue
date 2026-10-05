@@ -583,6 +583,7 @@ async function refreshGroup(id: number, settings: GroupBasics): Promise<void> {
                 ...group,
                 name: settings.name,
                 enabled: settings.enabled,
+                priority: settings.priority,
                 weight: settings.weight ?? 50,
                 priceMultiplier: settings.priceMultiplier,
               }

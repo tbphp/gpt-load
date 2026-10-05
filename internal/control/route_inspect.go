@@ -39,6 +39,7 @@ type routeInspectCredentialResponse struct {
 }
 
 type routeInspectGroupResponse struct {
+	Priority                  int32                            `json:"priority"`
 	GroupID                   uint                             `json:"group_id"`
 	GroupName                 string                           `json:"group_name"`
 	ChannelID                 channel.ID                       `json:"channel_id"`
@@ -197,6 +198,7 @@ func mapRouteInspectResponse(
 			RouteMode:                 group.RouteMode,
 			RouteRequirementSatisfied: group.RouteRequirementSatisfied,
 			UpstreamModel:             cloneRouteModel(group.UpstreamModelID),
+			Priority:                  group.Priority,
 			WeightManual:              cloneInt(group.WeightManual),
 			Included:                  group.Included,
 			Routable:                  group.Routable,

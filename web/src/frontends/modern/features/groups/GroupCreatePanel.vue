@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isValidGroupPriority } from '@shared/group-priority'
 import { Eye, EyeOff, ChevronDown } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
@@ -66,6 +67,7 @@ const channel = computed(() => channels.value.find((item) => item.id === channel
 const subscription = computed(() => channel.value?.connectionType === 'subscription')
 const params = ref<Record<string, string>>({})
 const name = ref('')
+const priority = ref('0')
 const price = ref('1')
 const credentials = ref('')
 const stages = ref<CredentialStage[]>([])
@@ -106,6 +108,7 @@ const baseline = ref('')
 const completed = ref(false)
 const channelInput = ref<InstanceType<typeof AppSearchSelect>>()
 const nameInput = ref<InstanceType<typeof AppTextField>>()
+const priorityInput = ref<InstanceType<typeof AppTextField>>()
 const priceInput = ref<InstanceType<typeof AppTextField>>()
 const proxyInput = ref<InstanceType<typeof AppTextField>>()
 const credentialInput = ref<InstanceType<typeof AppTextArea>>()
@@ -124,6 +127,7 @@ function snapshot(): string {
     channelID: channelID.value,
     params: params.value,
     name: name.value,
+    priority: priority.value,
     price: price.value,
     credentials: credentials.value,
     stages: stages.value.map((stage) => stage.id),
@@ -165,6 +169,9 @@ const nameError = computed(() => {
     ? t('groups.edit.nameError')
     : ''
 })
+const priorityError = computed(() =>
+  isValidGroupPriority(priority.value) ? '' : t('groups.edit.priorityError'),
+)
 const priceError = computed(() =>
   !/^\d+(?:\.\d{1,6})?$/u.test(price.value.trim()) || Number(price.value) > 1000
     ? t('groups.edit.priceError')
@@ -285,6 +292,7 @@ function request(): GroupCreateRequest {
       ? { connection_type: 'subscription' as const, staged_credential_ids: currentReadyIDs() }
       : { connection_type: 'api_key' as const, credentials: credentials.value }),
     ...(name.value.trim() ? { name: name.value.trim() } : {}),
+    priority: Number(priority.value),
     price_multiplier: price.value.trim(),
     models: models.value.map((model) => ({
       id: model.id.trim(),
@@ -425,10 +433,17 @@ async function submit(): Promise<void> {
   expireReadyStages()
   attempted.value = true
   errorText.value = ''
-  if (!validConnection() || nameError.value || priceError.value || modelErrors(models.value).size) {
+  if (
+    !validConnection() ||
+    nameError.value ||
+    priorityError.value ||
+    priceError.value ||
+    modelErrors(models.value).size
+  ) {
     if (priceError.value || proxyError.value) advanced.value = true
     await nextTick()
     if (nameError.value) nameInput.value?.focus()
+    else if (priorityError.value) priorityInput.value?.focus()
     else if (!validConnection()) focusConnectionError()
     else if (priceError.value) priceInput.value?.focus()
     else modelPicker.value?.focusFirstInvalid()
@@ -579,6 +594,14 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
           autocomplete="off"
           :disabled="inputLocked"
           :error="attempted ? nameError : undefined"
+        />
+        <AppTextField
+          ref="priorityInput"
+          v-model="priority"
+          :label="t('groups.edit.priority')"
+          :description="t('groups.edit.priorityHelp')"
+          :disabled="inputLocked"
+          :error="attempted ? priorityError : undefined"
         />
         <template v-if="channel">
           <template v-for="field in channel.fields" :key="field.key">

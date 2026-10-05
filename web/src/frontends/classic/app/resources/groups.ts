@@ -61,6 +61,7 @@ const groupSummaryFields = [
   'model_count',
 ] as const
 const groupSettingsFields = [
+  'priority',
   'name',
   'price_multiplier',
   'channel_id',
@@ -86,6 +87,7 @@ const groupModelItemFields = [
 const groupCollectionFields = ['observed_at_ms', 'summary', 'items', 'pagination'] as const
 const groupCollectionSummaryFields = ['total', 'available', 'unavailable', 'disabled'] as const
 const groupCollectionItemFields = [
+  'priority',
   'concurrency',
   'id',
   'name',
@@ -173,6 +175,7 @@ export type {
 } from '@/api/control/types'
 
 export type GroupSettingsUpdateRequest = Partial<{
+  priority: number
   name: string
   price_multiplier: string
   params: ChannelParamsDto
@@ -217,6 +220,7 @@ export interface GroupModelsReplaceRequest {
 }
 
 export interface GroupCreateRequest {
+  priority?: number
   name?: string
   price_multiplier: string
   channel_id: string
@@ -438,6 +442,7 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupSettingsFields)
   return {
+    priority: projectSafeInteger(record.priority, { minimum: -2147483648, maximum: 2147483647 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),
     connection_type: projectEnum(record.connection_type, connectionTypes),
@@ -545,6 +550,7 @@ function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
     throw new InvalidResponseError()
   }
   return {
+    priority: projectSafeInteger(record.priority, { minimum: -2147483648, maximum: 2147483647 }),
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     channel_id: projectChannelID(record.channel_id),

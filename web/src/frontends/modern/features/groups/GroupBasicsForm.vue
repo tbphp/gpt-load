@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isValidGroupPriority } from '@shared/group-priority'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
@@ -27,6 +28,7 @@ const cache = useQueryClient()
 const { t } = useI18n()
 const saved = ref<GroupBasics>()
 const name = ref('')
+const priority = ref('0')
 const weight = ref('50')
 const price = ref('1')
 const enabled = ref(true)
@@ -41,6 +43,7 @@ const saveFailed = ref(false)
 const attempted = ref(false)
 const savedFeedback = ref(false)
 const nameInput = ref<InstanceType<typeof AppTextField>>()
+const priorityInput = ref<InstanceType<typeof AppTextField>>()
 const weightInput = ref<InstanceType<typeof AppTextField>>()
 const priceInput = ref<InstanceType<typeof AppTextField>>()
 const controller = new AbortController()
@@ -50,6 +53,7 @@ const nameInvalid = computed(
     new TextEncoder().encode(name.value.trim()).length > 255 ||
     /\p{Cc}/u.test(name.value.trim()),
 )
+const priorityInvalid = computed(() => !isValidGroupPriority(priority.value))
 const weightInvalid = computed(
   () =>
     !/^\d+$/u.test(weight.value) ||
@@ -65,6 +69,7 @@ const dirty = computed(
     !deleted.value &&
     saved.value !== undefined &&
     (name.value !== saved.value.name ||
+      priority.value !== String(saved.value.priority) ||
       weight.value !== String(saved.value.weight ?? 50) ||
       price.value !== saved.value.priceMultiplier ||
       enabled.value !== saved.value.enabled),
@@ -73,6 +78,7 @@ const dirty = computed(
 function accept(data: GroupBasics): void {
   saved.value = data
   name.value = data.name
+  priority.value = String(data.priority)
   weight.value = String(data.weight ?? 50)
   price.value = data.priceMultiplier
   enabled.value = data.enabled
@@ -106,7 +112,7 @@ watch(
   },
   { immediate: true },
 )
-watch([name, weight, price, enabled], () => {
+watch([name, priority, weight, price, enabled], () => {
   savedFeedback.value = false
 })
 async function load(): Promise<void> {
@@ -123,13 +129,20 @@ async function save(): Promise<void> {
   if (!saved.value || saving.value || loading.value) return
   attempted.value = true
   saveFailed.value = false
-  if (nameInvalid.value || weightInvalid.value || priceInvalid.value) {
+  if (nameInvalid.value || priorityInvalid.value || weightInvalid.value || priceInvalid.value) {
     await nextTick()
-    const field = nameInvalid.value ? nameInput : weightInvalid.value ? weightInput : priceInput
+    const field = nameInvalid.value
+      ? nameInput
+      : priorityInvalid.value
+        ? priorityInput
+        : weightInvalid.value
+          ? weightInput
+          : priceInput
     field.value?.focus()
     return
   }
   const patch: GroupBasicsPatch = {}
+  if (Number(priority.value) !== saved.value.priority) patch.priority = Number(priority.value)
   if (name.value.trim() !== saved.value.name) patch.name = name.value.trim()
   if (Number(weight.value) !== (saved.value.weight ?? 50))
     patch.weight_manual = Number(weight.value)
@@ -197,6 +210,15 @@ useMessageSource(() =>
           autocomplete="off"
           :disabled="saving"
           :error="attempted && nameInvalid ? t('groups.edit.nameError') : undefined"
+        />
+        <AppTextField
+          ref="priorityInput"
+          v-model="priority"
+          :label="t('groups.edit.priority')"
+          :description="t('groups.edit.priorityHelp')"
+          size="sm"
+          :disabled="saving"
+          :error="attempted && priorityInvalid ? t('groups.edit.priorityError') : undefined"
         />
         <div class="modern-group-settings-columns">
           <AppTextField

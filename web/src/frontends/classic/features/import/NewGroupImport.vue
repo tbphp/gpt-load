@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isValidGroupPriority } from '@shared/group-priority'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ArrowRight, Plus, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -95,6 +96,7 @@ function freshDraft(): ImportDraft {
     params: {},
     proxy: { mode: 'inherit', id: '' },
     name: '',
+    priority: '0',
     price_multiplier: '1',
     credentials: '',
     staged_credentials: [],
@@ -105,6 +107,7 @@ function freshDraft(): ImportDraft {
 function cloneDraft(source: ImportDraft): ImportDraft {
   return {
     ...source,
+    priority: source.priority ?? '0',
     params: { ...source.params },
     proxy: { ...source.proxy },
     staged_credentials: source.staged_credentials.map((stage) => ({
@@ -368,6 +371,7 @@ const submissionErrorMessage = computed(
 const submitBlockedReason = computed(() => {
   if (payloadLocked.value || mutationPending.value) return ''
   if (subscriptionImportState.value.busy) return t('import.subscription.importing')
+  if (!isValidGroupPriority(draft.priority)) return t('group.settings.base.priorityError')
   if (!isValidPriceMultiplier(draft.price_multiplier)) return t('common.priceMultiplier.invalid')
   if (paramsError.value) {
     if (selectedChannel.value === null) return t('import.presets.channelRequired')
@@ -399,6 +403,7 @@ const canCreate = computed(
     !payloadLocked.value &&
     !mutationPending.value &&
     !subscriptionImportState.value.busy &&
+    isValidGroupPriority(draft.priority) &&
     isValidPriceMultiplier(draft.price_multiplier) &&
     !paramsError.value &&
     credentialCount.value > 0 &&
@@ -928,6 +933,7 @@ function buildCreateBody(confirmSameTarget: boolean): GroupCreateRequest {
     ),
     ...(draftProxyOverride.value === undefined ? {} : { proxy: draftProxyOverride.value }),
     ...(name ? { name } : {}),
+    priority: Number(draft.priority),
     price_multiplier: normalizePriceMultiplier(draft.price_multiplier),
     models: toGroupModels(draft.models),
     ...(draft.connection_type === 'subscription'
@@ -1270,6 +1276,7 @@ onBeforeUnmount(() => {
           <ImportConnectionSection
             :channel="connectionChannel"
             :name="draft.name"
+            :priority="draft.priority"
             :price-multiplier="draft.price_multiplier"
             :params="draft.params"
             :proxy="draft.proxy"
@@ -1278,6 +1285,7 @@ onBeforeUnmount(() => {
             :base-url-override-enabled="baseUrlOverrideEnabled"
             :disabled="payloadLocked"
             @update:name="draft.name = $event"
+            @update:priority="draft.priority = $event"
             @update:price-multiplier="draft.price_multiplier = $event"
             @update:param="setChannelParam"
             @update:proxy="draft.proxy = $event"

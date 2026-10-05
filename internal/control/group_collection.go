@@ -41,6 +41,7 @@ type GroupCollectionCredentialCounts struct {
 }
 
 type GroupCollectionItem struct {
+	Priority         int32                           `json:"priority"`
 	Concurrency      ConcurrencyView                 `json:"concurrency"`
 	PriceMultiplier  string                          `json:"price_multiplier"`
 	ID               uint                            `json:"id"`
@@ -244,6 +245,7 @@ func mapGroupCollectionRecords(
 		if catalog.ID != group.ID ||
 			catalog.Name != group.Name ||
 			catalog.Enabled != group.Enabled ||
+			catalog.Priority != group.Priority ||
 			!equalGroupCollectionWeight(catalog.WeightManual, group.WeightManual) {
 			return nil, groupCollectionDataError(
 				"persisted group %d differs from runtime catalog",
@@ -371,6 +373,7 @@ func mapGroupCollectionRecords(
 		catalog := snapshot.GroupCatalog[group.ID]
 		record := groupCollectionRecord{
 			GroupCollectionItem: GroupCollectionItem{
+				Priority:        group.Priority,
 				PriceMultiplier: priceMultiplierResponse(group.PriceMultiplierMicros),
 				ID:              group.ID, Name: group.Name, ChannelID: channelID,
 				ConnectionType: normalizeGroupConnectionType(group.ConnectionType),

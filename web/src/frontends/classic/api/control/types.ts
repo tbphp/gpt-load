@@ -57,6 +57,7 @@ export interface GroupCollectionSummaryDto {
 }
 
 export interface GroupCollectionItemDto {
+  priority: number
   concurrency: import('@shared/concurrency').ConcurrencyView
   id: number
   name: string
@@ -143,6 +144,7 @@ export interface GroupEffectiveConfigDto {
 }
 
 export interface GroupSettingsDto {
+  priority: number
   name: string
   price_multiplier: string
   channel_id: string

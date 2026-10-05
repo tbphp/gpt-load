@@ -658,6 +658,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		if retryableTurn && !result.Committed && newBinding &&
 			(binding == nil || !binding.capabilities.Multiplex) && decision.Retry != health.RetryNone &&
 			forwardAttempts < limit && requiredRef == nil && s.ctx.Err() == nil {
+			iterator.AdvancePriority(selection)
 			if decision.Retry == health.RetryRefreshCredential && !authRefreshUsed {
 				refreshSelection, refreshRef = &selection, ref
 			}

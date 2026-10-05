@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isValidGroupPriority } from '@shared/group-priority'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -30,6 +31,7 @@ const props = defineProps<{
   validationProtocol: AccessProtocol | null
   validationProtocols: AccessProtocol[]
   models: GroupModelItemDto[]
+  priority: number
   weightManual: number | null
   priceMultiplier: string
   enabled: boolean
@@ -44,6 +46,7 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:validationProtocol': [value: AccessProtocol]
   'update:validationModel': [value: string | null]
+  'update:priority': [value: number]
   'update:weightManual': [value: number | null]
   'update:priceMultiplier': [value: string]
   'update:enabled': [value: boolean]
@@ -234,6 +237,24 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
       <h3>{{ t('group.settings.sections.routing') }}</h3>
       <p>{{ t('group.settings.routing.description') }}</p>
     </header>
+    <div class="group-settings__field group-settings__wide">
+      <label for="group-priority">{{ t('group.settings.base.priority') }}</label>
+      <input
+        id="group-priority"
+        type="number"
+        min="-2147483648"
+        max="2147483647"
+        step="1"
+        :value="priority"
+        :disabled="pending"
+        :aria-invalid="!isValidGroupPriority(priority) || undefined"
+        @input="emit('update:priority', Number(($event.target as HTMLInputElement).value))"
+      />
+      <small>{{ t('group.settings.base.priorityHelp') }}</small>
+      <small v-if="!isValidGroupPriority(priority)" role="alert">{{
+        t('group.settings.base.priorityError')
+      }}</small>
+    </div>
     <div class="group-settings__field group-settings__wide">
       <span>{{ t('group.settings.base.weight') }}</span>
       <div class="group-settings__weight-editor">

@@ -18,7 +18,7 @@ func TestRemoveObservationFreshUntilMigrationDropsColumnAndPreservesRows(t *test
 		ConnectionType: models.ConnectionTypeSubscription,
 		Params:         models.JSON(`{}`), Models: models.JSON(`[]`), Enabled: true,
 	}
-	if err := db.Omit("ProxyConfig", "PriceMultiplierMicros", "ValidationProtocol").Create(&group).Error; err != nil {
+	if err := db.Omit("ProxyConfig", "PriceMultiplierMicros", "ValidationProtocol", "Priority").Create(&group).Error; err != nil {
 		t.Fatalf("create group: %v", err)
 	}
 	credential := models.Credential{

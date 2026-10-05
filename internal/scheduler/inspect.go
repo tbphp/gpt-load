@@ -53,6 +53,7 @@ type Inspection struct {
 }
 
 type GroupInspection struct {
+	Priority                  int32
 	GroupID                   uint
 	GroupName                 string
 	ChannelID                 channel.ID
@@ -379,6 +380,7 @@ func Inspect(
 			RouteMode:                 decision.target.Mode,
 			RouteRequirementSatisfied: decision.requirementOK,
 			UpstreamModelID:           optionalModel(decision.target.UpstreamModelID),
+			Priority:                  decision.group.Priority,
 			WeightManual:              cloneWeight(decision.group.WeightManual),
 			Included:                  decision.included, Reason: decision.reason,
 			Credentials: []CredentialInspection{},

@@ -62,7 +62,9 @@ func (iterator *Iterator) selectCredential(candidates []weightedCredential, pref
 		// 同批成员共用已有成员的领先进度，不能继承落后成员的历史欠额。
 		for _, candidate := range eligible {
 			member := ledger.Members[candidate.meta.ID]
-			if member.Pending && (!ledger.GroupsKnown || ledger.Groups[member.GroupID]) {
+			// 旧请求可以继续记账，但不能用过期候选池完成新配置的入场校准。
+			if member.Pending && (!ledger.GroupsKnown || ledger.Groups[member.GroupID]) &&
+				iterator.snapshot != nil && iterator.snapshot.Revision >= ledger.GroupRevision {
 				member.Admit(baseline)
 			}
 		}
