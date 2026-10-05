@@ -31,7 +31,7 @@ const props = defineProps<{
   validationProtocol: AccessProtocol | null
   validationProtocols: AccessProtocol[]
   models: GroupModelItemDto[]
-  priority: number
+  priority: string
   weightManual: number | null
   priceMultiplier: string
   enabled: boolean
@@ -46,7 +46,7 @@ const emit = defineEmits<{
   'update:name': [value: string]
   'update:validationProtocol': [value: AccessProtocol]
   'update:validationModel': [value: string | null]
-  'update:priority': [value: number]
+  'update:priority': [value: string]
   'update:weightManual': [value: number | null]
   'update:priceMultiplier': [value: string]
   'update:enabled': [value: boolean]
@@ -248,7 +248,7 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
         :value="priority"
         :disabled="pending"
         :aria-invalid="!isValidGroupPriority(priority) || undefined"
-        @input="emit('update:priority', Number(($event.target as HTMLInputElement).value))"
+        @input="emit('update:priority', ($event.target as HTMLInputElement).value)"
       />
       <small>{{ t('group.settings.base.priorityHelp') }}</small>
       <small v-if="!isValidGroupPriority(priority)" role="alert">{{

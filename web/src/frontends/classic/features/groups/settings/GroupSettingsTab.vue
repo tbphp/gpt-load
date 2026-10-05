@@ -185,6 +185,7 @@ const dirty = computed(
   () =>
     !deleted.value &&
     (Object.keys(patch.value).length > 0 ||
+      (draft.value !== undefined && !isValidGroupPriority(draft.value.priority)) ||
       headerRulesInvalidEdits.value ||
       parameterOverridesInvalidEdits.value ||
       proxyState.value.dirty),
@@ -241,7 +242,7 @@ const valid = computed(
   () =>
     !nameError.value &&
     Object.keys(paramErrors.value).length === 0 &&
-    isValidGroupPriority(draft.value?.priority ?? 0) &&
+    isValidGroupPriority(draft.value?.priority ?? '') &&
     weightValid.value &&
     isValidPriceMultiplier(draft.value?.price_multiplier ?? '') &&
     timeoutValid.value &&
