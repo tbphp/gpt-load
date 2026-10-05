@@ -4,6 +4,8 @@ import { createRouter, createWebHistory, type RouterHistory } from 'vue-router'
 import { navigationItems, pagePath } from './app/navigation'
 import { loginLocation } from './app/redirect'
 import type { AuthSession } from './features/auth/auth-session'
+import LoginView from './features/auth/LoginView.vue'
+import HomeView from './features/home/HomeView.vue'
 
 export function createModernRouter(
   session: Pick<AuthSession, 'hasCredential' | 'getPrincipalType'>,
@@ -21,7 +23,7 @@ export function createModernRouter(
           item.id === 'proxies'
             ? () => import('./features/proxies/ProxiesView.vue')
             : item.id === 'home'
-              ? () => import('./features/home/HomeView.vue')
+              ? HomeView
               : item.id === 'settings'
                 ? () => import('./features/settings/SettingsView.vue')
                 : item.id === 'groups'
@@ -81,7 +83,7 @@ export function createModernRouter(
       {
         path: pagePath('login'),
         name: 'modern-login',
-        component: () => import('./features/auth/LoginView.vue'),
+        component: LoginView,
         meta: { titleKey: 'auth.title' },
       },
       {
