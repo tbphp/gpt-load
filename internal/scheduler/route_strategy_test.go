@@ -123,12 +123,14 @@ func TestIteratorWeightedMixPreservesStoredResponsesPriority(t *testing.T) {
 			PreferredCredentialID:    preferred,
 		})
 		wants := []uint{21, 11}
+		downgraded := []bool{false, true}
 		if preferred != 0 {
-			wants[1] = preferred
+			wants = []uint{preferred, 21}
+			downgraded = []bool{true, false}
 		}
 		for index, want := range wants {
 			selection, err := iterator.Next()
-			if err != nil || selection.CredentialID != want || selection.ResponsesStoreDowngraded != (index > 0) {
+			if err != nil || selection.CredentialID != want || selection.ResponsesStoreDowngraded != downgraded[index] {
 				t.Fatalf("preferred %d Next() %d = (%#v, %v), want credential %d with preserved store semantics", preferred, index, selection, err, want)
 			}
 		}

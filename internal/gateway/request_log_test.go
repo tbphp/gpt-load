@@ -1155,10 +1155,12 @@ func TestRequestRecorderDoesNotReuseClientMetadataWhenAttemptObservationIsUnavai
 	selection := requestLogSelection(1, 2, "group")
 	selection.UpstreamModelID = &model
 	recorder.freezeNextAttemptPricing(handler.freezeAttemptPricing(
+		nil,
 		selection,
 		dialect.RequestMetadata{ObserveUsage: true},
 		false,
 		pricing.DefaultPriceMultiplier,
+		"",
 	))
 	index := recorder.appendAttempt(
 		selection,

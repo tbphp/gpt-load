@@ -27,6 +27,12 @@ func MergeQuotaWindow(previous, patch QuotaWindow) QuotaWindow {
 	if patch.Utilization != nil {
 		merged.Used, merged.Limit = patch.Used, patch.Limit
 		merged.Remaining, merged.Utilization = patch.Remaining, patch.Utilization
+		merged.ObservedAtMS = patch.ObservedAtMS
+	} else if patch.ResetAtMS != nil && (previous.ResetAtMS == nil || *patch.ResetAtMS != *previous.ResetAtMS) {
+		// 任何 reset 变化且无新 usage，都不能让旧 ratio 跨周期继续有效。
+		// 保留 Used/Limit/Remaining/Utilization/State 供管理面展示，
+		// 但使策略端 ObservedAtMS 失效 (nil)，从而在策略端评估为 FactStateUnknown。
+		merged.ObservedAtMS = nil
 	}
 	if patch.ResetAtMS != nil {
 		merged.ResetAtMS = patch.ResetAtMS

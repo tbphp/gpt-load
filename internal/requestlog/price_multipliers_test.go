@@ -29,6 +29,8 @@ func TestPriceMultipliersSurvivePersistenceAndAllCostQueries(t *testing.T) {
 		{"v6 rounds original lines before adjusting total", 6, "0.8", "2.5", usage.Tokens{UncachedInput: 1, Output: 1}, 600_000, 1, 2, 4},
 		// v5 各项 0.6 × 2 后舍入为 1，总计 2；读取时不得套用 v6 的总费公式。
 		{"v5 preserves historical line rounding", 5, "0.8", "2.5", usage.Tokens{UncachedInput: 1, Output: 1}, 600_000, 1, 0, 2},
+		// v7 保存并展示动态策略因子。
+		{"v7 writes and reads policy factors", 7, "1", "1", usage.Tokens{UncachedInput: 1000}, 2_000_000_000, 2_000_000, 2_000_000, 4_000_000},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			event := channelScopedEvent(t, "00000000-0000-4000-8000-000000009001")
@@ -54,8 +56,16 @@ func TestPriceMultipliersSurvivePersistenceAndAllCostQueries(t *testing.T) {
 				"line_items":        lines,
 				"total_nano_usd":    test.finalTotal,
 			}
-			if test.schema == 6 {
+			if test.schema == 6 || test.schema == 7 {
 				receipt["base_total_nano_usd"] = test.baseTotal
+			}
+			if test.schema == 7 {
+				receipt["policy_factors"] = []any{
+					map[string]any{
+						"rule_id": "p1", "name_snapshot": "Rule 1", "binding_scope": "group",
+						"revision": 1, "factor": "2", "multiplier": "2",
+					},
+				}
 			}
 			encoded, err := json.Marshal(receipt)
 			if err != nil {
@@ -93,7 +103,7 @@ func TestPriceMultipliersSurvivePersistenceAndAllCostQueries(t *testing.T) {
 				t.Fatal(err)
 			}
 			base, hasBase := frozenFields["base_total_nano_usd"]
-			if hasBase != (test.schema == 6) || (hasBase && string(base) != fmt.Sprint(test.baseTotal)) {
+			if hasBase != (test.schema >= 6) || (hasBase && string(base) != fmt.Sprint(test.baseTotal)) {
 				t.Fatalf("frozen base total = %s, want schema v%d base %d", frozen, test.schema, test.baseTotal)
 			}
 			for _, line := range detail.Attempts[0].PricingReceipt.LineItems {

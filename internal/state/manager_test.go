@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/policy"
 )
 
 func TestManagerReconcilesInfrastructureBeforePublishingSnapshot(t *testing.T) {
@@ -386,4 +387,72 @@ func managerCompileInput(groupID uint) CompileInput {
 			Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "model"}}, Enabled: true,
 		}},
 	}
+}
+
+// publishSnapshot 发布输入并断言 snapshot revision 与 affinity revision。
+func publishSnapshot(t *testing.T, manager *Manager, input CompileInput, wantRevision, wantAffinityRevision uint64) *ConfigSnapshot {
+	t.Helper()
+	snapshot, err := manager.Publish(input)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if snapshot.Revision != wantRevision || snapshot.AffinityRevision != wantAffinityRevision {
+		t.Fatalf("Publish() = rev %d, affinityRev %d, want %d, %d", snapshot.Revision, snapshot.AffinityRevision, wantRevision, wantAffinityRevision)
+	}
+	return snapshot
+}
+
+func TestManagerPublishPolicyOnlyPreservesAffinityRevision(t *testing.T) {
+	manager := NewManager()
+	input1 := managerCompileInput(1)
+	publishSnapshot(t, manager, input1, 1, 1)
+
+	// Policy-only update: input with a policy binding added
+	ruleJSON := []byte(`{"schema_version":1,"rules":[{"id":"p1","name":"Rule 1","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gpt-4o"},"actions":[{"type":"exclude_candidate"}]}]}`)
+	input2 := managerCompileInput(1)
+	input2.PolicyBindings = []policy.BindingConfig{{Scope: "group", GroupID: 1, Config: ruleJSON}}
+	publishSnapshot(t, manager, input2, 2, 1)
+
+	// Incompatible update: group name / channel / model change
+	input3 := input2
+	input3.Groups = []GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "group-renamed", ChannelID: channel.OpenAI, Params: json.RawMessage(`{}`), Models: []ModelConfig{{ID: "model-new"}}, Enabled: true}}
+	publishSnapshot(t, manager, input3, 3, 2)
+}
+
+func TestManagerPublishPolicyOnlyWithVertexPreservesAffinityRevision(t *testing.T) {
+	manager := NewManager()
+	// Google Vertex registers RouteResolver closures in ResolvedTarget.
+	// Standard reflect.DeepEqual always returns false on non-nil funcs, which
+	// previously caused pure policy updates to increment AffinityRevision and flush cache.
+	input1 := CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "vertex-group", ChannelID: channel.GoogleVertex,
+			Params: json.RawMessage(`{"location":"us-central1"}`), Models: []ModelConfig{{ID: "gemini-1.5-pro"}}, Enabled: true,
+		}},
+	}
+	first := publishSnapshot(t, manager, input1, 1, 1)
+
+	// 1. Matches should return true for identical input even with Vertex RouteResolvers
+	matches, err := manager.Matches(input1)
+	if err != nil || !matches {
+		t.Fatalf("Matches(input1) = %v, %v, want true, nil", matches, err)
+	}
+
+	// 2. Policy-only update on Vertex group: AffinityRevision MUST be preserved
+	ruleJSON := []byte(`{"schema_version":1,"rules":[{"id":"p-vertex","name":"Vertex Rule","domain":"scheduling","enabled":true,"when":{"fact":"request.model","op":"eq","value":"gemini-1.5-pro"},"actions":[{"type":"exclude_candidate"}]}]}`)
+	input2 := input1
+	input2.PolicyBindings = []policy.BindingConfig{{Scope: "group", GroupID: 1, Config: ruleJSON}}
+	second := publishSnapshot(t, manager, input2, 2, 1)
+
+	// 3. Stale-write fence: publication always advanced global Revision from 1 to 2
+	if second.Revision <= first.Revision {
+		t.Fatalf("Revision must advance for stale-write fencing: got %d <= %d", second.Revision, first.Revision)
+	}
+
+	// 4. Incompatible change (route / model / config change) MUST increment AffinityRevision
+	input3 := input2
+	input3.Groups = []GroupConfig{{ConnectionType: "api_key", ID: 1, Name: "vertex-group-changed", ChannelID: channel.GoogleVertex,
+		Params: json.RawMessage(`{"location":"us-east4"}`), Models: []ModelConfig{{ID: "gemini-1.5-flash"}}, Enabled: true,
+	}}
+	publishSnapshot(t, manager, input3, 3, 2)
 }

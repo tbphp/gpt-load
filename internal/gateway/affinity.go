@@ -14,6 +14,7 @@ type requestAffinity struct {
 	preferredCredentialID uint
 	continuityKey         string
 	kind                  string
+	snapshotRevision      uint64
 }
 
 func (handler *Handler) resolveRequestAffinity(
@@ -34,14 +35,19 @@ func (handler *Handler) resolveRequestAffinity(
 		prefix,
 	)
 	// 执行层私有 replay scope 仍由提示词派生，不把客户端缓存分组当作会话身份。
-	result := requestAffinity{continuityKey: string(key), kind: telemetry.AffinityPromptPrefix}
+	result := requestAffinity{continuityKey: string(key), kind: telemetry.AffinityPromptPrefix, snapshotRevision: snapshot.Revision}
 	if promptCacheKey != "" {
 		key = affinity.DerivePromptCacheKey(handler.encryption, accessKeyID, clientProtocol, promptCacheKey)
 		result.kind = telemetry.AffinityPromptCacheKey
 	}
+	affinityRev := snapshot.AffinityRevision
+	if affinityRev == 0 {
+		affinityRev = snapshot.Revision
+	}
 	if handler.affinityCache == nil ||
 		!handler.affinityCache.Configure(
 			snapshot.Revision,
+			affinityRev,
 			snapshot.Settings.AffinityCapacity,
 			snapshot.Settings.AffinityTTL,
 		) {
@@ -52,6 +58,9 @@ func (handler *Handler) resolveRequestAffinity(
 	}
 	result.key = key
 	observation := handler.affinityCache.Lookup(key)
+	if observation.Revision() != snapshot.Revision {
+		observation = affinity.Observation{}
+	}
 	resolved := result
 	resolved.observation = observation
 	if !observation.Found() {
@@ -77,7 +86,9 @@ func (handler *Handler) recordAffinitySuccess(
 	ref state.CredentialRef,
 ) {
 	if handler == nil || handler.affinityCache == nil || !request.key.Valid() ||
-		!selection.Group.AffinityEnabled {
+		!selection.Group.AffinityEnabled ||
+		request.snapshotRevision == 0 ||
+		request.snapshotRevision != request.observation.Revision() {
 		return
 	}
 	handler.affinityCache.RecordSuccess(

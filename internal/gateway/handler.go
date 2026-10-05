@@ -29,6 +29,7 @@ import (
 	"gpt-load/internal/platform/encryption"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
@@ -83,6 +84,7 @@ type runtimeCredentialRegistry interface {
 	CaptureActiveCredentialRefs(groupIDs []uint) []state.CredentialRef
 	CredentialRef(credentialID uint) (state.CredentialRef, bool)
 	ActiveEncryptedCredentialDataIfMatch(ref state.CredentialRef) (string, bool)
+	CredentialQuotaWindows(id uint, generation uint64) ([]policy.QuotaWindowFact, bool)
 	SetCooldownWithChange(credentialID uint, until time.Time) (exists bool, changed bool)
 	SetCooldownWithChangeIfVersion(credentialID uint, expectedVersion uint64, until time.Time) (matched bool, changed bool)
 	SetModelCooldown(state.CredentialRef, string, time.Time, time.Time) (bool, bool)
@@ -129,10 +131,12 @@ type Handler struct {
 }
 
 func (handler *Handler) freezeAttemptPricing(
+	snapshot *state.ConfigSnapshot,
 	selection scheduler.Selection,
 	observations dialect.RequestMetadata,
 	observationsAvailable bool,
 	accessKeyMultiplier pricing.PriceMultiplier,
+	requestModel string,
 ) frozenAttemptPricing {
 	frozen := frozenAttemptPricing{
 		channelID:     string(selection.ChannelID),
@@ -150,6 +154,46 @@ func (handler *Handler) freezeAttemptPricing(
 	}
 	if observations.Operation != execution.OperationWebSearch && observationsAvailable && handler != nil && handler.priceTables != nil {
 		frozen.table = handler.priceTables.Load()
+	}
+	if snapshot == nil && handler != nil && handler.manager != nil {
+		snapshot = handler.manager.Current()
+	}
+	if snapshot != nil && snapshot.Policies != nil && handler != nil {
+		if !snapshot.Policies.HasApplicablePricing(selection.GroupID, selection.CredentialID) {
+			return frozen
+		}
+		now := handler.now()
+		var quotaWindows []policy.QuotaWindowFact
+		if handler.registry != nil {
+			if windows, ok := handler.registry.CredentialQuotaWindows(selection.CredentialID, selection.IdentityGeneration); ok {
+				quotaWindows = windows
+			}
+		}
+		requestModelValue := requestModel
+		if requestModelValue == "" {
+			requestModelValue = optionalModelValue(observations.Model)
+		}
+		ctx := &policy.EvalContext{
+			Now:           now,
+			RequestModel:  policy.StringFactFromModel(requestModelValue),
+			UpstreamModel: policy.StringFactFromModel(optionalModelValue(selection.UpstreamModelID)),
+			QuotaWindows:  quotaWindows,
+		}
+		matches := snapshot.Policies.EvalPricing(selection.GroupID, selection.CredentialID, ctx)
+		if len(matches) > 0 {
+			factors := make([]pricing.PolicyFactor, len(matches))
+			for i, m := range matches {
+				factors[i] = pricing.PolicyFactor{
+					RuleID:       m.RuleID,
+					NameSnapshot: m.NameSnapshot,
+					BindingScope: m.BindingScope,
+					Revision:     m.Revision,
+					Factor:       m.Factor,
+					Multiplier:   m.Multiplier,
+				}
+			}
+			frozen.policyFactors = factors
+		}
 	}
 	return frozen
 }
@@ -198,6 +242,9 @@ func NewHandler(
 			time.Minute,
 			time.Now,
 		),
+	}
+	if manager != nil {
+		manager.SetAffinitySynchronizer(handler.affinityCache)
 	}
 	for _, runtime := range accessQuotas {
 		if runtime != nil {
@@ -646,8 +693,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	recorder.setClientModel(model)
 	recorder.setOperation(metadata.Operation)
 	recorder.setStream(metadata.Stream)
+	var requestModel *string
+	if model != "" {
+		requestModel = &model
+	}
 	var boundAuto *automodel.Selection
-	autoQuery := scheduler.Query{}
+	autoQuery := scheduler.Query{RequestModel: requestModel}
 	if metadata.PreviousResponseID != "" {
 		binding, found := handler.responseBindings.Lookup(accessKey.ID, metadata.PreviousResponseID)
 		if !found {
@@ -679,6 +730,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		Operation:                metadata.Operation,
 		RouteRequirement:         metadata.RouteRequirement,
 		ResponsesStorePreference: metadata.ResponsesStorePreference,
+		RequestModel:             requestModel,
 		ExternalModel:            metadata.Model,
 		AccessKey:                accessKey,
 	}
@@ -714,6 +766,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 				ID: binding.CredentialID, GroupID: binding.GroupID,
 				IdentityGeneration: binding.IdentityGeneration,
 			},
+		}
+		query.PreferredCredentialID = binding.CredentialID
+		if capturedRef, ok := allowedCredentialRefs[binding.CredentialID]; ok {
+			allowedCredentialRefs = map[uint]state.CredentialRef{binding.CredentialID: capturedRef}
+		} else {
+			allowedCredentialRefs = make(map[uint]state.CredentialRef)
 		}
 	} else {
 		requestAffinity = handler.resolveRequestAffinity(
@@ -1057,10 +1115,12 @@ func (handler *Handler) executeAttempts(
 		if recorder != nil {
 			recorder.freezeNextAttemptPricing(
 				handler.freezeAttemptPricing(
+					snapshot,
 					selection,
 					attemptObservations,
 					attemptObservationsAvailable,
 					recorder.accessKeyMultiplier,
+					recorder.clientModel,
 				),
 			)
 		}
@@ -1348,10 +1408,12 @@ func (handler *Handler) executeAttempts(
 			}
 			recorder.freezeNextAttemptPricing(
 				handler.freezeAttemptPricing(
+					snapshot,
 					selection,
 					attemptObservations,
 					attemptObservationsAvailable,
 					recorder.accessKeyMultiplier,
+					recorder.clientModel,
 				),
 			)
 		}

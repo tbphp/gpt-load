@@ -93,3 +93,51 @@ func TestMergeQuotaWindowIgnoresUnknownPatchState(t *testing.T) {
 		t.Fatalf("merged state = %q, want preserved exhausted", merged.State)
 	}
 }
+
+func TestMergeQuotaWindowResetOnlyPatchInvalidatesObservedAtOnResetChange(t *testing.T) {
+	previous := QuotaWindow{
+		ID: "primary", Scope: "account", Unit: "percent",
+		Used: floatPtr(10), Limit: floatPtr(100), Remaining: floatPtr(90), Utilization: floatPtr(0.1),
+		ResetAtMS: int64Ptr(1000), WindowSeconds: int64Ptr(300), State: "available",
+		ObservedAtMS: int64Ptr(500),
+	}
+	// Reset-only patch with changed ResetAtMS: must keep display fields, but invalidate ObservedAtMS to nil
+	patch := QuotaWindow{
+		ID: "primary", Scope: "account",
+		ResetAtMS: int64Ptr(2000),
+	}
+
+	merged := MergeQuotaWindow(previous, patch)
+
+	if merged.ObservedAtMS != nil {
+		t.Fatalf("merged.ObservedAtMS = %v, want nil", merged.ObservedAtMS)
+	}
+	if merged.Used == nil || *merged.Used != 10 || merged.Utilization == nil || *merged.Utilization != 0.1 {
+		t.Fatalf("merged display fields modified unexpectedly: %#v", merged)
+	}
+	if merged.ResetAtMS == nil || *merged.ResetAtMS != 2000 {
+		t.Fatalf("merged.ResetAtMS = %v, want 2000", merged.ResetAtMS)
+	}
+}
+
+func TestMergeQuotaWindowUtilizationPatchUpdatesObservedAt(t *testing.T) {
+	previous := QuotaWindow{
+		ID: "primary", Scope: "account",
+		Used: floatPtr(10), Limit: floatPtr(100), Remaining: floatPtr(90), Utilization: floatPtr(0.1),
+		ResetAtMS: int64Ptr(1000), ObservedAtMS: int64Ptr(500),
+	}
+	patch := QuotaWindow{
+		ID: "primary", Scope: "account",
+		Used: floatPtr(20), Limit: floatPtr(100), Remaining: floatPtr(80), Utilization: floatPtr(0.2),
+		ObservedAtMS: int64Ptr(700),
+	}
+
+	merged := MergeQuotaWindow(previous, patch)
+
+	if merged.ObservedAtMS == nil || *merged.ObservedAtMS != 700 {
+		t.Fatalf("merged.ObservedAtMS = %v, want 700", merged.ObservedAtMS)
+	}
+	if merged.Utilization == nil || *merged.Utilization != 0.2 {
+		t.Fatalf("merged.Utilization = %v, want 0.2", merged.Utilization)
+	}
+}

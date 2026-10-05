@@ -21,6 +21,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -241,7 +242,7 @@ func TestAutoModelWebsocketPrewarmDoesNotFreezeLaterTask(t *testing.T) {
 	}
 }
 
-func configureAutoModelTest(t *testing.T, handler *Handler, manager *state.Manager, filters state.FilterSet) {
+func configureAutoModelTest(t *testing.T, handler *Handler, manager *state.Manager, filters state.FilterSet, bindings ...policy.BindingConfig) {
 	t.Helper()
 	config := automodel.DefaultConfig()
 	config.Enabled = true
@@ -250,7 +251,7 @@ func configureAutoModelTest(t *testing.T, handler *Handler, manager *state.Manag
 		{ID: "balanced", Name: "balanced", Description: "Ordinary bounded implementation", Model: "gpt-4o", ParameterOverrides: json.RawMessage(`[{"match":{"protocol":"openai-completions"},"set":{"reasoning_effort":"medium"}}]`)},
 		{ID: "strong", Name: "strong", Description: "Complex architecture", Model: "gpt-4.1", ParameterOverrides: json.RawMessage(`[{"match":{"protocol":"openai-responses"},"set":{"reasoning":{"effort":"high"}}}]`)},
 	}}}
-	_, err := manager.Publish(state.CompileInput{AutoModel: &config, ChannelRegistry: channel.NewRegistry(),
+	_, err := manager.Publish(state.CompileInput{AutoModel: &config, ChannelRegistry: channel.NewRegistry(), PolicyBindings: bindings,
 		Groups: []state.GroupConfig{
 			{ID: 1, Name: "openai", ChannelID: channel.OpenAI, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "gpt-4o"}, {ID: "gpt-4.1"}}, Enabled: true},
 			{ID: 2, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true},

@@ -26,6 +26,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestaudit"
@@ -83,6 +84,7 @@ type compileRows struct {
 	accessKeys           []models.AccessKey
 	costLimitRules       []models.AccessKeyCostLimitRule
 	clientModelOverrides []models.ClientModelOverride
+	policyBindings       []models.PolicyBinding
 }
 
 type modelDTO struct {
@@ -326,6 +328,11 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 	}
 	if err := db.Order("model_hash ASC").Find(&rows.clientModelOverrides).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query client model overrides: %w", err)
+	}
+	if db.Migrator().HasTable(&models.PolicyBinding{}) {
+		if err := db.Order("id ASC").Find(&rows.policyBindings).Error; err != nil {
+			return compileRows{}, fmt.Errorf("query policy bindings: %w", err)
+		}
 	}
 	return rows, nil
 }
@@ -805,6 +812,18 @@ func mapSystemAndGroups(
 			group.Proxy = proxyCatalog.Resolve(proxy)
 		}
 		input.Groups = append(input.Groups, group)
+	}
+	if len(rows.policyBindings) > 0 {
+		input.PolicyBindings = make([]policy.BindingConfig, 0, len(rows.policyBindings))
+		for _, pb := range rows.policyBindings {
+			input.PolicyBindings = append(input.PolicyBindings, policy.BindingConfig{
+				Scope:        string(pb.Scope),
+				GroupID:      pb.GroupID,
+				CredentialID: pb.CredentialID,
+				Revision:     uint64(pb.Revision),
+				Config:       pb.Config,
+			})
+		}
 	}
 	return input, nil
 }

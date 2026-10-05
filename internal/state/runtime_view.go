@@ -3,6 +3,8 @@ package state
 import (
 	"sort"
 	"time"
+
+	"gpt-load/internal/policy"
 )
 
 type CredentialRuntimeView struct {
@@ -19,6 +21,7 @@ type CredentialRuntimeView struct {
 	FailureCount       int
 	QuotaRemaining     *float64
 	QuotaResetAt       time.Time
+	QuotaWindows       []policy.QuotaWindowFact
 }
 
 func (view CredentialRuntimeView) AuthReady() bool {
@@ -51,6 +54,14 @@ func (view CredentialRuntimeView) RuntimeState(now time.Time) CredentialRuntimeS
 	return CredentialRuntimeAvailable
 }
 
+func (view CredentialRuntimeView) Clone() CredentialRuntimeView {
+	view.WeightManual = cloneWeight(view.WeightManual)
+	view.ModelCooldowns = cloneModelCooldowns(view.ModelCooldowns)
+	view.QuotaRemaining = cloneFloat(view.QuotaRemaining)
+	view.QuotaWindows = policy.CloneQuotaWindows(view.QuotaWindows)
+	return view
+}
+
 func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 	return CredentialRuntimeView{
 		ID:                 entry.ID,
@@ -66,6 +77,7 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		FailureCount:       entry.FailureCount,
 		QuotaRemaining:     cloneFloat(entry.quotaRemaining),
 		QuotaResetAt:       entry.quotaResetAt,
+		QuotaWindows:       policy.CloneQuotaWindows(entry.quotaFacts),
 	}
 }
 
@@ -79,11 +91,37 @@ func sortRuntimeViews(views []CredentialRuntimeView) {
 }
 
 func (r *CredentialRegistry) Snapshot() []CredentialRuntimeView {
+	return r.SnapshotForScope(0, 0)
+}
+
+// SnapshotForScope returns an immutable view of runtime health for credentials matching
+// groupID and/or credentialID, filtering before cloning to minimize allocation overhead.
+// If both groupID and credentialID are 0, it behaves identically to Snapshot().
+func (r *CredentialRegistry) SnapshotForScope(groupID, credentialID uint) []CredentialRuntimeView {
+	if r == nil {
+		return []CredentialRuntimeView{}
+	}
 	r.mu.RLock()
-	views := make([]CredentialRuntimeView, 0, len(r.credentialGroups))
-	for _, bucket := range r.buckets {
+	views := make([]CredentialRuntimeView, 0, 8)
+	collect := func(bucket map[uint]*CredentialEntry) {
 		for _, entry := range bucket {
 			views = append(views, runtimeView(entry))
+		}
+	}
+	switch {
+	case credentialID != 0 && groupID != 0:
+		if entry, ok := r.buckets[groupID][credentialID]; ok {
+			views = append(views, runtimeView(entry))
+		}
+	case credentialID != 0:
+		if entry, ok := r.entryLocked(credentialID); ok {
+			views = append(views, runtimeView(entry))
+		}
+	case groupID != 0:
+		collect(r.buckets[groupID])
+	default:
+		for _, bucket := range r.buckets {
+			collect(bucket)
 		}
 	}
 	r.mu.RUnlock()

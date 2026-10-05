@@ -357,6 +357,23 @@ func (t ResolvedTarget) SupportsResponsesLifecycle() bool {
 	return true
 }
 
+// WithoutResolverFunctions returns a copy of ResolvedTarget with its closure-based
+// resolvers map cloned such that all registered routeKeys are preserved but their
+// function values are set to nil. This allows standard reflect.DeepEqual to compare
+// targets (including verifying identical resolver key presence) without comparing
+// non-comparable function pointers, while leaving the receiver unmutated.
+func (t ResolvedTarget) WithoutResolverFunctions() ResolvedTarget {
+	clone := t
+	if t.resolvers != nil {
+		cleared := make(map[routeKey]spec.RouteResolver, len(t.resolvers))
+		for k := range t.resolvers {
+			cleared[k] = nil
+		}
+		clone.resolvers = cleared
+	}
+	return clone
+}
+
 // Registry is an immutable code-owned channel directory.
 type Registry struct {
 	byID  map[ID]definition

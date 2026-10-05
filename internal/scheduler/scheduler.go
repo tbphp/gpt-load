@@ -9,6 +9,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/policy"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -25,11 +26,13 @@ type Query struct {
 	Operation                execution.Operation
 	RouteRequirement         execution.RouteRequirement
 	ResponsesStorePreference execution.ResponsesStorePreference
+	RequestModel             *string
 	ExternalModel            *string
 	AccessKey                state.AccessKeyView
 	AllowedCredentialIDs     map[uint]struct{}
 	PreferredCredentialID    uint
 	AllowedCredentialRefs    map[uint]state.CredentialRef
+	Policies                 *policy.RuntimeView
 
 	// ResponsesWebsocket 非 nil 时按原生 WS 合同准入，不要求 HTTP 资源接口。
 	ResponsesWebsocket *execution.WebsocketCapabilities
@@ -37,6 +40,7 @@ type Query struct {
 
 type Selection struct {
 	CredentialID             uint
+	IdentityGeneration       uint64
 	GroupID                  uint
 	ChannelID                channel.ID
 	ResolvedTarget           channel.ResolvedTarget
@@ -64,6 +68,7 @@ type candidatePool struct {
 
 type Iterator struct {
 	snapshot              *state.ConfigSnapshot
+	policies              *policy.RuntimeView
 	query                 Query
 	operation             execution.Operation
 	credentials           CredentialSource
@@ -86,6 +91,7 @@ type normalizedQuery struct {
 	routeRequirement         execution.RouteRequirement
 	responsesStorePreference execution.ResponsesStorePreference
 	responsesWebsocket       *execution.WebsocketCapabilities
+	requestModel             *string
 	externalModel            *string
 	accessKey                state.AccessKeyView
 	allowedCredentialIDs     map[uint]struct{}
@@ -129,8 +135,12 @@ func newWithClock(
 	query Query,
 	now func() time.Time,
 ) *Iterator {
+	policies := query.Policies
+	if policies == nil && snapshot != nil {
+		policies = snapshot.Policies
+	}
 	iterator := &Iterator{
-		snapshot: snapshot, query: query, operation: normalizeQuery(query).operation,
+		snapshot: snapshot, policies: policies, query: query, operation: normalizeQuery(query).operation,
 		credentials:           credentials,
 		allowedCredentialRefs: cloneCredentialIdentities(query.AllowedCredentialRefs),
 		regular:               newCandidatePool(),
@@ -284,6 +294,44 @@ func (iterator *Iterator) Next() (Selection, error) {
 	if iterator == nil || iterator.credentials == nil || iterator.progress == nil || iterator.now == nil {
 		return Selection{}, ErrExhausted
 	}
+	// 亲和性是软建议 (Soft Preference)：先尝试首选凭据，但 withWeightedPool 已按 Policy
+	// 硬约束剔除被 exclude_candidate/exclude_models 否决的候选。首选一旦被策略排除即不被选中，
+	// 循环结束后自动 Fallback 到常规调度寻找下一个可用凭据。
+	if iterator.preferredCredentialID > 0 {
+		now := iterator.now()
+		preferredID := iterator.preferredCredentialID
+		for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
+			for _, modes := range iterator.routeModeTiers {
+				var selected state.CredentialMeta
+				var target candidateTarget
+				var found bool
+				iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
+					hasPreferred := false
+					for _, candidate := range weighted {
+						if candidate.meta.ID == preferredID {
+							hasPreferred = true
+							break
+						}
+					}
+					if !hasPreferred {
+						return
+					}
+					selected, found = iterator.selectCredential(weighted, preferredID)
+					if !found {
+						return
+					}
+					target = iterator.selectTarget(pool, modes, selected, now)
+				})
+				if !found {
+					continue
+				}
+				iterator.tried[selected.ID] = struct{}{}
+				iterator.preferredCredentialID = 0
+				return newSelection(selected, target), nil
+			}
+		}
+		iterator.preferredCredentialID = 0
+	}
 	for _, pool := range []*candidatePool{&iterator.regular, &iterator.storeDowngraded} {
 		for _, modes := range iterator.routeModeTiers {
 			var selected state.CredentialMeta
@@ -291,7 +339,7 @@ func (iterator *Iterator) Next() (Selection, error) {
 			var found bool
 			now := iterator.now()
 			iterator.withWeightedPool(pool, modes, now, func(weighted []weightedCredential) {
-				selected, found = iterator.selectCredential(weighted, iterator.preferredCredentialID)
+				selected, found = iterator.selectCredential(weighted, 0)
 				if !found {
 					return
 				}
@@ -307,9 +355,46 @@ func (iterator *Iterator) Next() (Selection, error) {
 	return Selection{}, ErrExhausted
 }
 
+func (iterator *Iterator) requestModel() string {
+	if iterator == nil {
+		return ""
+	}
+	if iterator.query.RequestModel != nil && *iterator.query.RequestModel != "" {
+		return *iterator.query.RequestModel
+	}
+	if iterator.query.ExternalModel != nil {
+		return *iterator.query.ExternalModel
+	}
+	return ""
+}
+
+// isPolicyExcludedTarget 是调度准入的唯一策略硬约束点。
+// 原则：策略 (Policy) 优先于亲和性 (Affinity)。策略是硬约束，亲和性只是软建议；
+// 只要候选凭据/模型被 exclude_candidate 或 exclude_models 标记，就一票否决，
+// 无论此前是否建立了会话亲和性，都必须排除并触发 Fallback 寻找下一个可用凭据。
+//
+// 会话亲和性为软偏好，策略排除为硬约束；此处优先执行策略过滤。若后续引入动态权重或优先级策略，在此处评估平滑会话迁移。
+func (iterator *Iterator) isPolicyExcludedTarget(upstreamModelID string, groupID, credentialID uint, quotaWindows []policy.QuotaWindowFact, now time.Time) bool {
+	if iterator == nil || iterator.policies == nil {
+		return false
+	}
+	ctx := &policy.EvalContext{
+		Now:           now,
+		RequestModel:  policy.StringFactFromModel(iterator.requestModel()),
+		UpstreamModel: policy.StringFactFromModel(upstreamModelID),
+		QuotaWindows:  quotaWindows,
+	}
+
+	excluded, _ := iterator.policies.EvalCandidate(groupID, credentialID, ctx)
+	return excluded
+}
+
+// targetAvailable 依次施加模型冷却与策略硬约束。策略硬约束优先于会话亲和性：
+// 被 Policy 排除的目标绝不因 PreferredCredentialID 而被保留。
 func (iterator *Iterator) targetAvailable(target candidateTarget, credential state.CredentialMeta, modes []channel.RouteMode, now time.Time) bool {
 	return slices.Contains(modes, target.target.Mode) &&
-		!modelCooldownUntil(credential.ModelCooldowns, target.target.UpstreamModelID, iterator.operation, now).After(now)
+		!modelCooldownUntil(credential.ModelCooldowns, target.target.UpstreamModelID, iterator.operation, now).After(now) &&
+		!iterator.isPolicyExcludedTarget(target.target.UpstreamModelID, target.target.GroupID, credential.ID, credential.QuotaWindows, now)
 }
 
 // 只为已选凭据收集模型，避免每个凭据都复制完整候选列表。
@@ -383,12 +468,17 @@ func normalizeQuery(query Query) normalizedQuery {
 			operation = execution.OperationChatCompletion
 		}
 	}
+	reqModel := cloneString(query.RequestModel)
+	if reqModel == nil {
+		reqModel = cloneString(query.ExternalModel)
+	}
 	return normalizedQuery{
 		clientProtocol:           clientProtocol,
 		operation:                operation,
 		routeRequirement:         query.RouteRequirement.Normalize(),
 		responsesStorePreference: query.ResponsesStorePreference,
 		responsesWebsocket:       cloneWebsocketCapabilities(query.ResponsesWebsocket),
+		requestModel:             reqModel,
 		externalModel:            cloneString(query.ExternalModel),
 		accessKey:                query.AccessKey,
 		allowedCredentialIDs:     cloneAllowedCredentialIDs(query),
@@ -409,6 +499,7 @@ func newSelection(credential state.CredentialMeta, target candidateTarget) Selec
 	resolvedTarget.TargetConfig = append([]byte(nil), resolvedTarget.TargetConfig...)
 	return Selection{
 		CredentialID:             credential.ID,
+		IdentityGeneration:       credential.IdentityGeneration,
 		GroupID:                  credential.GroupID,
 		ChannelID:                resolvedTarget.ChannelID,
 		ResolvedTarget:           resolvedTarget,

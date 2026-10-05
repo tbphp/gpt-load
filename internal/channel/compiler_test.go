@@ -432,3 +432,78 @@ func findModule(t *testing.T, all []spec.Module, id spec.ID) spec.Module {
 	t.Fatalf("channel module %q not found", id)
 	return spec.Module{}
 }
+
+func TestResolvedTargetWithoutResolverFunctions(t *testing.T) {
+	key1 := routeKey{clientProtocol: protocol.OpenAICompletions, operation: execution.OperationListModels}
+	fn1 := func(string, execution.RouteMode) execution.RouteMode { return execution.RouteNative }
+	fn2 := func(string, execution.RouteMode) execution.RouteMode { return execution.RouteNative }
+
+	t1 := ResolvedTarget{
+		ChannelID:    OpenAI,
+		ProviderKind: ProviderOpenAI,
+		TargetConfig: []byte(`{"base_url":"https://api.openai.com"}`),
+		modes: map[protocol.Protocol]map[execution.Operation]RouteMode{
+			protocol.OpenAICompletions: {execution.OperationListModels: RouteNative},
+		},
+		resolvers: map[routeKey]spec.RouteResolver{
+			key1: fn1,
+		},
+	}
+	// t2 has the exact same configuration and key set, but a distinct closure instance
+	t2 := ResolvedTarget{
+		ChannelID:    OpenAI,
+		ProviderKind: ProviderOpenAI,
+		TargetConfig: []byte(`{"base_url":"https://api.openai.com"}`),
+		modes: map[protocol.Protocol]map[execution.Operation]RouteMode{
+			protocol.OpenAICompletions: {execution.OperationListModels: RouteNative},
+		},
+		resolvers: map[routeKey]spec.RouteResolver{
+			key1: fn2,
+		},
+	}
+
+	// 1. Raw reflect.DeepEqual fails on distinct non-nil closure functions
+	if reflect.DeepEqual(t1, t2) {
+		t.Fatal("reflect.DeepEqual(t1, t2) should fail on distinct closure instances")
+	}
+
+	// 2. WithoutResolverFunctions nils function values while retaining key presence
+	s1 := t1.WithoutResolverFunctions()
+	s2 := t2.WithoutResolverFunctions()
+	if !reflect.DeepEqual(s1, s2) {
+		t.Fatal("reflect.DeepEqual(s1, s2) = false, want true for identical config and resolver keys")
+	}
+
+	// 3. Receiver immutability check: original targets must retain their non-nil closures
+	if t1.resolvers[key1] == nil || t2.resolvers[key1] == nil {
+		t.Fatal("WithoutResolverFunctions mutated receiver's resolvers map")
+	}
+
+	// 4. Regression: resolver key presence change MUST cause DeepEqual to fail
+	key2 := routeKey{clientProtocol: protocol.OpenAIResponses, operation: execution.OperationResponsesCreate}
+	tExtraKey := t2
+	tExtraKey.resolvers = map[routeKey]spec.RouteResolver{
+		key1: fn1,
+		key2: fn2,
+	}
+	sExtra := tExtraKey.WithoutResolverFunctions()
+	if reflect.DeepEqual(s1, sExtra) {
+		t.Fatal("reflect.DeepEqual should fail when resolver key presence changes (extra key)")
+	}
+
+	tDiffKey := t2
+	tDiffKey.resolvers = map[routeKey]spec.RouteResolver{
+		key2: fn2,
+	}
+	sDiff := tDiffKey.WithoutResolverFunctions()
+	if reflect.DeepEqual(s1, sDiff) {
+		t.Fatal("reflect.DeepEqual should fail when resolver key is different")
+	}
+
+	tNoResolvers := t2
+	tNoResolvers.resolvers = nil
+	sNoResolvers := tNoResolvers.WithoutResolverFunctions()
+	if reflect.DeepEqual(s1, sNoResolvers) {
+		t.Fatal("reflect.DeepEqual should fail when comparing with nil resolvers")
+	}
+}
