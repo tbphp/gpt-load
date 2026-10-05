@@ -195,3 +195,69 @@ func TestQuotePriceMultipliersFailClosedForInvalidFactorsAndOverflow(t *testing.
 		})
 	}
 }
+
+// testPolicyFactor 构造冻结的 policy factor；value 为测试常量，解析失败即 panic。
+func testPolicyFactor(id, name, scope, value string, revision uint64) PolicyFactor {
+	multiplier, err := ParsePriceMultiplier(value)
+	if err != nil {
+		panic(err)
+	}
+	return PolicyFactor{RuleID: id, NameSnapshot: name, BindingScope: scope, Revision: revision, Factor: value, Multiplier: multiplier}
+}
+
+// TestQuotePolicyFactorsAppliesExactArithmetic 覆盖 policy factor 的精确算术、舍入、溢出与 schema 选择。
+func TestQuotePolicyFactorsAppliesExactArithmetic(t *testing.T) {
+	identity := Identity{ChannelID: "openai", ModelID: "model"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(100)}})
+	overflowTable := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(math.MaxInt64)}})
+	base := PriceMultipliers{Group: DefaultPriceMultiplier, AccessKey: DefaultPriceMultiplier}
+	million := usage.Tokens{UncachedInput: 1_000_000}
+	tenThousand := usage.Tokens{UncachedInput: 10_000} // 10000 * 100 / 1000000 = 1 NanoUSD
+	factor := func(id, name, scope, value string) PolicyFactor { return testPolicyFactor(id, name, scope, value, 1) }
+	chain := []PolicyFactor{factor("p1", "Double", "group", "2"), factor("p2", "Triple", "group", "3"), factor("p3", "Half", "credential", "0.5")}
+
+	for _, tc := range []struct {
+		name        string
+		multipliers PriceMultipliers
+		tokens      usage.Tokens
+		table       *Table
+		factors     []PolicyFactor
+		wantCost    int64
+		wantSchema  int
+		wantFactor  int
+	}{
+		{"x2 x3 x0.5 net x3", base, million, nil, chain, 300, 7, 3},
+		{"zero factor", base, million, nil, []PolicyFactor{factor("p0", "Free", "group", "0")}, 0, 7, 1},
+		{"product 1600x without single-factor cap", base, million, nil, []PolicyFactor{factor("p_big1", "Big1", "group", "800"), factor("p_big2", "Big2", "credential", "2")}, 160_000, 7, 2},
+		{"one final half-up rounding", PriceMultipliers{Group: 1_500_000, AccessKey: DefaultPriceMultiplier}, tenThousand, nil, []PolicyFactor{factor("p_round", "Round", "group", "1.5")}, 2, 7, 1},
+		{"overflow fails closed", base, million, overflowTable, chain, 0, 0, 0},
+		{"no policy produces v6", base, million, nil, nil, 100, 6, 0},
+		{"x1 preserves base total", base, million, nil, []PolicyFactor{factor("p_one", "Identity", "group", "1")}, 100, 7, 1},
+		{"cancel to 1", base, million, nil, []PolicyFactor{factor("p_up", "Double", "group", "2"), factor("p_down", "Halve", "credential", "0.5")}, 100, 7, 2},
+		{"exact half nanodollar rounds up", base, tenThousand, nil, []PolicyFactor{factor("p_half_round", "OneAndHalf", "group", "1.5")}, 2, 7, 1},
+		{"cross-binding duplicate rule ids", base, million, nil, []PolicyFactor{factor("dup", "Group Rule", "group", "2"), testPolicyFactor("dup", "Cred Rule", "credential", "3", 2)}, 600, 7, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			active := table
+			if tc.table != nil {
+				active = tc.table
+			}
+			quote, receipt := active.QuoteForModeWithMultipliers(identity, usage.Result{State: usage.StateComplete, Tokens: tc.tokens}, ModeStandard, tc.multipliers, tc.factors...)
+			if tc.wantSchema == 0 {
+				if quote != unavailableQuote() || receipt != nil {
+					t.Fatalf("quote = %#v, receipt = %#v; want unavailable with no receipt", quote, receipt)
+				}
+				return
+			}
+			if quote.EstimatedCostNanoUSD != NanoUSD(tc.wantCost) || receipt == nil || receipt.SchemaVersion != tc.wantSchema || len(receipt.PolicyFactors) != tc.wantFactor {
+				t.Fatalf("quote = %#v, receipt = %#v; want cost %d schema %d with %d factors", quote, receipt, tc.wantCost, tc.wantSchema, tc.wantFactor)
+			}
+			if receipt.TotalNanoUSD != tc.wantCost {
+				t.Fatalf("receipt total = %d, want %d", receipt.TotalNanoUSD, tc.wantCost)
+			}
+			if err := ValidateReceipt(*receipt); err != nil {
+				t.Fatalf("ValidateReceipt error: %v", err)
+			}
+		})
+	}
+}

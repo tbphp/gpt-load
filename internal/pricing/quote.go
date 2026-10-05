@@ -33,9 +33,14 @@ func (table *Table) QuoteForMode(identity Identity, result usage.Result, mode Mo
 }
 
 // QuoteForModeWithMultipliers 在原计价完成后统一调整请求总费用。
-func (table *Table) QuoteForModeWithMultipliers(identity Identity, result usage.Result, mode Mode, multipliers PriceMultipliers) (Quote, *Receipt) {
+func (table *Table) QuoteForModeWithMultipliers(identity Identity, result usage.Result, mode Mode, multipliers PriceMultipliers, policyFactors ...PolicyFactor) (Quote, *Receipt) {
 	if !multipliers.Group.Valid() || !multipliers.AccessKey.Valid() {
 		return unavailableQuote(), nil
+	}
+	if len(policyFactors) > 0 {
+		if err := ValidatePolicyFactors(policyFactors); err != nil {
+			return unavailableQuote(), nil
+		}
 	}
 	quote, receipt := table.QuoteForModeWithReceipt(identity, result, mode)
 	if receipt == nil {
@@ -43,16 +48,21 @@ func (table *Table) QuoteForModeWithMultipliers(identity Identity, result usage.
 	}
 	baseTotal := receipt.TotalNanoUSD
 	if quote.State == CostStatePriced {
-		adjusted, ok := applyPriceMultipliers(quote.EstimatedCostNanoUSD, multipliers)
+		adjusted, ok := applyPriceMultipliers(quote.EstimatedCostNanoUSD, multipliers, policyFactors...)
 		if !ok {
 			return unavailableQuote(), nil
 		}
 		quote.EstimatedCostNanoUSD = adjusted
 		receipt.TotalNanoUSD = int64(adjusted)
 	}
-	receipt.SchemaVersion = 6
 	receipt.BaseTotalNanoUSD = &baseTotal
 	receipt.PriceMultipliers = &multipliers
+	if len(policyFactors) > 0 {
+		receipt.SchemaVersion = 7
+		receipt.PolicyFactors = append([]PolicyFactor(nil), policyFactors...)
+	} else {
+		receipt.SchemaVersion = 6
+	}
 	return quote, receipt
 }
 

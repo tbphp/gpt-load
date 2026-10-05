@@ -1,5 +1,11 @@
 package pricing
 
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
 // Mode identifies the price schedule selected for one request. Mode prices
 // remain provider-neutral and contain no routing behavior.
 type Mode string
@@ -111,6 +117,62 @@ type ReceiptLine struct {
 	AmountNanoUSD         *int64           `json:"amount_nano_usd,omitempty"`
 }
 
+// PolicyFactor 记录单条命中的动态策略价格因子及其元数据快照。
+type PolicyFactor struct {
+	RuleID       string          `json:"rule_id"`
+	NameSnapshot string          `json:"name_snapshot"`
+	BindingScope string          `json:"binding_scope"` // "group" 或 "credential"
+	Revision     uint64          `json:"revision"`
+	Factor       string          `json:"factor"`
+	Multiplier   PriceMultiplier `json:"multiplier"`
+}
+
+// UnmarshalJSON 严格反序列化 PolicyFactor，拒绝缺失或显式 null 的必要字段，并拒绝未知、别名和重复字段。
+func (factor *PolicyFactor) UnmarshalJSON(data []byte) error {
+	canonicalKeys := map[string]struct{}{
+		"rule_id":       {},
+		"name_snapshot": {},
+		"binding_scope": {},
+		"revision":      {},
+		"factor":        {},
+		"multiplier":    {},
+	}
+	rawValues, err := decodeStrictObjectFields(data, canonicalKeys, "policy factor")
+	if err != nil {
+		return err
+	}
+
+	for req := range canonicalKeys {
+		if missingOrNull(rawValues, req) {
+			return fmt.Errorf("pricing: policy factor missing or null required field %q", req)
+		}
+	}
+
+	type wire PolicyFactor
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if strings.TrimSpace(decoded.RuleID) == "" || strings.TrimSpace(decoded.NameSnapshot) == "" {
+		return fmt.Errorf("pricing: policy factor rule_id and name_snapshot must not be empty")
+	}
+	if decoded.BindingScope != "group" && decoded.BindingScope != "credential" {
+		return fmt.Errorf("pricing: policy factor binding_scope must be group or credential")
+	}
+	if decoded.Factor == "" || strings.TrimSpace(decoded.Factor) != decoded.Factor {
+		return fmt.Errorf("pricing: policy factor factor must be a non-empty string without whitespace")
+	}
+	parsed, err := ParsePriceMultiplier(decoded.Factor)
+	if err != nil || parsed != decoded.Multiplier {
+		return fmt.Errorf("pricing: invalid policy factor multiplier or factor mismatch")
+	}
+	if decoded.Revision == 0 {
+		return fmt.Errorf("pricing: policy factor revision must be positive")
+	}
+	*factor = PolicyFactor(decoded)
+	return nil
+}
+
 // Receipt is the immutable, versioned explanation of one request-time quote.
 // It deliberately stores calculation inputs instead of a presentation string.
 type Receipt struct {
@@ -121,6 +183,7 @@ type Receipt struct {
 	PricingMode            Mode              `json:"pricing_mode,omitempty"`
 	PriceMultipliers       *PriceMultipliers `json:"price_multipliers,omitempty"`
 	BaseTotalNanoUSD       *int64            `json:"base_total_nano_usd,omitempty"`
+	PolicyFactors          []PolicyFactor    `json:"policy_factors,omitempty"`
 	Rule                   ReceiptRule       `json:"rule"`
 	ContextThresholdTokens *int64            `json:"context_threshold_tokens,omitempty"`
 	LineItems              []ReceiptLine     `json:"line_items"`

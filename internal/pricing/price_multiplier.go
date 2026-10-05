@@ -109,22 +109,40 @@ func (multipliers *PriceMultipliers) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// applyPriceMultipliers 对原有纳美元总额一次应用全部倍率，倍率之间不舍入。
-func applyPriceMultipliers(amount NanoUSD, multipliers PriceMultipliers) (NanoUSD, bool) {
+// applyPriceMultipliers 对原有纳美元总额一次应用全部倍率与动态策略因子，倍率之间不舍入。
+func applyPriceMultipliers(amount NanoUSD, multipliers PriceMultipliers, policyFactors ...PolicyFactor) (NanoUSD, bool) {
 	if amount < 0 || !multipliers.Group.Valid() || !multipliers.AccessKey.Valid() {
 		return 0, false
+	}
+	if len(policyFactors) > 0 {
+		if err := ValidatePolicyFactors(policyFactors); err != nil {
+			return 0, false
+		}
+	}
+	hasZero := multipliers.Group == 0 || multipliers.AccessKey == 0
+	for _, factor := range policyFactors {
+		if factor.Multiplier == 0 {
+			hasZero = true
+		}
+	}
+	if hasZero {
+		return 0, true
 	}
 	numerator := big.NewInt(int64(amount))
 	numerator.Mul(numerator, big.NewInt(int64(multipliers.Group)))
 	numerator.Mul(numerator, big.NewInt(int64(multipliers.AccessKey)))
 	denominator := big.NewInt(int64(DefaultPriceMultiplier) * int64(DefaultPriceMultiplier))
+	for _, factor := range policyFactors {
+		numerator.Mul(numerator, big.NewInt(int64(factor.Multiplier)))
+		denominator.Mul(denominator, big.NewInt(int64(DefaultPriceMultiplier)))
+	}
 	quotient, remainder := new(big.Int), new(big.Int)
 	quotient.QuoRem(numerator, denominator, remainder)
 	remainder.Lsh(remainder, 1)
 	if remainder.Cmp(denominator) >= 0 {
 		quotient.Add(quotient, big.NewInt(1))
 	}
-	if !quotient.IsInt64() {
+	if !quotient.IsInt64() || quotient.Int64() < 0 {
 		return 0, false
 	}
 	return NanoUSD(quotient.Int64()), true
