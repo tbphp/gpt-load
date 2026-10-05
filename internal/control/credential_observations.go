@@ -401,8 +401,14 @@ func (s *Service) refreshCredentialObservationOnce(
 	if completedMS < attemptMS {
 		completedMS = attemptMS
 	}
-	if snapshot.Credits != nil && (!observation.Partial || observation.QuotaObserved) {
-		snapshot.Credits.ObservedAtMS = &completedMS
+	if !observation.Partial || observation.QuotaObserved {
+		if snapshot.Credits == nil && channelID == channel.Codex {
+			// 点数缺失也保留时间，阻止较早请求恢复本次刷新已清除的余额。
+			snapshot.Credits = &providerobservation.CreditSummary{}
+		}
+		if snapshot.Credits != nil {
+			snapshot.Credits.ObservedAtMS = &completedMS
+		}
 	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {

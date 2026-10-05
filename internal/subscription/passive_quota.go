@@ -70,7 +70,7 @@ func newPassiveQuotaPending() *passiveQuotaPending {
 // 待写余额及其原始时间，落盘时独立校验，不能借窗口的新时间覆盖主动刷新。
 //
 // A response with neither windows nor credits is a no-op: it must not advance the pending
-// observation time. An observedAtMS older than the pending entry is dropped.
+// observation time. Older windows are dropped; credits use their own observation time.
 // Removed credentials and responses from an outdated target are also ignored.
 func (manager *CredentialManager) RecordPassiveQuotaObservation(
 	credentialID uint,
@@ -157,19 +157,19 @@ func (pending *passiveQuotaPending) record(
 		return
 	}
 	entry, exists := pending.entries[credentialID]
+	replaceWindows := true
 	if !exists || entry.identityGeneration != identityGeneration {
 		entry = &passiveQuotaEntry{identityGeneration: identityGeneration}
 		pending.entries[credentialID] = entry
-	} else if observedAtMS < entry.observedAtMS {
-		pending.mu.Unlock()
-		return
+	} else {
+		replaceWindows = observedAtMS >= entry.observedAtMS
 	}
-	entry.windows = cloneQuotaWindows(windows)
 	creditAtMS := observedAtMS
 	if credits == nil && preceding != nil {
 		credits = preceding.Credits
 		creditAtMS = preceding.ObservedAtMS
 	}
+	creditAccepted := false
 	if credits != nil {
 		summary := cloneCreditSummary(credits)
 		if summary.ObservedAtMS == nil {
@@ -177,17 +177,27 @@ func (pending *passiveQuotaPending) record(
 		}
 		if entry.credits == nil || entry.credits.ObservedAtMS == nil || *summary.ObservedAtMS >= *entry.credits.ObservedAtMS {
 			entry.credits = summary
+			creditAccepted = true
 		}
 	}
-	entry.preceding = clonePassiveQuotaSample(preceding)
-	entry.observedAtMS = observedAtMS
+	if !replaceWindows && !creditAccepted {
+		pending.mu.Unlock()
+		return
+	}
+	if replaceWindows {
+		entry.windows = cloneQuotaWindows(windows)
+		entry.preceding = clonePassiveQuotaSample(preceding)
+		entry.observedAtMS = observedAtMS
+	}
 	pending.nextVersion++
 	entry.version = pending.nextVersion
 	entry.dirty = true
-	if preceding != nil {
-		pending.recordHistoryLocked(groupID, credentialID, identityGeneration, preceding.ObservedAtMS, preceding.Windows)
+	if replaceWindows {
+		if preceding != nil {
+			pending.recordHistoryLocked(groupID, credentialID, identityGeneration, preceding.ObservedAtMS, preceding.Windows)
+		}
+		pending.recordHistoryLocked(groupID, credentialID, identityGeneration, observedAtMS, windows)
 	}
-	pending.recordHistoryLocked(groupID, credentialID, identityGeneration, observedAtMS, windows)
 	notifier := pending.dirtyNotifier
 	pending.mu.Unlock()
 	if notifier != nil {

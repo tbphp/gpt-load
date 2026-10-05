@@ -28,7 +28,9 @@ func TestRefreshCredentialCreditsStoresTimeZeroAndMissing(t *testing.T) {
 			t.Fatalf("refresh failed: %#v, %v", result, err)
 		}
 		if test.balance == "" {
-			if result.Snapshot.Credits != nil {
+			if credits := result.Snapshot.Credits; credits == nil || credits.Balance != "" ||
+				credits.HasCredits != nil || credits.Unlimited != nil ||
+				credits.ObservedAtMS == nil || *credits.ObservedAtMS != now.UnixMilli() {
 				t.Fatal("successful refresh without credit data retained the old balance")
 			}
 		} else if credits := result.Snapshot.Credits; credits == nil || credits.Balance != test.balance || credits.ObservedAtMS == nil || *credits.ObservedAtMS != now.UnixMilli() {
