@@ -47,6 +47,11 @@ export async function bootstrap(): Promise<void> {
     .use(VueQueryPlugin, { queryClient })
     .use(router)
   app.onUnmount(preferences.dispose)
-  await router.isReady()
+  try {
+    await router.isReady()
+  } catch (error) {
+    console.error('Failed to load the initial page; opening home.', error)
+    await router.replace({ name: 'modern-home' })
+  }
   app.mount('#app')
 }

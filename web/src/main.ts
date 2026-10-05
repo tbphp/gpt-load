@@ -1,5 +1,6 @@
 import { getPreferredFrontend } from '@shared/frontend/preference'
-import { getBrowserLocale } from '@shared/preferences/locale'
+
+const startupRecoveryKey = 'gpt-load.startup-recovery'
 
 async function bootstrap(): Promise<void> {
   const frontend = await getPreferredFrontend()
@@ -9,33 +10,24 @@ async function bootstrap(): Promise<void> {
       ? await import('./frontends/classic/bootstrap')
       : await import('./frontends/modern/bootstrap')
   await module.bootstrap()
+  try {
+    window.sessionStorage.removeItem(startupRecoveryKey)
+  } catch {
+    // 恢复标记不可用时，不影响已启动的界面。
+  }
 }
 
-function showStartupFailure(): void {
-  const labels = {
-    'zh-CN': {
-      message: '无法加载界面，请重试。',
-      retry: '重新加载',
-    },
-    'en-US': {
-      message: 'Unable to load the interface. Please retry.',
-      retry: 'Reload',
-    },
-    'ja-JP': {
-      message: '画面を読み込めません。再試行してください。',
-      retry: '再読み込み',
-    },
-  }[getBrowserLocale()]
-  const root = document.getElementById('app')
-  if (!root) return
-  const message = document.createElement('p')
-  message.setAttribute('role', 'alert')
-  message.textContent = labels.message
-  const retry = document.createElement('button')
-  retry.type = 'button'
-  retry.textContent = labels.retry
-  retry.addEventListener('click', () => window.location.reload())
-  root.replaceChildren(message, retry)
+function recoverStartup(error: unknown): void {
+  console.error('Failed to start the interface.', error)
+  try {
+    // 标记跨导航保留；只有成功启动才清除，避免资源持续不可用时循环刷新。
+    if (window.sessionStorage.getItem(startupRecoveryKey) === '1') return
+    window.sessionStorage.setItem(startupRecoveryKey, '1')
+  } catch {
+    // 无法保存标记时，只从其他页面跳到主页，主页失败不再刷新。
+    if (window.location.pathname === '/') return
+  }
+  window.location.replace('/')
 }
 
-void bootstrap().catch(showStartupFailure)
+void bootstrap().catch(recoverStartup)
