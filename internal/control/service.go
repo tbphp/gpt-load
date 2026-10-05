@@ -136,6 +136,19 @@ func (s *Service) doCredentialMutations(credentialIDs []uint, fn func()) error {
 	return nil
 }
 
+func (s *Service) withCredentialMutation(credentialID uint, fn func() error) error {
+	if fn == nil {
+		return nil
+	}
+	var fnErr error
+	if err := s.doCredentialMutations([]uint{credentialID}, func() {
+		fnErr = fn()
+	}); err != nil {
+		return err
+	}
+	return fnErr
+}
+
 func (s *Service) retireCredentialRuntime(credentialID uint) {
 	if s == nil || credentialID == 0 {
 		return
@@ -385,12 +398,14 @@ func (s *Service) writeGroupConfigLocked(
 	}
 
 	s.priceRuntime.Publish(publication.PriceTable)
+	// writeGroupConfigLocked 由 writeGroupConfig 在持有事务前既有凭据的 mutation stripe 时调用，
+	// 失败恢复必须复用这些不可重入的互斥，不能再次逐凭据获取。
 	if afterCommitBeforePublish != nil {
 		if err := afterCommitBeforePublish(); err != nil {
 			operationErr := newControlOperationError(stageApplyCommittedRegistryMutation)
 			return nil, joinCommittedRuntimeRecovery(
 				operationErr,
-				s.recoverCommittedRuntime(ctx, true),
+				s.recoverCommittedRuntimeHoldingCredentialMutations(ctx),
 			)
 		}
 	}
@@ -399,7 +414,7 @@ func (s *Service) writeGroupConfigLocked(
 		operationErr := newControlOperationError(stagePublishCommittedSnapshot)
 		return nil, joinCommittedRuntimeRecovery(
 			operationErr,
-			s.recoverCommittedRuntime(ctx, true),
+			s.recoverCommittedRuntimeHoldingCredentialMutations(ctx),
 		)
 	}
 	return snapshot, nil
@@ -498,7 +513,25 @@ func (s *Service) writeCredentialConfig(
 	return result
 }
 
+// recoverCommittedRuntime reloads and republishes committed runtime state after a
+// post-commit failure. Callers hold writeMu but not the credential mutation
+// stripes, so quota restoration acquires each stripe itself.
 func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices bool) error {
+	return s.recoverCommittedRuntimeWithMutations(ctx, includePrices, false)
+}
+
+// recoverCommittedRuntimeHoldingCredentialMutations 用于 writeGroupConfig 提交后
+// 失败恢复：该路径已经持有事务前既有凭据的 mutation stripe，这些互斥不可重入，恢复不能再
+// 逐凭据获取，否则自死锁。此时读取与发布仍在同一互斥保护下。
+func (s *Service) recoverCommittedRuntimeHoldingCredentialMutations(ctx context.Context) error {
+	return s.recoverCommittedRuntimeWithMutations(ctx, true, true)
+}
+
+func (s *Service) recoverCommittedRuntimeWithMutations(
+	ctx context.Context,
+	includePrices bool,
+	credentialMutationsHeld bool,
+) error {
 	input, err := stateloader.BuildCompileInputWithProxy(
 		ctx, s.db, s.encryption, s.environmentProxy, s.channelRegistry,
 	)
@@ -522,7 +555,12 @@ func (s *Service) recoverCommittedRuntime(ctx context.Context, includePrices boo
 		if err := s.registry.ReplaceCredentials(entries); err != nil {
 			return fmt.Errorf("replace committed credentials: %w", err)
 		}
-		if err := s.restoreCredentialQuotaObservations(ctx); err != nil {
+		if credentialMutationsHeld {
+			err = s.restoreCredentialQuotaObservationsHoldingMutations(ctx)
+		} else {
+			err = s.restoreCredentialQuotaObservations(ctx)
+		}
+		if err != nil {
 			return fmt.Errorf("restore committed credential quota observations: %w", err)
 		}
 	}
