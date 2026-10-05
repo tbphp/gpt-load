@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { isValidGroupPriority } from '@shared/group-priority'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -19,7 +18,6 @@ import type { ImportProxyDraft } from './model-draft'
 const props = defineProps<{
   channel: ChannelDto | null
   name: string
-  priority: string
   priceMultiplier: string
   params: Record<string, string>
   proxy: ImportProxyDraft
@@ -30,7 +28,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   'update:name': [value: string]
-  'update:priority': [value: string]
   'update:priceMultiplier': [value: string]
   'update:param': [key: string, value: string]
   'update:proxy': [value: ImportProxyDraft]
@@ -237,28 +234,6 @@ function baseURLVersionWarning(key: string): string | undefined {
         </template>
       </div>
 
-      <FormField
-        id="import-group-priority"
-        :label="t('group.settings.base.priority')"
-        :description="t('group.settings.base.priorityHelp')"
-        :error="isValidGroupPriority(priority) ? undefined : t('group.settings.base.priorityError')"
-        size="compact"
-      >
-        <template #default="field">
-          <input
-            id="import-group-priority"
-            type="number"
-            min="-2147483648"
-            max="2147483647"
-            step="1"
-            :value="priority"
-            :disabled="disabled"
-            :aria-describedby="field.describedBy"
-            :aria-invalid="field.invalid || undefined"
-            @input="emit('update:priority', ($event.target as HTMLInputElement).value)"
-          />
-        </template>
-      </FormField>
       <FormField
         id="import-price-multiplier"
         class="import-connection__multiplier"

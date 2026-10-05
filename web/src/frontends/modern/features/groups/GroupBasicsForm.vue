@@ -211,16 +211,15 @@ useMessageSource(() =>
           :disabled="saving"
           :error="attempted && nameInvalid ? t('groups.edit.nameError') : undefined"
         />
-        <AppTextField
-          ref="priorityInput"
-          v-model="priority"
-          :label="t('groups.edit.priority')"
-          :description="t('groups.edit.priorityHelp')"
-          size="sm"
-          :disabled="saving"
-          :error="attempted && priorityInvalid ? t('groups.edit.priorityError') : undefined"
-        />
         <div class="modern-group-settings-columns">
+          <AppTextField
+            ref="priorityInput"
+            v-model="priority"
+            :label="t('groups.edit.priority')"
+            size="sm"
+            :disabled="saving"
+            :error="attempted && priorityInvalid ? t('groups.edit.priorityError') : undefined"
+          />
           <AppTextField
             ref="weightInput"
             v-model="weight"
@@ -230,16 +229,16 @@ useMessageSource(() =>
             :disabled="saving"
             :error="attempted && weightInvalid ? t('groups.edit.weightError') : undefined"
           />
-          <AppTextField
-            ref="priceInput"
-            v-model="price"
-            :label="t('groups.edit.price')"
-            size="sm"
-            inputmode="decimal"
-            :disabled="saving"
-            :error="attempted && priceInvalid ? t('groups.edit.priceError') : undefined"
-          />
         </div>
+        <AppTextField
+          ref="priceInput"
+          v-model="price"
+          :label="t('groups.edit.price')"
+          size="sm"
+          inputmode="decimal"
+          :disabled="saving"
+          :error="attempted && priceInvalid ? t('groups.edit.priceError') : undefined"
+        />
         <div class="modern-group-settings-enabled">
           <span>{{ t('groups.edit.enabled') }}</span
           ><AppSwitch v-model="enabled" :label="t('groups.edit.enabled')" :disabled="saving" />

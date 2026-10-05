@@ -93,7 +93,6 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
       'params',
       'proxy',
       'name',
-      'priority',
       'price_multiplier',
       'credentials',
       'staged_credentials',
@@ -105,7 +104,6 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
     isChannelParams(value.params) &&
     isImportProxyDraft(value.proxy) &&
     typeof value.name === 'string' &&
-    (value.priority === undefined || typeof value.priority === 'string') &&
     typeof value.price_multiplier === 'string' &&
     typeof value.credentials === 'string' &&
     Array.isArray(value.staged_credentials) &&

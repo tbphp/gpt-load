@@ -770,11 +770,6 @@ onBeforeUnmount(() => {
                   :disabled="mutationPending"
                   @update:model-value="setLiveMode"
                 />
-                <p>
-                  {{ t('settings.runtime.liveModeHelp') }} ·
-                  {{ t('settings.runtime.currentEffective') }}:
-                  {{ t('settings.runtime.liveModes.' + saved.effective.codex_live_mode) }}
-                </p>
               </div>
               <SettingRow
                 :label="t('group.settings.runtime.responses_websocket_enabled')"

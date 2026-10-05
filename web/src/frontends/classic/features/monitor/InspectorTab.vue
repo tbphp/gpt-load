@@ -770,7 +770,6 @@ onBeforeUnmount(() => {
           <MonitorSectionHeading
             id="route-candidates-title"
             :title="t('monitor.inspector.groups.title')"
-            :description="t(`monitor.inspector.groups.description.${observation.route_strategy}`)"
             :meta="
               t('monitor.inspector.groups.count', {
                 count: formattedInteger(includedGroups.length),
@@ -825,10 +824,7 @@ onBeforeUnmount(() => {
                   <StatusBadge :tone="routePriorityTone(group)" size="compact">
                     {{ routePriorityLabel(group) }}
                   </StatusBadge>
-                  <small
-                    >{{ groupStatusLabel(group) }} · {{ t('group.settings.base.priority') }}
-                    {{ formattedInteger(group.priority) }}</small
-                  >
+                  <small>{{ groupStatusLabel(group) }}</small>
                 </div>
                 <div class="route-candidate__measure" role="cell">
                   <span class="route-cell-label">{{
@@ -880,6 +876,8 @@ onBeforeUnmount(() => {
                     <span>{{ candidateCredentialSummary(group) }}</span>
                   </div>
                   <span>
+                    {{ t('group.settings.base.priority') }} {{ formattedInteger(group.priority) }}
+                    ·
                     {{
                       t('monitor.inspector.weights.group', {
                         value: formattedInteger(group.weight_manual ?? 50),

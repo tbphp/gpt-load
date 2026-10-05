@@ -464,7 +464,7 @@ defineExpose({ refresh, pending, updatedAt })
                     ><RouterLink :to="{ name: 'modern-group-detail', params: { id: group.id } }"
                       ><AppOverflowText :text="group.name" /></RouterLink></AppButton
                   ><AppOverflowText
-                    :text="`${groupMap.get(group.id)?.channelName || group.channelID} · ${t('groups.edit.priority')} ${group.priority}`"
+                    :text="groupMap.get(group.id)?.channelName || group.channelID"
                   />
                 </div>
               </div>

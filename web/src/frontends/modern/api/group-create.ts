@@ -146,7 +146,6 @@ export type GroupCreateCredentials =
   | { connection_type: 'subscription'; staged_credential_ids: string[] }
 export type GroupCreateRequest = GroupConnectionDraft &
   GroupCreateCredentials & {
-    priority?: number
     name?: string
     price_multiplier: string
     models: { id: string; alias: string; alias_enabled: boolean }[]

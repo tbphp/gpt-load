@@ -480,13 +480,6 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             v-model="liveMode"
             :label="t('settingsForm.fields.codex_live_mode')"
             :options="liveOptions"
-            :description="
-              t('groupDetail.effective', {
-                value: t('settingsForm.liveModes.' + saved.effective.codex_live_mode),
-              }) +
-              ' · ' +
-              t('settingsForm.hints.codex_live_mode')
-            "
             size="sm"
             :disabled="busy"
           />

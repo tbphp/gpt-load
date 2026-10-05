@@ -554,7 +554,7 @@ export default {
         effective: '生の有効ウェイト',
         null: 'null',
         none: '—',
-        group: 'グループウェイト {value}',
+        group: '重み {value}',
       },
       excluded: {
         title: '除外グループ',

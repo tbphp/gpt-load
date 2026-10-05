@@ -272,6 +272,8 @@ useMessageSource(() =>
               />
               <span v-else>{{ group.channelName }}</span>
               <span class="modern-group-workspace-routing"
+                >{{ t('groups.edit.priority') }} {{ n(group.priority)
+                }}<span aria-hidden="true">·</span
                 >{{ t('groupDetail.weightValue', { value: n(group.weight) })
                 }}<span aria-hidden="true">·</span
                 >{{ t('groups.board.price', { value: group.priceMultiplier }) }}</span

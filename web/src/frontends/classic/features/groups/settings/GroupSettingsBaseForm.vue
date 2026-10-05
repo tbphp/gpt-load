@@ -235,45 +235,47 @@ function parameterPlaceholder(field: ChannelFieldDto): string | undefined {
   <section v-else id="settings-routing" class="group-settings__section">
     <header class="group-settings__section-heading">
       <h3>{{ t('group.settings.sections.routing') }}</h3>
-      <p>{{ t('group.settings.routing.description') }}</p>
     </header>
-    <div class="group-settings__field group-settings__wide">
-      <label for="group-priority">{{ t('group.settings.base.priority') }}</label>
-      <input
-        id="group-priority"
-        type="number"
-        min="-2147483648"
-        max="2147483647"
-        step="1"
-        :value="priority"
-        :disabled="pending"
-        :aria-invalid="!isValidGroupPriority(priority) || undefined"
-        @input="emit('update:priority', ($event.target as HTMLInputElement).value)"
-      />
-      <small>{{ t('group.settings.base.priorityHelp') }}</small>
-      <small v-if="!isValidGroupPriority(priority)" role="alert">{{
-        t('group.settings.base.priorityError')
-      }}</small>
-    </div>
-    <div class="group-settings__field group-settings__wide">
-      <span>{{ t('group.settings.base.weight') }}</span>
-      <div class="group-settings__weight-editor">
-        <input
-          class="group-settings__mono"
-          type="number"
-          min="1"
-          max="100"
-          step="1"
-          inputmode="numeric"
-          :value="weightManual ?? 50"
-          :disabled="pending"
-          :aria-label="t('group.settings.base.weight')"
-          :aria-invalid="!weightValid || undefined"
-          @input="emit('update:weightManual', Number(($event.target as HTMLInputElement).value))"
-        />
+    <div class="group-settings__grid">
+      <div class="group-settings__field">
+        <span>{{ t('group.settings.base.priority') }}</span>
+        <div class="group-settings__weight-editor">
+          <input
+            class="group-settings__mono"
+            type="number"
+            min="-2147483648"
+            max="2147483647"
+            step="1"
+            :value="priority"
+            :disabled="pending"
+            :aria-label="t('group.settings.base.priority')"
+            :aria-invalid="!isValidGroupPriority(priority) || undefined"
+            @input="emit('update:priority', ($event.target as HTMLInputElement).value)"
+          />
+        </div>
+        <small v-if="!isValidGroupPriority(priority)" role="alert">{{
+          t('group.settings.base.priorityError')
+        }}</small>
       </div>
-      <small>{{ t('group.settings.routing.weightHelp') }}</small>
-      <small v-if="!weightValid" role="alert">{{ t('group.settings.base.weightError') }}</small>
+      <div class="group-settings__field">
+        <span>{{ t('group.settings.base.weight') }}</span>
+        <div class="group-settings__weight-editor">
+          <input
+            class="group-settings__mono"
+            type="number"
+            min="1"
+            max="100"
+            step="1"
+            inputmode="numeric"
+            :value="weightManual ?? 50"
+            :disabled="pending"
+            :aria-label="t('group.settings.base.weight')"
+            :aria-invalid="!weightValid || undefined"
+            @input="emit('update:weightManual', Number(($event.target as HTMLInputElement).value))"
+          />
+        </div>
+        <small v-if="!weightValid" role="alert">{{ t('group.settings.base.weightError') }}</small>
+      </div>
     </div>
   </section>
 </template>

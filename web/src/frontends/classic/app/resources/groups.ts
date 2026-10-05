@@ -220,7 +220,6 @@ export interface GroupModelsReplaceRequest {
 }
 
 export interface GroupCreateRequest {
-  priority?: number
   name?: string
   price_multiplier: string
   channel_id: string

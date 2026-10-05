@@ -192,8 +192,8 @@
   --modern-channel-md: 36px;
   --modern-channel-hero: 48px;
   --modern-channel-hero-glyph: 32px;
-  --modern-inline-action-target: 24px;
-  --modern-inline-number-width: 104px;
+  --modern-inline-action-target: 16px;
+  --modern-inline-number-width: 68px;
   --modern-status-bar-height: 8px;
   --modern-status-success: var(--modern-success);
   --modern-status-warning: light-dark(#eeae36, #eab84f);

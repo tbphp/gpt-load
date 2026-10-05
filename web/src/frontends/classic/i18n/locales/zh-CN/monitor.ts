@@ -535,7 +535,7 @@ export default {
         effective: '原始有效权重',
         null: 'null',
         none: '—',
-        group: '分组权重 {value}',
+        group: '权重 {value}',
       },
       excluded: {
         title: '排除分组',

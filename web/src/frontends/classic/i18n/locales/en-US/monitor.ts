@@ -556,7 +556,7 @@ export default {
         effective: 'Raw effective weight',
         null: 'null',
         none: '—',
-        group: 'Group weight {value}',
+        group: 'Weight {value}',
       },
       excluded: {
         title: 'Excluded Groups',

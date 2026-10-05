@@ -27,16 +27,21 @@ import { useApiClient } from '@shared/http/client-context'
 const props = defineProps<{
   group: GroupRow
   expanded: boolean
-  pending?: 'toggle' | 'weight'
+  pending?: 'toggle' | 'priority' | 'weight'
   enabledOverride?: boolean
   usage?: GroupUsage
   usageLoading: boolean
   usageIncomplete: boolean
+  priorityError?: string
   weightError?: string
 }>()
 const emit = defineEmits<{
   expand: []
   toggle: [value: boolean]
+  priority: [value: number]
+  priorityEditing: [value: boolean]
+  priorityDirty: [value: boolean]
+  clearPriorityError: []
   weight: [value: number]
   weightEditing: [value: boolean]
   weightDirty: [value: boolean]
@@ -190,9 +195,6 @@ const lastActive = computed(() =>
             }}</AppBadge>
           </div>
           <div class="modern-group-secondary modern-group-connection">
-            <AppBadge variant="plain" size="xs"
-              >{{ t('groups.edit.priority') }} {{ n(group.priority) }}</AppBadge
-            >
             <AppBadge
               :icon="group.connectionType === 'subscription' ? UserRound : KeyRound"
               :tone="group.connectionType === 'subscription' ? 'brand' : 'neutral'"
@@ -306,6 +308,19 @@ const lastActive = computed(() =>
           :loading="pending === 'toggle'"
           :disabled="Boolean(pending)"
           @update:model-value="emit('toggle', $event)"
+        />
+        <AppInlineNumber
+          :model-value="group.priority"
+          :label="t('groups.edit.priority')"
+          :min="-2147483648"
+          :max="2147483647"
+          :pending="pending === 'priority'"
+          :disabled="Boolean(pending)"
+          :error="priorityError"
+          @submit="emit('priority', $event)"
+          @editing="emit('priorityEditing', $event)"
+          @dirty="emit('priorityDirty', $event)"
+          @clear-error="emit('clearPriorityError')"
         />
         <AppInlineNumber
           :model-value="group.weight"
@@ -449,7 +464,7 @@ const lastActive = computed(() =>
   grid-template-columns: var(--modern-group-action-columns);
   align-items: center;
   justify-items: start;
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-2);
   text-align: left;
 }
 .modern-group-bar-line {
@@ -516,6 +531,7 @@ const lastActive = computed(() =>
   }
   .modern-group-actions {
     grid-column: 1 / -1;
+    width: 100%;
     justify-content: start;
   }
   .modern-group-details > :first-child {

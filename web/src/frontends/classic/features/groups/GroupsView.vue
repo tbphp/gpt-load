@@ -524,9 +524,6 @@ function connectionTypeBadgeClass(type: ConnectionType): string {
                   >
                     {{ channelName(group.channel_id) }}
                   </OverflowTooltip>
-                  <span class="connection-type-badge"
-                    >{{ t('group.settings.base.priority') }} {{ group.priority }}</span
-                  >
                   <span
                     v-if="group.price_multiplier !== '1'"
                     class="connection-type-badge"

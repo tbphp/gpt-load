@@ -20,7 +20,6 @@ export interface ImportDraft {
   params: ChannelParamsDto
   proxy: ImportProxyDraft
   name: string
-  priority: string
   price_multiplier: string
   credentials: string
   staged_credentials: CredentialStage[]
