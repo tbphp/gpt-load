@@ -45,6 +45,8 @@ import GroupChannelSelect from './GroupChannelSelect.vue'
 import GroupBaseURLField from './GroupBaseURLField.vue'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import ParameterRulesEditor from '../config/ParameterRulesEditor.vue'
+import ErrorRulesEditor from '../config/ErrorRulesEditor.vue'
+import { cloneErrorRules, validErrorRules, type ErrorRule } from '@shared/error-rules'
 import { groupValidationModelOptions } from './group-model-options'
 
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel; models: GroupModel[] }>()
@@ -73,6 +75,23 @@ const headersMode = ref('inherit')
 const headers = ref<{ key: number; name: string; value: string }[]>([])
 const removeHeaders = ref('')
 const rules = ref<ParameterRule[]>([])
+const errorRules = ref<ErrorRule[]>([])
+const errorRulesMode = ref('inherit')
+const displayedErrorRules = computed(() =>
+  errorRulesMode.value === 'inherit' ? (saved.value?.defaultErrorRules ?? []) : errorRules.value,
+)
+watch(errorRulesMode, (mode, previous) => {
+  if (
+    mode === 'override' &&
+    previous === 'inherit' &&
+    saved.value?.overrides.error_rules === undefined
+  )
+    errorRules.value = cloneErrorRules(saved.value?.defaultErrorRules ?? [])
+})
+const errorModeOptions = computed(() => [
+  { value: 'inherit', label: t('errorRules.inherit') },
+  { value: 'override', label: t('errorRules.override') },
+])
 const rulesValid = ref(true)
 const rulesEditor = ref<InstanceType<typeof ParameterRulesEditor>>()
 const baseline = ref('')
@@ -95,6 +114,8 @@ function snapshot(): string {
     headers.value,
     removeHeaders.value,
     rules.value,
+    errorRulesMode.value,
+    errorRulesMode.value === 'inherit' ? [] : errorRules.value,
   ])
 }
 const dirty = computed(
@@ -133,6 +154,8 @@ watch(
     }))
     removeHeaders.value = value.remove.join('\n')
     rules.value = JSON.parse(JSON.stringify(data.overrides.parameter_overrides ?? []))
+    errorRulesMode.value = data.overrides.error_rules === undefined ? 'inherit' : 'override'
+    errorRules.value = cloneErrorRules(data.overrides.error_rules ?? data.effective.error_rules)
     rulesValid.value = true
     baseline.value = snapshot()
   },
@@ -214,6 +237,7 @@ const headerInvalid = computed(() => {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value || switching.value) return
   attempted.value = true
+  if (errorRulesMode.value === 'override' && !validErrorRules(errorRules.value)) return
   if (!rulesValid.value) {
     await rulesEditor.value?.focusFirstInvalid()
     return
@@ -248,6 +272,8 @@ async function save(): Promise<void> {
     }
   if (rules.value.length) overrides.parameter_overrides = rules.value
   else delete overrides.parameter_overrides
+  if (errorRulesMode.value === 'inherit') delete overrides.error_rules
+  else overrides.error_rules = cloneErrorRules(errorRules.value)
   const patch: AdvancedSettingsPatch = {}
   const nextParams = groupConnectionParams(params.value, props.channel)
   if (JSON.stringify(nextParams) !== JSON.stringify(base.params)) patch.params = nextParams
@@ -567,6 +593,20 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           :disabled="busy"
           :attempted="attempted"
           @update:valid="rulesValid = $event"
+        />
+      </AppFormSection>
+      <AppFormSection compact :title="t('errorRules.title')">
+        <AppSelect
+          v-model="errorRulesMode"
+          :label="t('errorRules.title')"
+          :options="errorModeOptions"
+          size="xs"
+          :disabled="busy"
+        />
+        <ErrorRulesEditor
+          :model-value="displayedErrorRules"
+          :disabled="busy || errorRulesMode === 'inherit'"
+          @update:model-value="errorRules = $event"
         />
       </AppFormSection>
     </template>

@@ -1,3 +1,4 @@
+import { errorRuleMessages } from '@shared/error-rule-messages'
 import { jaJP as proxies } from '@shared/proxies/messages'
 import { jaJP as concurrency } from './concurrency'
 import { jaJP as requestRedaction } from './request-redaction'
@@ -24,6 +25,7 @@ import { jaJP as autoModel } from './auto-model'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  errorRules: errorRuleMessages['ja-JP'],
   proxies,
   concurrency,
   requestRedaction,

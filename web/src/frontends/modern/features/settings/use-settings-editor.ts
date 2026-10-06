@@ -63,7 +63,9 @@ export function useSettingsEditor() {
               key,
               range
                 ? t('settingsForm.errors.number', { min: n(range.min), max: n(range.max) })
-                : t('settingsForm.errors.' + code),
+                : code === 'errorRules'
+                  ? t('errorRules.errors.invalid')
+                  : t('settingsForm.errors.' + code),
             ]
           }),
         )

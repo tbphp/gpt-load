@@ -16,6 +16,7 @@ import (
 
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/health"
 	"gpt-load/internal/jev"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/encryption"
@@ -45,6 +46,7 @@ type CORSConfigResponse struct {
 }
 
 type SettingsValuesResponse struct {
+	ErrorRules                       []health.ErrorRule    `json:"error_rules"`
 	GlobalConcurrencyLimit           int64                 `json:"global_concurrency_limit"`
 	DefaultAccessKeyConcurrencyLimit int64                 `json:"default_access_key_concurrency_limit"`
 	DefaultGroupConcurrencyLimit     int64                 `json:"default_group_concurrency_limit"`
@@ -446,6 +448,7 @@ func mapSettingsResponse(
 		DecisionModels: decisionModelNames(snapshot),
 		Revision:       snapshot.Revision,
 		Values: SettingsValuesResponse{
+			ErrorRules:       settings.ErrorRules.Rules(),
 			RequestRedaction: snapshot.RequestRedaction.Rules(),
 			AutoModel:        newAutoModelSettingsView(snapshot.AutoModels),
 			Jev:              snapshot.Jev, RequestAudit: snapshot.RequestAudit,

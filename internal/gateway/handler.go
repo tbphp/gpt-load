@@ -1030,6 +1030,7 @@ func (handler *Handler) executeAttempts(
 			method = parsed.Method
 		}
 		return health.DecisionContext{
+			ErrorRules:               selection.Group.ErrorRules,
 			DefaultRateLimitCooldown: defaultRateLimitCooldown,
 			CredentialRefreshable:    credentialRefreshable,
 			Method:                   method,

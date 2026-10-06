@@ -136,7 +136,9 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 				evidence.ReplaySafety = execution.ReplaySafetyRejectedBeforeProcessing
 				attempt.Evidence = &evidence
 				category := classifyExecutionEvidence(attempt)
-				return constrainCommittedDecision(decisionForExecutionCategory(category, attempt, decisionContext), attempt)
+				result := decisionForExecutionCategory(category, attempt, decisionContext)
+				result = decisionContext.ErrorRules.apply(result, attempt, decisionContext)
+				return constrainCommittedDecision(result, attempt)
 			}
 			return decision(FailureCategoryAmbiguous, originForEvidence(attempt.Evidence), attempt.Evidence.ScopeHint,
 				RetryNone, EffectNone, "fallback.not_sent")
@@ -212,6 +214,7 @@ func JudgeExecution(attempt ExecutionAttempt, decisionContext DecisionContext) D
 	}
 	category := classifyExecutionEvidence(attempt)
 	result := decisionForExecutionCategory(category, attempt, decisionContext)
+	result = decisionContext.ErrorRules.apply(result, attempt, decisionContext)
 	if attempt.Evidence.ReplaySafety == execution.ReplaySafetyUnknown &&
 		result.RuleID == "fallback.ambiguous" {
 		result.RuleID = "safety.replay_unknown"

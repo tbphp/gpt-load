@@ -33,6 +33,8 @@ import { useTransientFlag } from '@/app/use-transient-flag'
 import { groupDetailLocation } from '@/app/route-locations'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import ParameterOverrideRulesEditor from '@/components/config/ParameterOverrideRulesEditor.vue'
+import ErrorRulesEditor from '@/components/config/ErrorRulesEditor.vue'
+import { cloneErrorRules, validErrorRules, type ErrorRule } from '@shared/error-rules'
 import ProxyOverrideControl from '@/components/config/ProxyOverrideControl.vue'
 import SettingBlock from '@/components/config/SettingBlock.vue'
 import SettingRow from '@/components/config/SettingRow.vue'
@@ -143,6 +145,7 @@ const navItems = computed(() => [
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
   { id: 'settings-runtime', label: t('group.settings.sections.runtime') },
   { id: 'settings-parameters', label: t('group.settings.sections.parameters') },
+  { id: 'settings-errors', label: t('errorRules.title') },
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
   { id: 'settings-danger', label: t('group.settings.sections.danger') },
 ])
@@ -249,12 +252,17 @@ const valid = computed(
     policyCountsValid.value &&
     headerRulesValid.value &&
     parameterOverridesValid.value &&
+    validErrorRules(draft.value?.overrides.error_rules ?? []) &&
     !proxyState.value.invalid,
 )
 function isPendingRestore(key: GroupTimeoutKey | GroupPolicyCountKey): boolean {
   return draft.value?.overrides[key] === undefined && saved.value?.overrides[key] !== undefined
 }
 const headerRulesOverridden = computed(() => draft.value?.overrides.header_rules !== undefined)
+const errorRulesOverridden = computed(() => draft.value?.overrides.error_rules !== undefined)
+const displayedErrorRules = computed(
+  () => draft.value?.overrides.error_rules ?? saved.value?.default_error_rules ?? [],
+)
 const headerRulesPendingRestore = computed(
   () => !headerRulesOverridden.value && saved.value?.overrides.header_rules !== undefined,
 )
@@ -374,6 +382,7 @@ function sectionFromID(id: string): GroupSettingsSection | undefined {
     value === 'routing' ||
     value === 'runtime' ||
     value === 'parameters' ||
+    value === 'errors' ||
     value === 'headers' ||
     value === 'danger'
     ? value
@@ -463,6 +472,21 @@ function updateParameterOverrides(value: ParameterOverrideRuleDto[]): void {
   const overrides = { ...draft.value.overrides }
   if (value.length === 0) delete overrides.parameter_overrides
   else overrides.parameter_overrides = value
+  draft.value = { ...draft.value, overrides }
+}
+
+function updateErrorRules(value: ErrorRule[]): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    overrides: { ...draft.value.overrides, error_rules: cloneErrorRules(value) },
+  }
+}
+function toggleErrorRules(): void {
+  if (!draft.value || !saved.value) return
+  const overrides = { ...draft.value.overrides }
+  if (errorRulesOverridden.value) delete overrides.error_rules
+  else overrides.error_rules = cloneErrorRules(saved.value.default_error_rules)
   draft.value = { ...draft.value, overrides }
 }
 
@@ -1037,6 +1061,22 @@ onBeforeUnmount(() => {
               @update:invalid-edits="parameterOverridesInvalidEdits = $event"
               @update:model-value="updateParameterOverrides"
             />
+          </section>
+          <section id="settings-errors" class="group-settings__section">
+            <SettingBlock
+              :title="t('errorRules.title')"
+              :source-label="t(errorRulesOverridden ? 'errorRules.override' : 'errorRules.inherit')"
+              :action-label="t(errorRulesOverridden ? 'errorRules.inherit' : 'errorRules.override')"
+              :overridden="errorRulesOverridden"
+              :disabled="mutationPending"
+              @toggle="toggleErrorRules"
+            >
+              <ErrorRulesEditor
+                :model-value="displayedErrorRules"
+                :disabled="mutationPending || !errorRulesOverridden"
+                @update:model-value="updateErrorRules"
+              />
+            </SettingBlock>
           </section>
           <section id="settings-headers" class="group-settings__section">
             <SettingBlock

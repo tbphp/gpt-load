@@ -173,6 +173,7 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 	}
 	attemptNow := handler.now()
 	judgment := judgeUpstreamResult(result, attemptNow, health.DecisionContext{
+		ErrorRules:               selection.Group.ErrorRules,
 		DefaultRateLimitCooldown: fixedCooldown,
 		Method:                   http.MethodPost,
 		Operation:                execution.OperationDecisionsCreate,

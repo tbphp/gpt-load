@@ -338,7 +338,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			Err: fmt.Errorf("%w: candidate preparation failed", ErrUpstreamProtocol), ErrorSummary: summary,
 			ExecutionError: &execution.ErrorEvidence{Kind: execution.ErrorKindInternal, OriginHint: execution.ErrorOriginInternal,
 				ScopeHint: scope, Code: code, Summary: summary}}
-		decision := judgeUpstreamResult(result, h.now(), health.DecisionContext{Operation: execution.OperationResponsesCreate, Method: http.MethodPost})
+		decision := judgeUpstreamResult(result, h.now(), health.DecisionContext{ErrorRules: selection.Group.ErrorRules, Operation: execution.OperationResponsesCreate, Method: http.MethodPost})
 		index := recorder.recordAttempt(selection, nil, result, decision, started, recorder.now())
 		h.applyGroupDecisionEffect(selection.Group, ref, 0, decision, 0, h.now(), optionalModelValue(selection.UpstreamModelID))
 		if decision.Effect == health.EffectSkipGroup {
@@ -617,7 +617,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 				break
 			}
 		}
-		decision := judgeUpstreamResult(result, h.now(), health.DecisionContext{DefaultRateLimitCooldown: fixedCooldown, CredentialRefreshable: selection.Group.ConnectionType == "subscription", Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
+		decision := judgeUpstreamResult(result, h.now(), health.DecisionContext{ErrorRules: selection.Group.ErrorRules, DefaultRateLimitCooldown: fixedCooldown, CredentialRefreshable: selection.Group.ConnectionType == "subscription", Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
 		var index int
 		if result.Stream.EndReason == StreamEndNone {
 			index = recorder.recordAttempt(selection, credential.secrets, result, decision, started, recorder.now())

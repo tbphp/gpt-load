@@ -1,5 +1,7 @@
+import { errorRuleMessages } from '@shared/error-rule-messages'
 import { enUS as proxies } from '@shared/proxies/messages'
 export default {
+  errorRules: errorRuleMessages['en-US'],
   proxies,
   concurrency: {
     label: 'Concurrency limit',

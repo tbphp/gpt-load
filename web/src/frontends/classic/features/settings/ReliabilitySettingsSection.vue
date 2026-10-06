@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { cloneErrorRules, type ErrorRule } from '@shared/error-rules'
 import { useI18n } from 'vue-i18n'
 
 import type {
@@ -13,6 +14,8 @@ import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import { formatInteger } from '@/lib/format'
 
 import SettingRow from '@/components/config/SettingRow.vue'
+import SettingBlock from '@/components/config/SettingBlock.vue'
+import ErrorRulesEditor from '@/components/config/ErrorRulesEditor.vue'
 import {
   createSettingsDraft,
   isValidNonNegativeInteger,
@@ -101,6 +104,13 @@ function setEmptyResponseRetry(value: boolean): void {
   publish('empty_response_retry', draft)
 }
 
+function setErrorRules(value: ErrorRule[]): void {
+  const draft = cloneDraft()
+  draft.values.error_rules = cloneErrorRules(value)
+  draft.overrides.add('error_rules')
+  publish('error_rules', draft)
+}
+
 function validationIntervalValue(): string {
   if (isPendingRestore('validation_interval')) return t('settings.runtime.resetPending')
   return t('settings.runtime.effectiveValue', {
@@ -130,6 +140,21 @@ function validationIntervalError(): string | undefined {
     </header>
 
     <div class="settings-reliability__rows">
+      <SettingBlock
+        :title="t('errorRules.title')"
+        :source-label="sourceLabel('error_rules')"
+        :action-label="actionLabel('error_rules')"
+        :overridden="hasOverride('error_rules')"
+        :pending-restore="isPendingRestore('error_rules')"
+        :disabled="disabled"
+        @toggle="toggleOverride('error_rules')"
+      >
+        <ErrorRulesEditor
+          :model-value="draft.values.error_rules"
+          :disabled="disabled || !hasOverride('error_rules')"
+          @update:model-value="setErrorRules"
+        />
+      </SettingBlock>
       <SettingRow
         v-for="policy in policyRows"
         :key="policy.key"

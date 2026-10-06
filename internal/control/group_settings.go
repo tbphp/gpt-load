@@ -11,6 +11,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/health"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
@@ -22,6 +23,7 @@ import (
 )
 
 type GroupSettingsResponse struct {
+	DefaultErrorRules   []health.ErrorRule           `json:"default_error_rules"`
 	Priority            int32                        `json:"priority"`
 	PriceMultiplier     string                       `json:"price_multiplier"`
 	ChannelID           channel.ID                   `json:"channel_id"`
@@ -144,6 +146,7 @@ func groupSettingsResponse(
 		selected, _ = target.PreferredProtocol(execution.OperationProbe, model)
 	}
 	return GroupSettingsResponse{
+		DefaultErrorRules:  system.ErrorRules.Rules(),
 		Priority:           group.Priority,
 		ValidationProtocol: optionalValidationProtocol(selected), ValidationProtocols: protocols,
 		PriceMultiplier: priceMultiplierResponse(group.PriceMultiplierMicros),

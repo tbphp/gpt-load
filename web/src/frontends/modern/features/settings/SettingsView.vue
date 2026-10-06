@@ -52,6 +52,7 @@ import SettingItem from './SettingItem.vue'
 import SettingsHeadersEditor from './SettingsHeadersEditor.vue'
 import SettingsNumberField from './SettingsNumberField.vue'
 import SettingsSystemInfo from './SettingsSystemInfo.vue'
+import ErrorRulesEditor from '../config/ErrorRulesEditor.vue'
 import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
@@ -100,6 +101,7 @@ type SectionID = (typeof sectionIDs)[number]
 const sectionFields: Record<SectionID, readonly SettingKey[]> = {
   routing: ['route_strategy', 'affinity_enabled', 'affinity_ttl', 'affinity_capacity'],
   connection: [
+    'error_rules',
     'global_concurrency_limit',
     'default_access_key_concurrency_limit',
     'default_group_concurrency_limit',
@@ -177,8 +179,8 @@ function matches(key: SettingKey): boolean {
   const section = sectionIDs.find((id) => sectionFields[id].includes(key))!
   const text = [
     key,
-    t('settingsForm.fields.' + key),
-    t('settingsForm.hints.' + key),
+    key === 'error_rules' ? t('errorRules.title') : t('settingsForm.fields.' + key),
+    key === 'error_rules' ? t('errorRules.conditionsHelp') : t('settingsForm.hints.' + key),
     sectionText(section),
     key === 'cors'
       ? Object.keys(base.value?.values.cors ?? {})
@@ -230,8 +232,8 @@ function settingState(key: SettingKey) {
 function settingItem(key: SettingKey) {
   return {
     ...settingState(key),
-    label: t('settingsForm.fields.' + key),
-    hint: t('settingsForm.hints.' + key),
+    label: key === 'error_rules' ? t('errorRules.title') : t('settingsForm.fields.' + key),
+    hint: key === 'error_rules' ? t('errorRules.conditionsHelp') : t('settingsForm.hints.' + key),
     controlId: 'settings-' + key,
   }
 }
@@ -509,6 +511,18 @@ onScopeDispose(() => {
               </div>
             </template>
             <template v-else-if="id === 'connection'">
+              <SettingItem
+                v-if="matches('error_rules')"
+                v-bind="settingItem('error_rules')"
+                class="modern-settings-block"
+                @reset="restore('error_rules')"
+                @undo="undoRestore('error_rules')"
+              >
+                <ErrorRulesEditor
+                  v-model="draft.error_rules"
+                  :disabled="disabled('error_rules') || resets.has('error_rules')"
+                />
+              </SettingItem>
               <SettingItem
                 v-if="matches('codex_live_mode')"
                 v-bind="settingItem('codex_live_mode')"
