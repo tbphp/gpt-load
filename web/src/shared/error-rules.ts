@@ -83,8 +83,8 @@ export function readErrorRules(value: unknown): ErrorRule[] {
         return true
       })
     const rule: ErrorRule = {
-      status_codes: [...new Set(statuses)],
-      keywords: normalizedKeywords,
+      ...(statuses.length ? { status_codes: [...new Set(statuses)] } : {}),
+      ...(normalizedKeywords.length ? { keywords: normalizedKeywords } : {}),
       retry: row.retry as ErrorRule['retry'],
       effect: row.effect as ErrorRule['effect'],
       ...(row.cooldown_seconds != null && row.cooldown_seconds !== 0

@@ -173,7 +173,7 @@ function summary(index: number): string {
         />
         <AppTextField
           v-if="hasErrorRuleCooldown(row.effect)"
-          v-model="row.cooldown"
+          :model-value="row.cooldown"
           :label="t('errorRules.cooldown')"
           type="number"
           min="1"
@@ -181,6 +181,7 @@ function summary(index: number): string {
           size="xs"
           :disabled="disabled"
           :error="errorRuleErrors(row).cooldown ? t('errorRules.errors.cooldown') : undefined"
+          @update:model-value="row.cooldown = String($event)"
         />
         <AppNotice v-if="errorRuleErrors(row).condition" tone="warning">{{
           t('errorRules.errors.condition')
