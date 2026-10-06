@@ -63,6 +63,7 @@ func prepareCompatibleChatRequest(ctx *schemas.BifrostContext, request *schemas.
 		}
 	}
 	chat := request.ToChatRequest()
+	chat.Input = mergeCompatibleToolTurns(chat.Input)
 	preserveCompatibleToolTurnReasoning(chat.Input)
 	return chat, request.NamespaceToolAliases, nil
 }
@@ -99,6 +100,72 @@ func hoistCompatibleAdditionalTools(request *schemas.BifrostResponsesRequest) (*
 		}
 	}
 	return &copyRequest, nil
+}
+
+// #827：SDK 会把同一助手回合的正文和工具调用拆开。先合并，再保留推理，避免复制。
+// 仅合并含工具调用的连续助手片段；其他角色和无法合并的助手字段保留原分界。
+func mergeCompatibleToolTurns(messages []schemas.ChatMessage) []schemas.ChatMessage {
+	merged := make([]schemas.ChatMessage, 0, len(messages))
+	for start := 0; start < len(messages); {
+		if messages[start].Role != schemas.ChatMessageRoleAssistant {
+			merged = append(merged, messages[start])
+			start++
+			continue
+		}
+		end := start
+		hasTools, mergeable := false, true
+		for end < len(messages) && messages[end].Role == schemas.ChatMessageRoleAssistant {
+			message := messages[end]
+			mergeable = mergeable && message.Name == nil
+			if assistant := message.ChatAssistantMessage; assistant != nil {
+				hasTools = hasTools || len(assistant.ToolCalls) > 0
+				mergeable = mergeable && assistant.Refusal == nil && assistant.Audio == nil && len(assistant.Annotations) == 0
+			}
+			end++
+		}
+		if !hasTools || !mergeable || end-start == 1 {
+			merged = append(merged, messages[start:end]...)
+			start = end
+			continue
+		}
+		message := schemas.ChatMessage{
+			Role:                 schemas.ChatMessageRoleAssistant,
+			ChatAssistantMessage: &schemas.ChatAssistantMessage{},
+		}
+		var contents []*schemas.ChatMessageContent
+		var reasoning []string
+		for _, part := range messages[start:end] {
+			if part.Content != nil {
+				contents = append(contents, part.Content)
+			}
+			if assistant := part.ChatAssistantMessage; assistant != nil {
+				message.ToolCalls = append(message.ToolCalls, assistant.ToolCalls...)
+				message.ReasoningDetails = append(message.ReasoningDetails, assistant.ReasoningDetails...)
+				if assistant.Reasoning != nil && *assistant.Reasoning != "" {
+					reasoning = append(reasoning, *assistant.Reasoning)
+				}
+			}
+		}
+		if len(contents) == 1 {
+			message.Content = contents[0]
+		} else if len(contents) > 1 {
+			blocks := make([]schemas.ChatContentBlock, 0, len(contents))
+			for _, content := range contents {
+				if content.ContentStr != nil {
+					blocks = append(blocks, schemas.ChatContentBlock{Type: schemas.ChatContentBlockTypeText, Text: content.ContentStr})
+				} else {
+					blocks = append(blocks, content.ContentBlocks...)
+				}
+			}
+			message.Content = &schemas.ChatMessageContent{ContentBlocks: blocks}
+		}
+		if len(reasoning) > 0 {
+			message.Reasoning = schemas.Ptr(strings.Join(reasoning, "\n"))
+		}
+		merged = append(merged, message)
+		start = end
+	}
+	return merged
 }
 
 // #666：仅修正每次 attempt 新生成的 Chat 请求，不修改共享历史/响应转换。
