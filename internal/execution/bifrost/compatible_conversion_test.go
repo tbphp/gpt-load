@@ -69,6 +69,11 @@ func compatibleReasoningServer(t *testing.T, stream bool) *httptest.Server {
 		if r.Header.Get("Authorization") != "Bearer "+testAPIKey {
 			t.Error("selected credential lost")
 		}
+		messages := gjson.GetBytes(body, "messages").Array()
+		if len(messages) != 3 || messages[0].Get("role").String() != "user" ||
+			messages[1].Get("role").String() != "assistant" || messages[2].Get("role").String() != "tool" {
+			t.Errorf("assistant turn was split: %s", gjson.GetBytes(body, "messages").Raw)
+		}
 		found := false
 		for _, message := range gjson.GetBytes(body, "messages").Array() {
 			if len(message.Get("tool_calls").Array()) == 0 {
