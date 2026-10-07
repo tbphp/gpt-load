@@ -9,6 +9,7 @@ export const errorRuleEffects = [
   'skip_group',
 ] as const
 export const maxErrorRuleCooldown = 9_223_372_036
+const maxErrorRulesBytes = 65_535
 export interface ErrorRule {
   status_codes?: number[]
   keywords?: string[]
@@ -55,7 +56,13 @@ export function validErrorRules(rules: ErrorRule[]): boolean {
           : rule.cooldown_seconds === undefined)
       )
     }) &&
-    new TextEncoder().encode(JSON.stringify(rules)).length <= 256 * 1024
+    // 按后端 json.Marshal 的转义方式计算，避免浏览器低估实际存储字节数。
+    new TextEncoder().encode(
+      JSON.stringify(rules).replace(
+        /[<>&\u2028\u2029]/gu,
+        (value) => `\\u${value.charCodeAt(0).toString(16).padStart(4, '0')}`,
+      ),
+    ).length <= maxErrorRulesBytes
   )
 }
 export function readErrorRules(value: unknown): ErrorRule[] {

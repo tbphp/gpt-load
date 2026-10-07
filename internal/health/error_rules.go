@@ -12,6 +12,9 @@ import (
 	"gpt-load/internal/execution"
 )
 
+// 沿用系统设置既有 MySQL TEXT 列的容量，三种数据库使用同一配置上限。
+const maxErrorRulesBytes = 65535
+
 // ErrorRule 是用户配置的匹配条件和动作，不改变上游执行证据。
 type ErrorRule struct {
 	StatusCodes     []int          `json:"status_codes,omitempty"`
@@ -32,8 +35,8 @@ func CompileErrorRules(value any, source string) (ErrorRules, error) {
 	if err != nil {
 		return ErrorRules{}, fmt.Errorf("encode error rules: %w", err)
 	}
-	if len(encoded) > 256<<10 || len(encoded) == 0 || encoded[0] != '[' {
-		return ErrorRules{}, fmt.Errorf("error rules must be an array within 256 KiB")
+	if len(encoded) > maxErrorRulesBytes || len(encoded) == 0 || encoded[0] != '[' {
+		return ErrorRules{}, fmt.Errorf("error rules must be an array within %d bytes", maxErrorRulesBytes)
 	}
 	var entries []ErrorRule
 	decoder := json.NewDecoder(bytes.NewReader(encoded))

@@ -246,6 +246,10 @@ function summary(index: number): string {
 .error-rules__toolbar,
 .error-rules__heading {
   justify-content: space-between;
+  flex-wrap: wrap;
+}
+.error-rules__tools {
+  flex: none;
 }
 .error-rules__toolbar,
 .error-rules__note,

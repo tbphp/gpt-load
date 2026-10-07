@@ -211,7 +211,8 @@ function summary(index: number): string {
   align-items: center;
   gap: var(--modern-space-2);
 }
-.modern-error-toolbar {
+.modern-error-toolbar,
+.modern-error-heading {
   flex-wrap: wrap;
 }
 .modern-error-tools {
