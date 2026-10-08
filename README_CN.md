@@ -40,8 +40,8 @@
 <td><strong>PackyCode</strong><br>PackyCode 是一家稳定、高效的 API 中转服务商。一句话接入主流大模型。统一域名、统一密钥、智能容灾切换，97% 可用性。人民币1:1充值，无汇率无手续费坑，新用户首充立享折扣 + $1免费体验额度，多分组折扣低至 2 折起，提供专属Codex/Claude Code高速通道。<a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer">点此链接注册，立即开始使用！</a></td>
 </tr>
 <tr>
-<td width="180"><a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/fluxionai-horizontal.png" alt="Fluxion AI" width="150"></a></td>
-<td><strong>一个入口，接入并管理全球主流AI模型</strong><br>Fluxion AI面向个人开发者、技术团队与企业，通过统一API接入并管理全球主流AI模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API调用成本较官方或基准价格可降低40%—98%。立即访问并注册，即可获得 $7 API 额度。（<a href="https://fluxionai.space/register?source=github&amp;campaign=gptload&amp;promo=GPTLOAD" target="_blank" rel="sponsored noopener noreferrer">专属链接</a>）</td>
+<td width="180"><a href="https://sidrune.ai/register?source=github&amp;campaign=gptload&amp;promo=gptload" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/sidrune-ai.png" alt="Sidrune AI" width="150"></a></td>
+<td><strong>一个入口，接入并管理全球主流AI模型</strong><br>Sidrune AI面向个人开发者、技术团队与企业，通过统一API接入并管理全球主流AI模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API调用成本较官方或基准价格可降低40%—98%。立即访问并注册，即可获得 $3 API 额度。（<a href="https://sidrune.ai/register?source=github&amp;campaign=gptload&amp;promo=gptload" target="_blank" rel="sponsored noopener noreferrer">专属链接</a>）</td>
 </tr>
 <tr>
 <td width="180"><a href="https://www.axisnow.io/zh"><img src="./screenshot/axisnow.jpg" alt="AxisNow" width="150"></a></td>
