@@ -13,7 +13,7 @@ func TestOpenAIEmbeddingsNativeRouteIsLimitedToSupportedAPIKeyChannels(t *testin
 	registry := NewRegistry()
 	supported := map[ID]struct{}{
 		OpenAI: {}, OpenRouter: {}, GPTLoad: {}, NewAPI: {}, OpenAICompatible: {},
-		Mistral: {}, Nebius: {},
+		Mistral: {}, Nebius: {}, SiliconFlow: {},
 	}
 	for _, descriptor := range registry.List() {
 		definition, ok := registry.lookup(descriptor.ID)
