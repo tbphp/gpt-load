@@ -78,9 +78,10 @@ type websocketTurn struct {
 }
 type websocketFinished struct{ lane string }
 type websocketParent struct {
-	lane          string
-	complete      bool
-	autoSelection *automodel.Selection
+	lane               string
+	complete           bool
+	interruptRequested bool
+	autoSelection      *automodel.Selection
 }
 type websocketBinding struct {
 	autoSelection *automodel.Selection
@@ -374,6 +375,14 @@ func (s *websocketConnection) readMessages(out chan<- websocketTurn) {
 			if json.Unmarshal(raw, &turn.model) != nil || len(turn.model) > maxDataPlaneModelBytes {
 				turn.model = ""
 			}
+		}
+		var eventType string
+		if json.Unmarshal(envelope["type"], &eventType) == nil && eventType == "response.interrupt" {
+			// 控制消息必须在当前生成期间处理，不能排在同流的终态之后。
+			s.handleInterrupt(turn, envelope)
+			s.reserveInput(-len(body))
+			s.finishTurn()
+			continue
 		}
 		select {
 		case out <- turn:
