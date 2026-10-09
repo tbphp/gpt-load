@@ -964,7 +964,7 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *tes
 			return
 		}
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = writer.Write([]byte(`{"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"cachedContentTokenCount":2,"candidatesTokenCount":3,"thoughtsTokenCount":4,"totalTokenCount":12}}` + "\n"))
+		_, _ = writer.Write([]byte(`{"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"cachedContentTokenCount":2,"candidatesTokenCount":3,"thoughtsTokenCount":4,"totalTokenCount":12}}}` + "\n"))
 	}))
 	defer server.Close()
 
@@ -1138,8 +1138,8 @@ func TestNormalizeAntigravityConvertedUsagePreservesReasoningAndCacheSemantics(t
 			want: `{"usage":{"prompt_tokens":10,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":6}}}`,
 		},
 		{
-			name: "OpenAI chat stream adds reasoning tokens", format: "openai", stream: true,
-			body: `{"usage":{"prompt_tokens":10,"completion_tokens":4,"completion_tokens_details":{"reasoning_tokens":6}}}`,
+			name: "OpenAI chat stream already includes reasoning tokens", format: "openai", stream: true,
+			body: `{"usage":{"prompt_tokens":10,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":6}}}`,
 			want: `{"usage":{"prompt_tokens":10,"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":6}}}`,
 		},
 		{

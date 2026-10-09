@@ -102,6 +102,14 @@ func (s *WSSession) Done() <-chan struct{} {
 	return bridge.Done()
 }
 
+func (s *WSSession) Interrupt(ctx context.Context, payload []byte) error {
+	var bridge *cpaembedded.CodexWSSession
+	if s != nil {
+		bridge = s.bridge
+	}
+	return wsErrorFromBridge(bridge.Interrupt(ctx, payload))
+}
+
 // Close 幂等关闭本 Session，不影响其他 Session。
 func (s *WSSession) Close() error {
 	if s == nil {

@@ -25,10 +25,11 @@ import (
 )
 
 const (
-	CodexWSNotSent            = "not_sent"
-	CodexWSMaybeSent          = "maybe_sent"
-	defaultCodexWSTurnTimeout = 5 * time.Minute
-	defaultCodexWSMaxBytes    = 10 << 20
+	CodexWSNotSent             = "not_sent"
+	CodexWSMaybeSent           = "maybe_sent"
+	defaultCodexWSTurnTimeout  = 5 * time.Minute
+	defaultCodexWSWriteTimeout = 30 * time.Second
+	defaultCodexWSMaxBytes     = 10 << 20
 )
 
 // CodexWSSessionOptions 固定调用者已选择的身份、API 代理根地址和出站代理。
@@ -81,25 +82,28 @@ func codexWSError(code string) *CodexWSError {
 
 // CodexWSSession 是由调用者独占的 Codex 上游会话。
 type CodexWSSession struct {
-	lastResponseID    string
-	lastModel         string
-	lastEffort        string
-	lastOverride      bool
-	auth              *cliproxyauth.Auth
-	inner             *internalexecutor.CodexWebsocketsExecutor
-	id                string
-	options           CodexWSSessionOptions
-	resource          *codexWSResource
-	mu                sync.Mutex
-	running           bool
-	started           bool
-	closed            bool
-	bound             bool
-	cancel            context.CancelFunc
-	closeConnection   func() error
-	pendingConnection net.Conn
-	closeDone         chan struct{}
-	closeErr          error
+	lastResponseID      string
+	lastModel           string
+	lastEffort          string
+	lastOverride        bool
+	activeResponseID    string
+	interruptResponseID string
+	auth                *cliproxyauth.Auth
+	inner               *internalexecutor.CodexWebsocketsExecutor
+	id                  string
+	options             CodexWSSessionOptions
+	resource            *codexWSResource
+	mu                  sync.Mutex
+	running             bool
+	started             bool
+	closed              bool
+	bound               bool
+	cancel              context.CancelFunc
+	turnDeadline        time.Time
+	closeConnection     func() error
+	pendingConnection   net.Conn
+	closeDone           chan struct{}
+	closeErr            error
 }
 
 // NewCodexWSSession 只创建句柄，不建连、不刷新 token，也不保留 refresh token。
@@ -203,6 +207,8 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 	}
 	s.cancel, s.running = cancel, true
+	s.turnDeadline, _ = turnCtx.Deadline()
+	s.activeResponseID, s.interruptResponseID = "", ""
 	reuse := s.started
 	s.mu.Unlock()
 	cleanupDone := make(chan struct{})
@@ -221,6 +227,8 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 		s.mu.Lock()
 		s.cancel, s.running = nil, false
+		s.turnDeadline = time.Time{}
+		s.activeResponseID, s.interruptResponseID = "", ""
 		s.mu.Unlock()
 	}()
 	turnCtx = cliproxyexecutor.WithUpstreamAttemptTracker(turnCtx)
@@ -235,6 +243,16 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	observation := codexWSTurnObservation{
 		result: &result, maxBytes: s.options.MaxEventBytes, emit: emit, cancel: cancel,
 		failSession: func() { s.invalidate(false) },
+		observeResponse: func(id, status, reason string) bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.activeResponseID = id
+			interrupted := status == "incomplete" && reason == "interrupted" && s.interruptResponseID == id && id != ""
+			if status == "completed" || status == "incomplete" || status == "failed" || status == "cancelled" {
+				s.activeResponseID = ""
+			}
+			return interrupted
+		},
 	}
 	headersReady := make(chan struct{})
 	headers := normalizedCodexHeaders(s.options.Headers)
@@ -327,7 +345,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 		return result, failure
 	}
-	if result.Status != "completed" || result.ResponseID == "" {
+	if (result.Status != "completed" && !observation.interrupted) || result.ResponseID == "" {
 		s.invalidate(true)
 		failure := codexWSError("incomplete_response")
 		failure.DispatchState, failure.UpstreamCode = result.DispatchState, observation.upstreamCode
@@ -339,6 +357,63 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	s.lastResponseID, s.lastModel, s.lastEffort = result.ResponseID, model, result.AppliedReasoningEffort
 	s.mu.Unlock()
 	return result, nil
+}
+
+// Interrupt 复用 CPA 的控制帧接口，只允许中断当前正在生成的响应。
+func (s *CodexWSSession) Interrupt(ctx context.Context, payload []byte) error {
+	if s == nil {
+		return codexWSError("response_not_active")
+	}
+	var frame struct {
+		Type       string `json:"type"`
+		ResponseID string `json:"response_id"`
+	}
+	if len(payload) > s.options.MaxRequestBytes || json.Unmarshal(payload, &frame) != nil ||
+		frame.Type != "response.interrupt" || frame.ResponseID == "" {
+		return codexWSError("invalid_request")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return codexWSContextError(ctx.Err(), CodexWSNotSent)
+	}
+	s.mu.Lock()
+	if s.closed || !s.running || s.activeResponseID != frame.ResponseID {
+		s.mu.Unlock()
+		return codexWSError("response_not_active")
+	}
+	deadline := time.Now().Add(defaultCodexWSWriteTimeout)
+	if s.turnDeadline.Before(deadline) {
+		deadline = s.turnDeadline
+	}
+	s.interruptResponseID = frame.ResponseID
+	s.mu.Unlock()
+	writeCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	// SDK 的阻塞写入不会响应 context；即使生成已结束，控制帧仍须独立限时并关闭连接解阻。
+	cleanupDone := make(chan struct{})
+	stop := context.AfterFunc(writeCtx, func() { s.invalidate(true); close(cleanupDone) })
+	err := s.inner.InterruptExecutionSession(writeCtx, s.id, payload)
+	if !stop() {
+		<-cleanupDone
+	}
+	if writeCtx.Err() != nil {
+		s.invalidate(true)
+		return codexWSContextError(writeCtx.Err(), CodexWSMaybeSent)
+	}
+	if err != nil {
+		s.mu.Lock()
+		if s.interruptResponseID == frame.ResponseID {
+			s.interruptResponseID = ""
+		}
+		s.mu.Unlock()
+		if errors.Is(err, cliproxyexecutor.ErrNoActiveUpstreamWebsocket) {
+			return codexWSError("response_not_active")
+		}
+		return &CodexWSError{Code: "interrupt_failed", DispatchState: CodexWSMaybeSent, cause: err}
+	}
+	return nil
 }
 
 func codexWSErrorMetadata(err error) (string, time.Duration) {
@@ -502,13 +577,15 @@ func codexWSContextError(err error, dispatch string) *CodexWSError {
 }
 
 type codexWSTurnObservation struct {
-	result       *CodexWSTurnResult
-	maxBytes     int
-	emit         func(context.Context, json.RawMessage) error
-	cancel       context.CancelFunc
-	err          *CodexWSError
-	upstreamCode string
-	failSession  func()
+	result          *CodexWSTurnResult
+	maxBytes        int
+	emit            func(context.Context, json.RawMessage) error
+	cancel          context.CancelFunc
+	err             *CodexWSError
+	upstreamCode    string
+	failSession     func()
+	observeResponse func(string, string, string) bool
+	interrupted     bool
 }
 
 func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexecutor.WebSocketResponseEvent) {
@@ -523,10 +600,13 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 	var envelope struct {
 		Type     string `json:"type"`
 		Response struct {
-			ID     string          `json:"id"`
-			Status string          `json:"status"`
-			Usage  json.RawMessage `json:"usage"`
-			Error  struct {
+			ID                string          `json:"id"`
+			Status            string          `json:"status"`
+			Usage             json.RawMessage `json:"usage"`
+			IncompleteDetails struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
+			Error struct {
 				Code string `json:"code"`
 			} `json:"error"`
 		} `json:"response"`
@@ -560,13 +640,16 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 			o.upstreamCode = safeCodexWSCode(envelope.Response.Error.Code)
 		}
 	}
+	if envelope.Response.ID != "" && o.observeResponse != nil {
+		o.interrupted = o.observeResponse(envelope.Response.ID, o.result.Status, envelope.Response.IncompleteDetails.Reason)
+	}
 	if o.emit != nil {
 		if err := o.emit(ctx, append(json.RawMessage(nil), event.Payload...)); err != nil {
 			fail("event_consumer_failed")
 		}
 	}
 	// 先释放已失败的会话；让 SDK 继续返回原始错误分类，而非在断连日志里输出错误正文。
-	if o.result.Status == "failed" || o.result.Status == "incomplete" || (envelope.Type == "response.done" && o.result.Status != "completed") {
+	if !o.interrupted && (o.result.Status == "failed" || o.result.Status == "incomplete" || (envelope.Type == "response.done" && o.result.Status != "completed")) {
 		o.failSession()
 	}
 }
