@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +22,139 @@ import (
 func TestCodexWSSessionInterruptAndContinue(t *testing.T) {
 	for _, eventType := range []string{"response.incomplete", "response.done"} {
 		t.Run(eventType, func(t *testing.T) { testCodexWSSessionInterruptAndContinue(t, eventType) })
+	}
+}
+
+func TestCodexWSSessionInterruptBlockedAfterTurnCompletes(t *testing.T) {
+	interrupt, err := json.Marshal(map[string]string{
+		"type": "response.interrupt", "response_id": "resp_blocked", "extension": strings.Repeat("x", 9<<20),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"caller_canceled", "caller_deadline", "turn_deadline"} {
+		t.Run(scenario, func(t *testing.T) {
+			interruptStarted := make(chan struct{})
+			finishTurn := make(chan struct{})
+			release := make(chan struct{})
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				if err := conn.UnderlyingConn().(*net.TCPConn).SetReadBuffer(1024); err != nil {
+					t.Error(err)
+					return
+				}
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.created","response":{"id":"resp_blocked","object":"response","status":"in_progress"}}`)); err != nil {
+					return
+				}
+				_, reader, err := conn.NextReader()
+				if err != nil {
+					return
+				}
+				// 只读取控制帧的第一个字节，让发送端确实进入写入后停止消费。
+				if _, err := io.ReadFull(reader, make([]byte, 1)); err != nil {
+					return
+				}
+				close(interruptStarted)
+				select {
+				case <-finishTurn:
+				case <-release:
+					return
+				}
+				if err := conn.WriteMessage(websocket.TextMessage, wsCompleted("resp_blocked")); err != nil {
+					return
+				}
+				<-release
+			}))
+			defer upstream.Close()
+			defer close(release)
+			session := wsTestSession(t, upstream.URL)
+			defer session.Close()
+			turnTimeout := 10 * time.Second
+			if scenario == "turn_deadline" {
+				turnTimeout = 3 * time.Second
+			}
+			turnCtx, cancelTurn := context.WithTimeout(t.Context(), turnTimeout)
+			defer cancelTurn()
+			turnCtx = httptrace.WithClientTrace(turnCtx, &httptrace.ClientTrace{
+				GotConn: func(info httptrace.GotConnInfo) {
+					if err := info.Conn.(*net.TCPConn).SetWriteBuffer(1024); err != nil {
+						t.Error(err)
+					}
+				},
+			})
+			created := make(chan struct{})
+			turnDone := make(chan error, 1)
+			go func() {
+				_, err := session.ExecuteTurn(turnCtx, json.RawMessage(`{"model":"gpt-5","input":"question"}`), func(_ context.Context, body json.RawMessage) error {
+					var event struct{ Type string }
+					if json.Unmarshal(body, &event) == nil && event.Type == "response.created" {
+						close(created)
+					}
+					return nil
+				})
+				turnDone <- err
+			}()
+			select {
+			case <-created:
+			case <-time.After(2 * time.Second):
+				t.Fatal("response did not start")
+			}
+			writeCtx, cancelWrite := context.WithCancel(t.Context())
+			defer cancelWrite()
+			if scenario == "caller_deadline" {
+				var cancelDeadline context.CancelFunc
+				writeCtx, cancelDeadline = context.WithTimeout(writeCtx, 3*time.Second)
+				defer cancelDeadline()
+			}
+			interruptDone := make(chan error, 1)
+			go func() { interruptDone <- session.Interrupt(writeCtx, interrupt) }()
+			select {
+			case <-interruptStarted:
+			case err := <-interruptDone:
+				t.Fatalf("interrupt returned before upstream received it: %v", err)
+			case <-time.After(2 * time.Second):
+				t.Fatal("interrupt did not start writing")
+			}
+			close(finishTurn)
+			select {
+			case err := <-turnDone:
+				if err != nil {
+					t.Fatalf("turn did not complete before the blocked interrupt: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("turn did not complete")
+			}
+			select {
+			case err := <-interruptDone:
+				t.Fatalf("interrupt was not blocked after turn completion: %v", err)
+			default:
+			}
+			wantErr := context.DeadlineExceeded
+			if scenario == "caller_canceled" {
+				cancelWrite()
+				wantErr = context.Canceled
+			}
+			select {
+			case err := <-interruptDone:
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("interrupt error = %v, want %v", err, wantErr)
+				}
+			case <-time.After(4 * time.Second):
+				t.Fatal("interrupt write stayed blocked after cancellation or deadline")
+			}
+			select {
+			case <-session.Done():
+			default:
+				t.Fatal("blocked interrupt did not close its connection")
+			}
+		})
 	}
 }
 

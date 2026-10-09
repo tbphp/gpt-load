@@ -25,10 +25,11 @@ import (
 )
 
 const (
-	CodexWSNotSent            = "not_sent"
-	CodexWSMaybeSent          = "maybe_sent"
-	defaultCodexWSTurnTimeout = 5 * time.Minute
-	defaultCodexWSMaxBytes    = 10 << 20
+	CodexWSNotSent             = "not_sent"
+	CodexWSMaybeSent           = "maybe_sent"
+	defaultCodexWSTurnTimeout  = 5 * time.Minute
+	defaultCodexWSWriteTimeout = 30 * time.Second
+	defaultCodexWSMaxBytes     = 10 << 20
 )
 
 // CodexWSSessionOptions 固定调用者已选择的身份、API 代理根地址和出站代理。
@@ -98,6 +99,7 @@ type CodexWSSession struct {
 	closed              bool
 	bound               bool
 	cancel              context.CancelFunc
+	turnDeadline        time.Time
 	closeConnection     func() error
 	pendingConnection   net.Conn
 	closeDone           chan struct{}
@@ -205,6 +207,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 	}
 	s.cancel, s.running = cancel, true
+	s.turnDeadline, _ = turnCtx.Deadline()
 	s.activeResponseID, s.interruptResponseID = "", ""
 	reuse := s.started
 	s.mu.Unlock()
@@ -224,6 +227,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 		s.mu.Lock()
 		s.cancel, s.running = nil, false
+		s.turnDeadline = time.Time{}
 		s.activeResponseID, s.interruptResponseID = "", ""
 		s.mu.Unlock()
 	}()
@@ -371,14 +375,34 @@ func (s *CodexWSSession) Interrupt(ctx context.Context, payload []byte) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if ctx.Err() != nil {
+		return codexWSContextError(ctx.Err(), CodexWSNotSent)
+	}
 	s.mu.Lock()
 	if s.closed || !s.running || s.activeResponseID != frame.ResponseID {
 		s.mu.Unlock()
 		return codexWSError("response_not_active")
 	}
+	deadline := time.Now().Add(defaultCodexWSWriteTimeout)
+	if s.turnDeadline.Before(deadline) {
+		deadline = s.turnDeadline
+	}
 	s.interruptResponseID = frame.ResponseID
 	s.mu.Unlock()
-	if err := s.inner.InterruptExecutionSession(ctx, s.id, payload); err != nil {
+	writeCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	// SDK 的阻塞写入不会响应 context；即使生成已结束，控制帧仍须独立限时并关闭连接解阻。
+	cleanupDone := make(chan struct{})
+	stop := context.AfterFunc(writeCtx, func() { s.invalidate(true); close(cleanupDone) })
+	err := s.inner.InterruptExecutionSession(writeCtx, s.id, payload)
+	if !stop() {
+		<-cleanupDone
+	}
+	if writeCtx.Err() != nil {
+		s.invalidate(true)
+		return codexWSContextError(writeCtx.Err(), CodexWSMaybeSent)
+	}
+	if err != nil {
 		s.mu.Lock()
 		if s.interruptResponseID == frame.ResponseID {
 			s.interruptResponseID = ""
