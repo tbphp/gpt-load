@@ -59,6 +59,13 @@ func (err *WSError) Unwrap() error { return err.cause }
 // WSSession 独立于既有 HTTP Executor，不注册到数据面或全局生命周期。
 type WSSession struct{ bridge *cpaembedded.CodexWSSession }
 
+func (s *WSSession) Interrupt(ctx context.Context, responseID string) error {
+	if s == nil {
+		return &WSError{Code: "session_closed"}
+	}
+	return wsErrorFromBridge(s.bridge.Interrupt(ctx, responseID))
+}
+
 // NewWSSession 创建独立句柄，首轮 ExecuteTurn 才建立上游连接。
 func NewWSSession(options WSSessionOptions) (*WSSession, error) {
 	bridge, err := cpaembedded.NewCodexWSSession(cpaembedded.CodexWSSessionOptions{

@@ -41,6 +41,12 @@ type WebsocketSession interface {
 	Close() error
 }
 
+// WebsocketInterrupter is an optional control path. It must not wait for the
+// active turn to finish or replace its real upstream terminal event.
+type WebsocketInterrupter interface {
+	Interrupt(ctx context.Context, responseID, lane string) error
+}
+
 // WebsocketOpener 不进行选号、业务重放或 HTTP 回退。
 type WebsocketOpener interface {
 	OpenWebsocket(context.Context, AttemptSpec) (WebsocketSession, WebsocketResult)

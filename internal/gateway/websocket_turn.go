@@ -1096,7 +1096,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				if !exists {
 					s.parentOrder = append(s.parentOrder, response.ID)
 				}
-				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted, autoSelection: recorder.autoSelection()}
+				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted, terminal: observer.sawTerminal, interruptSent: prior.interruptSent, autoSelection: recorder.autoSelection()}
 				for len(s.parentOrder) > s.handler.websocketLimits.responses {
 					delete(s.parents, s.parentOrder[0])
 					s.parentOrder = s.parentOrder[1:]

@@ -81,6 +81,7 @@ func codexWSError(code string) *CodexWSError {
 
 // CodexWSSession 是由调用者独占的 Codex 上游会话。
 type CodexWSSession struct {
+	activeResponseID  string
 	lastResponseID    string
 	lastModel         string
 	lastEffort        string
@@ -203,6 +204,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 	}
 	s.cancel, s.running = cancel, true
+	s.activeResponseID = ""
 	reuse := s.started
 	s.mu.Unlock()
 	cleanupDone := make(chan struct{})
@@ -232,8 +234,31 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	if reuse {
 		turnCtx = cliproxyexecutor.WithRequiredUpstreamWebsocket(turnCtx)
 	}
+	observedEmit := func(ctx context.Context, body json.RawMessage) error {
+		var event struct {
+			ResponseID string `json:"response_id"`
+			Response   struct {
+				ID string `json:"id"`
+			} `json:"response"`
+		}
+		if json.Unmarshal(body, &event) == nil {
+			id := event.Response.ID
+			if id == "" {
+				id = event.ResponseID
+			}
+			if id != "" {
+				s.mu.Lock()
+				s.activeResponseID = id
+				s.mu.Unlock()
+			}
+		}
+		if emit != nil {
+			return emit(ctx, body)
+		}
+		return nil
+	}
 	observation := codexWSTurnObservation{
-		result: &result, maxBytes: s.options.MaxEventBytes, emit: emit, cancel: cancel,
+		result: &result, maxBytes: s.options.MaxEventBytes, emit: observedEmit, cancel: cancel,
 		failSession: func() { s.invalidate(false) },
 	}
 	headersReady := make(chan struct{})
@@ -327,7 +352,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		}
 		return result, failure
 	}
-	if result.Status != "completed" || result.ResponseID == "" {
+	if (result.Status != "completed" && !observation.interrupted) || result.ResponseID == "" {
 		s.invalidate(true)
 		failure := codexWSError("incomplete_response")
 		failure.DispatchState, failure.UpstreamCode = result.DispatchState, observation.upstreamCode
@@ -509,6 +534,7 @@ type codexWSTurnObservation struct {
 	err          *CodexWSError
 	upstreamCode string
 	failSession  func()
+	interrupted  bool
 }
 
 func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexecutor.WebSocketResponseEvent) {
@@ -523,10 +549,13 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 	var envelope struct {
 		Type     string `json:"type"`
 		Response struct {
-			ID     string          `json:"id"`
-			Status string          `json:"status"`
-			Usage  json.RawMessage `json:"usage"`
-			Error  struct {
+			ID                string `json:"id"`
+			Status            string `json:"status"`
+			IncompleteDetails struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
+			Usage json.RawMessage `json:"usage"`
+			Error struct {
 				Code string `json:"code"`
 			} `json:"error"`
 		} `json:"response"`
@@ -553,6 +582,7 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 		o.upstreamCode = safeCodexWSCode(envelope.Response.Error.Code)
 	case "response.incomplete":
 		o.result.Status, o.result.Usage = "incomplete", envelope.Response.Usage
+		o.interrupted = envelope.Response.IncompleteDetails.Reason == "interrupted"
 	case "response.failed", "error":
 		o.result.Status, o.result.Usage = "failed", envelope.Response.Usage
 		o.upstreamCode = safeCodexWSCode(envelope.Error.Code)
@@ -566,7 +596,7 @@ func (o *codexWSTurnObservation) observe(ctx context.Context, event cliproxyexec
 		}
 	}
 	// 先释放已失败的会话；让 SDK 继续返回原始错误分类，而非在断连日志里输出错误正文。
-	if o.result.Status == "failed" || o.result.Status == "incomplete" || (envelope.Type == "response.done" && o.result.Status != "completed") {
+	if o.result.Status == "failed" || (o.result.Status == "incomplete" && !o.interrupted) || (envelope.Type == "response.done" && o.result.Status != "completed") {
 		o.failSession()
 	}
 }

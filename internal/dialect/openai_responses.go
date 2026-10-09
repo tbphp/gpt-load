@@ -157,11 +157,18 @@ func (*OpenAIResponses) ClassifyStreamEvent(
 		eventType = payloadType
 	}
 	switch eventType {
+	case "response.interrupt.failed":
+		// This error belongs to the control operation, not the model response.
+		// The upstream continues emitting the original response and its usage.
+		return StreamEventClassification{Disposition: StreamEventContinue}, nil
 	case "response.completed":
 		return StreamEventClassification{
 			Disposition: StreamEventCompleted,
 		}, nil
 	case "response.incomplete":
+		if responsesInterrupted(event.Payload) {
+			return StreamEventClassification{Disposition: StreamEventCompleted}, nil
+		}
 		return StreamEventClassification{
 			Disposition: StreamEventIncomplete,
 		}, nil
@@ -182,4 +189,18 @@ func (*OpenAIResponses) ClassifyStreamEvent(
 	return StreamEventClassification{
 		Disposition: StreamEventContinue,
 	}, nil
+}
+
+// Responses Lite ends an accepted interrupt with a genuine incomplete terminal.
+// Only this explicit reason is a normal, reusable end of the turn.
+func responsesInterrupted(payload []byte) bool {
+	var event struct {
+		Type     string `json:"type"`
+		Response struct {
+			IncompleteDetails struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
+		} `json:"response"`
+	}
+	return json.Unmarshal(payload, &event) == nil && event.Type == "response.incomplete" && event.Response.IncompleteDetails.Reason == "interrupted"
 }

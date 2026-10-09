@@ -33,6 +33,10 @@ var (
 	reasonEndpointNotFound              = reason{Status: http.StatusNotFound, Code: "protocol_endpoint_not_found", Message: "Protocol endpoint not found."}
 	reasonMethodNotAllowed              = reason{Status: http.StatusMethodNotAllowed, Code: "method_not_allowed", Message: "Method not allowed."}
 	reasonInvalidProtocolRequest        = reason{Status: http.StatusBadRequest, Code: "invalid_protocol_request", Message: "Invalid protocol request."}
+	reasonInvalidInterruptRequest       = reason{Status: http.StatusBadRequest, Code: "invalid_interrupt_request", Message: "Invalid interrupt request."}
+	reasonInterruptResponseNotFound     = reason{Status: http.StatusBadRequest, Code: "interrupt_response_not_found", Message: "The interrupt target is not part of this connection."}
+	reasonWebsocketInterruptUnsupported = reason{Status: http.StatusBadRequest, Code: "websocket_interrupt_unsupported", Message: "This upstream connection does not support interruption."}
+	reasonUpstreamInterruptFailed       = reason{Status: http.StatusBadGateway, Code: "upstream_interrupt_failed", Message: "The interrupt could not be delivered to the upstream connection."}
 	reasonResponseBindingNotFound       = reason{Status: http.StatusBadRequest, Code: "response_binding_not_found", Message: "Previous response ownership could not be located."}
 	reasonModelRequiredByFilter         = reason{Status: http.StatusBadRequest, Code: "model_required_by_filter", Message: "A model is required by the access key filter."}
 	reasonNoCandidate                   = reason{Status: http.StatusServiceUnavailable, Code: "no_available_candidate", Message: "No available upstream candidate."}

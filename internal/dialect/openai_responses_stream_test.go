@@ -21,6 +21,21 @@ func TestOpenAIResponsesClassifiesStreamEvents(t *testing.T) {
 		want  StreamEventDisposition
 	}{
 		{
+			name:  "accepted interruption is a normal terminal",
+			event: StreamEvent{Payload: []byte(`{"type":"response.incomplete","response":{"incomplete_details":{"reason":"interrupted"}}}`)},
+			want:  StreamEventCompleted,
+		},
+		{
+			name:  "token budget incomplete remains incomplete",
+			event: StreamEvent{Payload: []byte(`{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}`)},
+			want:  StreamEventIncomplete,
+		},
+		{
+			name:  "interrupt failure leaves model response running",
+			event: StreamEvent{Payload: []byte(`{"type":"response.interrupt.failed","response_id":"resp_1","error":{"code":"interrupt_not_supported"}}`)},
+			want:  StreamEventContinue,
+		},
+		{
 			name: "matching explicit and payload completed",
 			event: StreamEvent{
 				Name:    "response.completed",

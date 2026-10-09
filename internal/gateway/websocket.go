@@ -80,6 +80,8 @@ type websocketFinished struct{ lane string }
 type websocketParent struct {
 	lane          string
 	complete      bool
+	terminal      bool
+	interruptSent bool
 	autoSelection *automodel.Selection
 }
 type websocketBinding struct {
@@ -501,6 +503,11 @@ func (s *websocketConnection) run() {
 		}
 		select {
 		case turn := <-messages:
+			if s.handleWebsocketInterrupt(turn) {
+				s.reserveInput(-len(turn.body))
+				s.finishTurn()
+				continue
+			}
 			idle.Stop()
 			if _, exists := queues[turn.lane]; !exists {
 				named := 0
