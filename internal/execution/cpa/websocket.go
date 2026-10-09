@@ -144,6 +144,20 @@ func (*codexProviderBridge) openWebsocket(spec execution.AttemptSpec, credential
 
 type codexWebsocketSession struct{ session *codex.WSSession }
 
+func (s *observedWebsocketSession) Interrupt(ctx context.Context, responseID, lane string) error {
+	if target, ok := s.WebsocketSession.(execution.WebsocketInterrupter); ok {
+		return target.Interrupt(ctx, responseID, lane)
+	}
+	return errors.New("websocket interrupt unsupported")
+}
+
+func (s *codexWebsocketSession) Interrupt(ctx context.Context, responseID, lane string) error {
+	if lane != "" {
+		return errors.New("websocket interrupt lane unsupported")
+	}
+	return s.session.Interrupt(ctx, responseID)
+}
+
 func (s *codexWebsocketSession) Done() <-chan struct{} { return s.session.Done() }
 func (s *codexWebsocketSession) Close() error          { return s.session.Close() }
 func (s *codexWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {

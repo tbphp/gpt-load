@@ -150,6 +150,10 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 
+### Responses WebSocket の中断
+
+`response.interrupt`（`mode: "discard_partial_items"`）は、同じ接続上の実行中のレスポンスに転送されます。追加のモデルリクエストや生成の再実行は行いません。中断が受け入れられた場合、理由が `interrupted` の元の `response.incomplete` イベント、実際の使用量、接続の再利用を維持します。アップストリームが `response.interrupt.failed` を返した場合、元のレスポンスは実際の終了イベントまで継続します。それ以外の未完了理由に対するエラー処理は変わりません。
+
 ## デプロイとデータ
 
 Docker Compose は既定でアプリケーション管理の SQLite を使用します。データは `gpt-load-data` という名前付きボリュームに保存され、データベース、`auth.key`、`encryption.key` を含みます。

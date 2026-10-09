@@ -6,7 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.2.6
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/router-for-me/CLIProxyAPI/v8 v8.0.8
+	github.com/router-for-me/CLIProxyAPI/v8 v8.0.22
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
@@ -56,3 +56,6 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Temporary pending router-for-me/CLIProxyAPI#6481; use an upstream release before merge.
+replace github.com/router-for-me/CLIProxyAPI/v8 => github.com/zhaoxinbeizhucele/CLIProxyAPI/v8 v8.0.23-0.20261009060940-8956dadf2753

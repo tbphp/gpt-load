@@ -245,8 +245,6 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/rogpeppe/go-internal v1.15.0 h1:D0RCU5rMAp+SpgkiNdrjfJ+LX4J1M32V2NeCY7EJ6hc=
 github.com/rogpeppe/go-internal v1.15.0/go.mod h1:DrUVZyrJU+txYW5/1kwtXQSMFio52ZOxX7yM1VHvnxs=
-github.com/router-for-me/CLIProxyAPI/v8 v8.0.8 h1:tYyyQOE2k3C4GRjk7dKi5wFMLm7qCg9VQroEFsHhQ8E=
-github.com/router-for-me/CLIProxyAPI/v8 v8.0.8/go.mod h1:j1Mtcj0TrC66O1JwbSBB03lY3uYPx4J7yHNvU6nDBCo=
 github.com/rs/xid v1.6.0/go.mod h1:7XoLgs4eV+QndskICGsho+ADou8ySMSjJKDIan90Nz0=
 github.com/rs/zerolog v1.34.0 h1:k43nTLIwcTVQAncfCw4KZ2VY6ukYoZaBPNOE8txlOeY=
 github.com/rs/zerolog v1.34.0/go.mod h1:bJsvje4Z08ROH4Nhs5iH600c3IkWhwp44iRc54W6wYQ=
@@ -302,6 +300,8 @@ github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zI
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/zeebo/xxh3 v1.1.0 h1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=
 github.com/zeebo/xxh3 v1.1.0/go.mod h1:IisAie1LELR4xhVinxWS5+zf1lA4p0MW4T+w+W07F5s=
+github.com/zhaoxinbeizhucele/CLIProxyAPI/v8 v8.0.23-0.20261009060940-8956dadf2753 h1:tewRz9lHyMtNHH3vSqV376MJd/9elOf6A9fuYN3EvZU=
+github.com/zhaoxinbeizhucele/CLIProxyAPI/v8 v8.0.23-0.20261009060940-8956dadf2753/go.mod h1:j1Mtcj0TrC66O1JwbSBB03lY3uYPx4J7yHNvU6nDBCo=
 go.mongodb.org/mongo-driver/v2 v2.5.1 h1:j2U/Qp+wvueSpqitLCSZPT/+ZpVc1xzuwdHWwl7d8ro=
 go.mongodb.org/mongo-driver/v2 v2.5.1/go.mod h1:yOI9kBsufol30iFsl1slpdq1I0eHPzybRWdyYUs8K/0=
 go.starlark.net v0.0.0-20260102030733-3fee463870c9 h1:nV1OyvU+0CYrp5eKfQ3rD03TpFYYhH08z31NK1HmtTk=

@@ -49,6 +49,13 @@ type rpmObservedWebsocketSession struct {
 	credentialID uint
 }
 
+func (session *rpmObservedWebsocketSession) Interrupt(ctx context.Context, responseID, lane string) error {
+	if target, ok := session.WebsocketSession.(execution.WebsocketInterrupter); ok {
+		return target.Interrupt(ctx, responseID, lane)
+	}
+	return errors.New("websocket interrupt unsupported")
+}
+
 func (session *rpmObservedWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
 	session.store.Record(rpm.Credential, session.credentialID, false, time.Now())
 	return session.WebsocketSession.ExecuteTurn(ctx, payload, emit)

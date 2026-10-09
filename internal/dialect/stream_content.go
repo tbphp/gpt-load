@@ -87,6 +87,9 @@ func (*Gemini) ClassifyStreamContent(event StreamEvent) StreamContent {
 // ClassifyStreamContent 对所有 `.delta` 事件按其 delta 载荷判断，output item
 // 事件按条目内容判断，其余是协议前导。
 func (*OpenAIResponses) ClassifyStreamContent(event StreamEvent) StreamContent {
+	if responsesInterrupted(event.Payload) {
+		return StreamContent{ExplainedStop: true}
+	}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(event.Payload, &object) != nil {
 		return StreamContent{Produced: true}
