@@ -153,13 +153,10 @@ type envelope struct {
 	ResponseID string          `json:"response_id"`
 	Status     int             `json:"status"`
 	Response   struct {
-		ID                string `json:"id"`
-		Object            string `json:"object"`
-		Status            string `json:"status"`
-		IncompleteDetails struct {
-			Reason string `json:"reason"`
-		} `json:"incomplete_details"`
-		Error struct {
+		ID     string `json:"id"`
+		Object string `json:"object"`
+		Status string `json:"status"`
+		Error  struct {
 			Code string `json:"code"`
 		} `json:"error"`
 	} `json:"response"`
@@ -331,8 +328,7 @@ func (s *session) ExecuteTurn(ctx context.Context, payload []byte, emit func(con
 			}
 			terminal := event.Type == "response.completed" || event.Type == "response.done" || event.Type == "response.failed" || event.Type == "response.incomplete" || event.Type == "error"
 			if terminal {
-				interrupted := event.Type == "response.incomplete" && event.Response.IncompleteDetails.Reason == "interrupted"
-				if event.Type != "response.completed" && !(event.Type == "response.done" && event.Response.Status == "completed") && !interrupted {
+				if event.Type != "response.completed" && !(event.Type == "response.done" && event.Response.Status == "completed") {
 					code := safeCode(event.Error.Code)
 					if code == "" {
 						code = safeCode(event.Response.Error.Code)

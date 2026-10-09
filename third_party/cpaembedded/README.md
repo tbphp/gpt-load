@@ -52,7 +52,7 @@ Model and account observation requests use the same version for their User-Agent
 Version header, and models `client_version` query parameter. The embedded model
 JSON is copied from OpenAI Codex `rust-v0.159.2`,
 `codex-rs/models-manager/models.json`, with its SHA-256 checked by tests.
-CPA `v8.0.22` with the explicit interrupted-terminal fix, the Codex identity, and this model snapshot form one tested version set.
+CPA `v8.0.8`, the Codex identity, and this model snapshot form one tested version set.
 The bridge pins execution identity because CPA's built-in UA still uses an older version.
 HTTP, image, WebSocket, and observation tests check these outgoing values.
 
@@ -96,14 +96,6 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   `HeaderObservedAt` records when headers were received, so generation time does
   not shift relative quota reset times. Prepared `Headers` use the SDK header contract.
   A generic `response.done` preserves `response.status`; only `completed` succeeds.
-  `response.incomplete` with the exact reason `interrupted` also ends a turn
-  normally while preserving the original status, usage, and connection. Other
-  incomplete reasons keep their failure behavior.
-- `Interrupt(ctx, responseID)` sends `response.interrupt` with
-  `mode: "discard_partial_items"` to the current response on the existing
-  connection, without creating a turn, retrying, or synthesizing completion.
-  The active response ID is checked before dispatch. An upstream
-  `response.interrupt.failed` is a control result, not a model terminal event.
 - One turn runs at a time; overlapping calls fail with `session_busy`. Local
   validation errors leave the Session usable. Cancellation, timeout, transport
   loss and failed/protocol-invalid responses close it. A closed Session cannot

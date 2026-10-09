@@ -150,10 +150,6 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
-### Responses WebSocket 中断
-
-`response.interrupt`（`mode: "discard_partial_items"`）会发送到同一连接上的活动响应，不会新增模型请求或重放生成。上游接受中断后，保留原始 `response.incomplete` 事件及其 `interrupted` 原因、实际用量，并允许复用连接。如果上游返回 `response.interrupt.failed`，原响应会继续到真实终态。其他未完成原因保持原有错误处理。
-
 ## 部署与数据
 
 Docker Compose 默认使用应用管理的 SQLite，数据存放在 `gpt-load-data` 具名卷中，包含数据库、`auth.key` 和 `encryption.key`。

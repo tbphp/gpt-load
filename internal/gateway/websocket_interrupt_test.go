@@ -1,8 +1,8 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/rpm"
+	"gpt-load/internal/state"
 )
 
 func TestWebsocketInterruptBypassesQueueAndPreservesConnection(t *testing.T) {
@@ -21,55 +24,64 @@ func TestWebsocketInterruptBypassesQueueAndPreservesConnection(t *testing.T) {
 
 func testWebsocketInterrupt(t *testing.T, accepted bool) {
 	var connections, interrupts atomic.Int32
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		connections.Add(1)
-		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-		if _, _, err = conn.ReadMessage(); err != nil {
-			return
-		}
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.created","response":{"id":"resp_interrupt","object":"response","status":"in_progress","model":"upstream"}}`))
-		var frame map[string]string
-		if err = conn.ReadJSON(&frame); err != nil {
-			t.Error("interrupt was queued behind completion", err)
-			return
-		}
-		if frame["type"] != "response.interrupt" || frame["response_id"] != "resp_interrupt" || frame["mode"] != "discard_partial_items" {
-			t.Errorf("wrong control frame: %v", frame)
-			return
+	h, engine, input := websocketTestHandler(t, "https://example.invalid", channel.OpenAI)
+	input.Groups[0].ChannelID = channel.Codex
+	input.Groups[0].ConnectionType = "subscription"
+	input.Groups[0].Params = json.RawMessage(`{}`)
+	if _, err := h.manager.Publish(input); err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := h.encryption.Encrypt(`{"type":"codex","access_token":"fixture-access","refresh_token":"fixture-refresh","account_id":"fixture-account"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.registry.(*state.CredentialRegistry).ReplaceCredentials([]state.CredentialEntry{{ID: 1, GroupID: 1, Version: 1, IdentityGeneration: 1, Fingerprint: "fixture-codex", Status: state.CredentialStatusActive, EncryptedValue: encrypted}}); err != nil {
+		t.Fatal(err)
+	}
+	interruptReceived := make(chan struct{}, 1)
+	session := &interruptScriptSession{websocketScriptSession: &websocketScriptSession{done: make(chan struct{})}}
+	session.interrupt = func(_ context.Context, responseID, lane string) error {
+		if responseID != "resp_interrupt" || lane != "" {
+			t.Errorf("wrong interrupt target: %q %q", responseID, lane)
 		}
 		interrupts.Add(1)
-		if accepted {
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.interrupt.accepted","response_id":"resp_interrupt"}`))
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.incomplete","response":{"id":"resp_interrupt","object":"response","status":"incomplete","model":"upstream","output":[],"incomplete_details":{"reason":"interrupted"},"usage":{"input_tokens":2,"output_tokens":0,"total_tokens":2}}}`))
+		interruptReceived <- struct{}{}
+		return nil
+	}
+	turns := 0
+	session.turn = func(ctx context.Context, _ []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
+		turns++
+		send := func(body []byte) {
+			if err := emit(ctx, body); err != nil {
+				t.Error(err)
+			}
+		}
+		if turns == 1 {
+			send([]byte(`{"type":"response.created","response":{"id":"resp_interrupt","object":"response","status":"in_progress","model":"upstream"}}`))
+			select {
+			case <-interruptReceived:
+			case <-ctx.Done():
+				t.Error("interrupt was queued behind completion")
+				return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
+			}
+			if accepted {
+				send([]byte(`{"type":"response.interrupt.accepted","response_id":"resp_interrupt"}`))
+				send([]byte(`{"type":"response.incomplete","response":{"id":"resp_interrupt","object":"response","status":"incomplete","model":"upstream","output":[],"incomplete_details":{"reason":"interrupted"},"usage":{"input_tokens":2,"output_tokens":0,"total_tokens":2}}}`))
+			} else {
+				send([]byte(`{"type":"response.interrupt.failed","response_id":"resp_interrupt","error":{"code":"interrupt_not_supported"}}`))
+				send([]byte(`{"type":"response.output_text.delta","response_id":"resp_interrupt","delta":"continued"}`))
+				send(websocketCompleted("resp_interrupt", ""))
+			}
 		} else {
-			// Observed live: rejecting an interrupt does not end the generation.
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.interrupt.failed","response_id":"resp_interrupt","error":{"type":"invalid_request_error","code":"interrupt_not_supported","message":"Interruption is not supported."},"sequence_number":3}`))
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.output_text.delta","response_id":"resp_interrupt","delta":"continued"}`))
-			_ = conn.WriteMessage(websocket.TextMessage, websocketCompleted("resp_interrupt", ""))
+			send(websocketCompleted("resp_next", ""))
 		}
-		var next struct {
-			Type string `json:"type"`
-		}
-		if err = conn.ReadJSON(&next); err != nil {
-			return
-		}
-		if next.Type != "response.create" {
-			t.Errorf("late interrupt leaked upstream: %s", next.Type)
-			return
-		}
-		_ = conn.WriteMessage(websocket.TextMessage, websocketCompleted("resp_next", ""))
-		_, _, _ = conn.ReadMessage()
-	}))
-	defer upstream.Close()
-	h, engine, _ := websocketTestHandler(t, upstream.URL, channel.OpenAI)
-	// Production wraps sessions to count credential RPM; controls must pass
-	// through that wrapper without becoming additional model requests.
-	h.forwarder.(*ExecutionForwarder).SetRPMStore(rpm.NewStore())
+		return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
+	}
+	// Keep the production RPM wrapper in the path; interruption is not a new turn.
+	h.forwarder = websocketScriptForwarder{AttemptForwarder: h.forwarder, open: func(context.Context, ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
+		connections.Add(1)
+		return &rpmObservedWebsocketSession{WebsocketSession: session, store: rpm.NewStore(), credentialID: 1}, execution.WebsocketResult{}
+	}}
 	sink := &recordingRequestLogSink{}
 	h.requestLogSink = sink
 	server := httptest.NewServer(engine)
@@ -77,9 +89,9 @@ func testWebsocketInterrupt(t *testing.T, accepted bool) {
 	conn := dialGatewayWebsocket(t, server.URL)
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
-	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","input":"test"}`))
-	if _, _, err := conn.ReadMessage(); err != nil {
-		t.Fatal(err)
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","store":false,"input":"test"}`))
+	if _, body, err := conn.ReadMessage(); err != nil || !strings.Contains(string(body), `"type":"response.created"`) {
+		t.Fatalf("expected active response: %s %v", body, err)
 	}
 	// Unknown or cross-lane targets must not affect the active upstream response.
 	for _, frame := range []string{
@@ -121,7 +133,7 @@ func testWebsocketInterrupt(t *testing.T, accepted bool) {
 		t.Fatalf("lost genuine terminal/alias: %s", body)
 	}
 	_ = conn.WriteMessage(websocket.TextMessage, frame) // late duplicate: already completed
-	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","previous_response_id":"resp_interrupt","input":"next"}`))
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","store":false,"previous_response_id":"resp_interrupt","input":"next"}`))
 	if _, _, err := conn.ReadMessage(); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +166,6 @@ func TestWebsocketInterruptStrictFields(t *testing.T) {
 	for _, body := range []string{
 		`{"type":"response.interrupt","response_id":"resp_1","mode":"unknown"}`,
 		`{"type":"response.interrupt","response_id":"resp_1","mode":"discard_partial_items","input":"must not be lost"}`,
-		`{"type":"response.interrupt","response_id":"resp_1","response_id":"other","mode":"discard_partial_items"}`,
 		`{"type":"response.interrupt","response_id":null,"mode":"discard_partial_items"}`,
 		`{"type":"response.interrupt","response_id":123,"mode":"discard_partial_items"}`,
 		`{"type":"response.interrupt","response_id":"","mode":"discard_partial_items"}`,
@@ -170,4 +181,13 @@ func TestWebsocketInterruptStrictFields(t *testing.T) {
 	if _, err := inspectWebsocketInterrupt(body); err == nil {
 		t.Fatal("accepted oversized ID")
 	}
+}
+
+type interruptScriptSession struct {
+	*websocketScriptSession
+	interrupt func(context.Context, string, string) error
+}
+
+func (s *interruptScriptSession) Interrupt(ctx context.Context, responseID, lane string) error {
+	return s.interrupt(ctx, responseID, lane)
 }

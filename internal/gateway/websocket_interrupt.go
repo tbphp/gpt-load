@@ -8,10 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"gpt-load/internal/execution"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 )
 
@@ -22,49 +19,21 @@ func inspectWebsocketInterrupt(body []byte) (websocketInterrupt, error) {
 	if len(body) > 8192 {
 		return value, errors.New("invalid interrupt")
 	}
+	var fields struct {
+		Type       string `json:"type"`
+		ResponseID string `json:"response_id"`
+		Mode       string `json:"mode"`
+		StreamID   string `json:"stream_id"`
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	token, err := decoder.Token()
-	if err != nil || token != json.Delim('{') {
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&fields) != nil || decoder.Decode(new(json.RawMessage)) != io.EOF {
 		return value, errors.New("invalid interrupt")
 	}
-	fields := make(map[string]string)
-	for decoder.More() {
-		token, err = decoder.Token()
-		name, ok := token.(string)
-		if err != nil || !ok {
-			return value, errors.New("invalid interrupt")
-		}
-		if _, duplicate := fields[name]; duplicate {
-			return value, errors.New("invalid interrupt")
-		}
-		switch name {
-		case "type", "response_id", "mode", "stream_id":
-		default:
-			return value, errors.New("invalid interrupt")
-		}
-		var raw json.RawMessage
-		if decoder.Decode(&raw) != nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return value, errors.New("invalid interrupt")
-		}
-		var text string
-		if json.Unmarshal(raw, &text) != nil {
-			return value, errors.New("invalid interrupt")
-		}
-		fields[name] = text
-	}
-	if token, err = decoder.Token(); err != nil || token != json.Delim('}') {
+	if fields.Type != "response.interrupt" || fields.Mode != "discard_partial_items" || fields.ResponseID == "" || len(fields.ResponseID) > 4096 || (fields.StreamID != "" && !validWebsocketLane(fields.StreamID)) {
 		return value, errors.New("invalid interrupt")
 	}
-	if decoder.Decode(new(json.RawMessage)) != io.EOF {
-		return value, errors.New("invalid interrupt")
-	}
-	if fields["type"] != "response.interrupt" || fields["mode"] != "discard_partial_items" || fields["response_id"] == "" || len(fields["response_id"]) > 4096 {
-		return value, errors.New("invalid interrupt")
-	}
-	if lane, exists := fields["stream_id"]; exists && !validWebsocketLane(lane) {
-		return value, errors.New("invalid interrupt")
-	}
-	value.responseID, value.lane = fields["response_id"], fields["stream_id"]
+	value.responseID, value.lane = fields.ResponseID, fields.StreamID
 	return value, nil
 }
 
@@ -108,7 +77,6 @@ func (s *websocketConnection) handleWebsocketInterrupt(turn websocketTurn) bool 
 		return true
 	}
 	if parent.terminal || parent.complete || parent.interruptSent {
-		s.logWebsocketInterrupt("already_finished_or_sent")
 		return true
 	}
 	interrupter, ok := binding.session.(execution.WebsocketInterrupter)
@@ -126,10 +94,8 @@ func (s *websocketConnection) handleWebsocketInterrupt(turn websocketTurn) bool 
 		latest := s.parents[value.responseID]
 		s.mu.Unlock()
 		if latest.terminal || latest.complete {
-			s.logWebsocketInterrupt("already_finished_or_sent")
 			return true
 		}
-		s.logWebsocketInterrupt("send_failed")
 		s.emitReason(value.lane, reasonUpstreamInterruptFailed)
 		return true
 	}
@@ -138,11 +104,5 @@ func (s *websocketConnection) handleWebsocketInterrupt(turn websocketTurn) bool 
 	parent.interruptSent = true
 	s.parents[value.responseID] = parent
 	s.mu.Unlock()
-	s.logWebsocketInterrupt("sent")
 	return true
-}
-
-func (s *websocketConnection) logWebsocketInterrupt(result string) {
-	utils.LogPlaneBestEffort(s.handler.logger, logrus.InfoLevel, utils.LogPlaneData,
-		logrus.Fields{"event": "websocket_interrupt", "ak_id": s.keyID, "result": result}, "WebSocket interrupt control processed")
 }

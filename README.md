@@ -150,10 +150,6 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
-### Responses WebSocket interruption
-
-`response.interrupt` with `mode: "discard_partial_items"` is forwarded to the active response on the same connection. It does not create another model request or replay generation. An accepted interruption preserves the upstream `response.incomplete` event with reason `interrupted`, its actual usage, and connection reuse. If the upstream returns `response.interrupt.failed`, the original response continues until its real terminal event. Other incomplete reasons retain their existing error behavior.
-
 ## Deployment and data
 
 Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.
