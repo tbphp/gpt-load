@@ -3,6 +3,7 @@ package cpa
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -162,6 +163,13 @@ func TestWebsocketPreparesCodexCredentialBeforeOpeningSession(t *testing.T) {
 	defer s.Close()
 	if preparer.calls != 1 || result.DispatchState != execution.DispatchNotSent {
 		t.Fatal("credential preparation or deferred dial contract changed")
+	}
+	sender, ok := s.(execution.WebsocketInterrupter)
+	if !ok {
+		t.Fatal("passive quota observation hid the interrupt capability")
+	}
+	if err := sender.Interrupt(t.Context(), []byte(`{"type":"response.interrupt","response_id":"not_active"}`)); !errors.Is(err, execution.ErrWebsocketResponseNotActive) {
+		t.Fatalf("idle interrupt error=%v", err)
 	}
 	select {
 	case <-s.Done():

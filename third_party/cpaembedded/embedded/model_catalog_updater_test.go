@@ -41,7 +41,7 @@ type catalogFailureHook struct{ done chan struct{} }
 
 func (*catalogFailureHook) Levels() []logrus.Level { return logrus.AllLevels }
 func (hook *catalogFailureHook) Fire(entry *logrus.Entry) error {
-	if strings.Contains(entry.Message, "keeping current data") {
+	if strings.Contains(entry.Message, "keeping last valid catalog") {
 		select {
 		case hook.done <- struct{}{}:
 		default:

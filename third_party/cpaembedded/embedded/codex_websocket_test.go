@@ -695,26 +695,42 @@ func TestCodexWSSessionRejectsSDKReplacementConnection(t *testing.T) {
 }
 
 func TestCodexWSSessionPreservesIncompleteStatus(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		defer conn.Close()
-		if _, _, err := conn.ReadMessage(); err != nil {
-			return
-		}
-		if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.incomplete","response":{"id":"resp_partial","status":"incomplete","usage":{"input_tokens":5,"output_tokens":1},"incomplete_details":{"reason":"max_output_tokens"}}}`)); err != nil {
-			t.Error(err)
-		}
-		_, _, _ = conn.ReadMessage()
-	}))
-	defer server.Close()
-	session := wsTestSession(t, server.URL)
-	result, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
-	if err == nil || result.Status != "incomplete" || result.ResponseID != "resp_partial" || !json.Valid(result.Usage) {
-		t.Fatalf("incomplete status/usage lost: result=%+v error=%v", result, err)
+	for _, scenario := range []struct {
+		reason       string
+		outputTokens int
+	}{
+		{reason: "max_output_tokens", outputTokens: 1},
+		{reason: "max_output_tokens", outputTokens: 0},
+		{reason: "interrupted", outputTokens: 0},
+	} {
+		t.Run(fmt.Sprintf("%s/output_tokens_%d", scenario.reason, scenario.outputTokens), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"response.incomplete","response":{"id":"resp_partial","status":"incomplete","usage":{"input_tokens":5,"output_tokens":%d},"incomplete_details":{"reason":%q}}}`, scenario.outputTokens, scenario.reason))); err != nil {
+					t.Error(err)
+				}
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer server.Close()
+			session := wsTestSession(t, server.URL)
+			result, err := session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+			if err == nil || result.Status != "incomplete" || result.ResponseID != "resp_partial" || !json.Valid(result.Usage) {
+				t.Fatalf("incomplete status/usage lost: result=%+v error=%v", result, err)
+			}
+			_, err = session.ExecuteTurn(context.Background(), json.RawMessage(`{"model":"gpt-5","previous_response_id":"resp_partial","input":"next"}`), nil)
+			var wsErr *CodexWSError
+			if !errors.As(err, &wsErr) || wsErr.Code != "session_closed" {
+				t.Fatalf("unrequested incomplete response allowed continuation: %v", err)
+			}
+		})
 	}
 }
 

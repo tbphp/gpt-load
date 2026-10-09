@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -39,6 +40,16 @@ type WebsocketSession interface {
 	ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) WebsocketResult
 	Done() <-chan struct{}
 	Close() error
+}
+
+var (
+	ErrWebsocketInterruptUnsupported = errors.New("WebSocket session does not support interruption")
+	ErrWebsocketResponseNotActive    = errors.New("WebSocket response is not active")
+)
+
+// WebsocketInterrupter 将控制帧发往当前连接，不创建新轮次、选号或重放。
+type WebsocketInterrupter interface {
+	Interrupt(context.Context, []byte) error
 }
 
 // WebsocketOpener 不进行选号、业务重放或 HTTP 回退。

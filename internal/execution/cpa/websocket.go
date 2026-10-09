@@ -93,6 +93,14 @@ type observedWebsocketSession struct {
 	handshake subscription.PassiveQuotaSample
 }
 
+func (s *observedWebsocketSession) Interrupt(ctx context.Context, payload []byte) error {
+	sender, ok := s.WebsocketSession.(execution.WebsocketInterrupter)
+	if !ok {
+		return execution.ErrWebsocketInterruptUnsupported
+	}
+	return sender.Interrupt(ctx, payload)
+}
+
 func (s *observedWebsocketSession) ExecuteTurn(ctx context.Context, payload []byte, emit func(context.Context, []byte) error) execution.WebsocketResult {
 	return s.WebsocketSession.ExecuteTurn(ctx, payload, func(ctx context.Context, event []byte) error {
 		observedAt := time.Now()
@@ -143,6 +151,15 @@ func (*codexProviderBridge) openWebsocket(spec execution.AttemptSpec, credential
 }
 
 type codexWebsocketSession struct{ session *codex.WSSession }
+
+func (s *codexWebsocketSession) Interrupt(ctx context.Context, payload []byte) error {
+	err := s.session.Interrupt(ctx, payload)
+	var failure *codex.WSError
+	if errors.As(err, &failure) && failure.Code == "response_not_active" {
+		return execution.ErrWebsocketResponseNotActive
+	}
+	return err
+}
 
 func (s *codexWebsocketSession) Done() <-chan struct{} { return s.session.Done() }
 func (s *codexWebsocketSession) Close() error          { return s.session.Close() }

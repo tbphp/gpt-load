@@ -919,6 +919,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 	observer := newStreamEventObserver(input.Dialect, newUsageCaptureBoundary().newStreamForRequest(input.Dialect, input.ObserveUsage))
 	result := UpstreamResult{UpstreamProtocol: protocol.OpenAIResponses}
 	var responseID string
+	var confirmedInterrupt *websocketInterrupt
 	var timedOut atomic.Bool
 	first := newStreamWatchdog(websocketCancelCloser{cancel, &timedOut}, time.Until(firstByteDeadline))
 	if !firstByteDeadline.IsZero() {
@@ -993,10 +994,13 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			return ErrUpstreamProtocol
 		}
 		var response struct {
-			ID     string `json:"id"`
-			Object string `json:"object"`
-			Model  string `json:"model"`
-			Status string `json:"status"`
+			ID                string `json:"id"`
+			Object            string `json:"object"`
+			Model             string `json:"model"`
+			Status            string `json:"status"`
+			IncompleteDetails struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
 		}
 		if len(event.Response) > 0 && json.Unmarshal(event.Response, &response) != nil {
 			return ErrUpstreamProtocol
@@ -1096,7 +1100,13 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				if !exists {
 					s.parentOrder = append(s.parentOrder, response.ID)
 				}
-				s.parents[response.ID] = websocketParent{lane: lane, complete: observer.sawTerminal && !providerError && observer.terminalDisposition == dialect.StreamEventCompleted, autoSelection: recorder.autoSelection()}
+				interrupted := prior.interruptRequested && response.Status == "incomplete" && response.IncompleteDetails.Reason == "interrupted"
+				if interrupted && observer.terminalDisposition == dialect.StreamEventIncomplete {
+					confirmedInterrupt = prior.interrupt
+				}
+				s.parents[response.ID] = websocketParent{lane: lane,
+					complete:           observer.sawTerminal && !providerError && (observer.terminalDisposition == dialect.StreamEventCompleted || interrupted),
+					interruptRequested: prior.interruptRequested, interrupt: prior.interrupt, autoSelection: recorder.autoSelection()}
 				for len(s.parentOrder) > s.handler.websocketLimits.responses {
 					delete(s.parents, s.parentOrder[0])
 					s.parentOrder = s.parentOrder[1:]
@@ -1192,6 +1202,18 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			Summary: "Response content could not be restored safely.",
 		}
 		result.ErrorSummary = result.ExecutionError.Summary
+	}
+	// 原始 incomplete 已交付；只有匹配的中断确认与成功写入均成立，才按正常交互收尾记账。
+	if confirmedInterrupt != nil && result.Stream.EndReason == StreamEndProviderIncomplete &&
+		observer.terminalForwarded && result.Err == nil && result.ExecutionError == nil {
+		select {
+		case <-confirmedInterrupt.done:
+			if confirmedInterrupt.err == nil && ctx.Err() == nil && s.ctx.Err() == nil {
+				result.Stream = StreamObservation{EndReason: StreamEndCleanEOF}
+			}
+		case <-ctx.Done():
+		case <-s.ctx.Done():
+		}
 	}
 	return result
 }
