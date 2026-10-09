@@ -13,18 +13,24 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/rpm"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 type interruptibleWebsocketFixture struct {
 	websocketScriptSession
-	interrupts chan []byte
+	interrupts     chan []byte
+	afterInterrupt func(context.Context) error
 }
 
 func (s *interruptibleWebsocketFixture) Interrupt(ctx context.Context, payload []byte) error {
 	select {
 	case s.interrupts <- bytes.Clone(payload):
+		if s.afterInterrupt != nil {
+			return s.afterInterrupt(ctx)
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -62,6 +68,13 @@ func TestWebsocketInterruptBypassesActiveTurnAndContinues(t *testing.T) {
 		return execution.WebsocketResult{DispatchState: execution.DispatchMaybeSent}
 	}
 	h, engine, _ := websocketTestHandler(t, "http://unused.invalid", channel.OpenAI)
+	prices, err := pricing.NewTable([]pricing.Rule{{Identity: pricing.Identity{ChannelID: "openai", ModelID: "upstream"}, Prices: pricing.Prices{
+		Input: pricing.Price{NanoUSDPerMillion: 1_000_000, Set: true}, Output: pricing.Price{NanoUSDPerMillion: 1_000_000, Set: true},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.priceTables = &mutableGatewayPriceTableProvider{table: prices}
 	store := rpm.NewStore()
 	h.forwarder = websocketScriptForwarder{open: func(context.Context, ForwardInput) (execution.WebsocketSession, execution.WebsocketResult) {
 		opens.Add(1)
@@ -127,7 +140,7 @@ func TestWebsocketInterruptBypassesActiveTurnAndContinues(t *testing.T) {
 	if opens.Load() != 1 || turns.Load() != 2 || len(events) != 2 {
 		t.Fatalf("opens=%d turns=%d logs=%d", opens.Load(), turns.Load(), len(events))
 	}
-	if len(limiter.snapshot()) != 2 || events[0].Status != telemetry.RequestStatusIncomplete || events[1].Status != telemetry.RequestStatusSuccess {
+	if len(limiter.snapshot()) != 2 || events[0].Status != telemetry.RequestStatusSuccess || events[1].Status != telemetry.RequestStatusSuccess {
 		t.Fatalf("RPM or terminal accounting changed: calls=%d statuses=%s/%s", len(limiter.snapshot()), events[0].Status, events[1].Status)
 	}
 	if got := store.Current(rpm.Credential, 1, time.Now()).Requests; got != 2 {
@@ -136,6 +149,16 @@ func TestWebsocketInterruptBypassesActiveTurnAndContinues(t *testing.T) {
 	for _, event := range events {
 		if len(event.Attempts) != 1 || event.ClientModel != "public" {
 			t.Fatalf("control frame was counted as inference: %+v", event)
+		}
+		attempt := event.Attempts[0]
+		if event.ErrorCode != "" || event.ErrorSummary != "" || attempt.ErrorCode != "" || attempt.ErrorSummary != "" || attempt.FailureCategory != telemetry.FailureCategoryOK {
+			t.Fatalf("successful interaction was logged as a failure: %+v", event)
+		}
+		if event.Usage.Result.State != usage.StateComplete || event.Usage.Result.Tokens.UncachedInput != 2 || event.Usage.Result.Tokens.Output != 1 {
+			t.Fatalf("successful interruption changed usage: %+v", event.Usage.Result)
+		}
+		if event.Usage.Pricing.CostState != "priced" || event.Usage.Pricing.EstimatedCostNanoUSD != 3 {
+			t.Fatalf("successful interruption changed pricing: %+v", event.Usage.Pricing)
 		}
 	}
 }

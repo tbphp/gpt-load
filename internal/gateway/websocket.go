@@ -81,8 +81,15 @@ type websocketParent struct {
 	lane               string
 	complete           bool
 	interruptRequested bool
+	interrupt          *websocketInterrupt
 	autoSelection      *automodel.Selection
 }
+
+type websocketInterrupt struct {
+	done chan struct{}
+	err  error // 关闭 done 后才读取写入结果。
+}
+
 type websocketBinding struct {
 	autoSelection *automodel.Selection
 	monitor       sync.Once

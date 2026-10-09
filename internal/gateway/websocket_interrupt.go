@@ -55,10 +55,15 @@ func (s *websocketConnection) handleInterrupt(turn websocketTurn, fields map[str
 		return
 	}
 	// 先登记意图：上游可能在控制帧写入返回前就交付中断终态。
+	interrupt := &websocketInterrupt{done: make(chan struct{})}
 	parent.interruptRequested = true
+	parent.interrupt = interrupt
 	s.parents[responseID] = parent
 	s.mu.Unlock()
-	if err := sender.Interrupt(s.ctx, turn.body); err != nil {
+	err := sender.Interrupt(s.ctx, turn.body)
+	interrupt.err = err
+	close(interrupt.done)
+	if err != nil {
 		s.mu.Lock()
 		if current, exists := s.parents[responseID]; exists {
 			current.interruptRequested = false
