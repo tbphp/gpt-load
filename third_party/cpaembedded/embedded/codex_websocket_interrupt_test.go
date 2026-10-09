@@ -20,8 +20,17 @@ import (
 )
 
 func TestCodexWSSessionInterruptAndContinue(t *testing.T) {
-	for _, eventType := range []string{"response.incomplete", "response.done"} {
-		t.Run(eventType, func(t *testing.T) { testCodexWSSessionInterruptAndContinue(t, eventType) })
+	for _, scenario := range []struct {
+		eventType    string
+		outputTokens int
+	}{
+		{eventType: "response.incomplete", outputTokens: 7},
+		{eventType: "response.done", outputTokens: 0},
+		{eventType: "response.done", outputTokens: 7},
+	} {
+		t.Run(fmt.Sprintf("%s/output_tokens_%d", scenario.eventType, scenario.outputTokens), func(t *testing.T) {
+			testCodexWSSessionInterruptAndContinue(t, scenario.eventType, scenario.outputTokens)
+		})
 	}
 }
 
@@ -158,7 +167,7 @@ func TestCodexWSSessionInterruptBlockedAfterTurnCompletes(t *testing.T) {
 	}
 }
 
-func testCodexWSSessionInterruptAndContinue(t *testing.T, eventType string) {
+func testCodexWSSessionInterruptAndContinue(t *testing.T, eventType string, outputTokens int) {
 	interrupt := []byte(`{"type":"response.interrupt","response_id":"resp_1","mode":"discard_partial_items","extension":"keep"}`)
 	var connections atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +187,7 @@ func testCodexWSSessionInterruptAndContinue(t *testing.T, eventType string) {
 			t.Errorf("interrupt=%s err=%v", body, err)
 			return
 		}
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":%q,"response":{"id":"resp_1","object":"response","status":"incomplete","incomplete_details":{"reason":"interrupted"},"usage":{"input_tokens":5,"output_tokens":7},"output":[]}}`, eventType)))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":%q,"response":{"id":"resp_1","object":"response","status":"incomplete","incomplete_details":{"reason":"interrupted"},"usage":{"input_tokens":5,"output_tokens":%d},"output":[]}}`, eventType, outputTokens)))
 		_, body, err = conn.ReadMessage()
 		var request struct {
 			Previous string `json:"previous_response_id"`
@@ -242,6 +251,12 @@ func testCodexWSSessionInterruptAndContinue(t *testing.T, eventType string) {
 	}
 	if firstErr != nil || first.Status != "incomplete" || first.ResponseID != "resp_1" || !json.Valid(first.Usage) {
 		t.Fatalf("interrupted result=%+v err=%v", first, firstErr)
+	}
+	var usage struct {
+		OutputTokens *int `json:"output_tokens"`
+	}
+	if json.Unmarshal(first.Usage, &usage) != nil || usage.OutputTokens == nil || *usage.OutputTokens != outputTokens {
+		t.Fatalf("interrupted usage=%s, want output_tokens=%d", first.Usage, outputTokens)
 	}
 	if err := sender.Interrupt(t.Context(), interrupt); err == nil {
 		t.Fatal("completed turn accepted another interrupt")
