@@ -225,6 +225,11 @@ func testCodexWSSessionInterruptAndContinue(t *testing.T, eventType string, outp
 			if event.Type == "response.created" {
 				close(created)
 			}
+			if event.Type == eventType {
+				if err := sender.Interrupt(t.Context(), interrupt); err != nil {
+					t.Errorf("interrupt during terminal delivery: %v", err)
+				}
+			}
 			return nil
 		})
 	}()
