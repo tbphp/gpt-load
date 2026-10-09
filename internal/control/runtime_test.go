@@ -152,6 +152,30 @@ func TestRuntimeRunsOperationRecoveryUntilCancellation(t *testing.T) {
 	awaitSignal(t, done)
 }
 
+type controlledModelCatalog struct {
+	started  chan struct{}
+	returned chan struct{}
+}
+
+func (catalog *controlledModelCatalog) Run(ctx context.Context) {
+	close(catalog.started)
+	<-ctx.Done()
+	close(catalog.returned)
+}
+
+func TestRuntimeRunsCPAModelCatalogUntilCancellation(t *testing.T) {
+	t.Parallel()
+	catalog := &controlledModelCatalog{started: make(chan struct{}), returned: make(chan struct{})}
+	runtime, _, created := newRuntimeHarness(newFakeValidationSweep(false), time.Now)
+	runtime.cpaModelCatalog = catalog
+	cancel, done := startRuntime(t, runtime)
+	awaitTickers(t, created)
+	awaitSignal(t, catalog.started)
+	cancel()
+	awaitSignal(t, catalog.returned)
+	awaitSignal(t, done)
+}
+
 func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
