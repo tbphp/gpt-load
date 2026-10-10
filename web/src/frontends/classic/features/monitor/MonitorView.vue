@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { autoRefreshIntervals, useAutoRefresh } from '@shared/auto-refresh'
 import { lazySurface } from '@/app/async-surface'
 import { monitorLocation } from '@/app/route-locations'
 import type { UsageReportDto } from '@/app/resources/usage'
@@ -11,6 +12,7 @@ import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTimeRangePicker from '@/components/ui/AppDateTimeRangePicker.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import {
@@ -48,6 +50,7 @@ const healthTab = ref<InstanceType<typeof HealthTab> | null>(null)
 const logsTab = ref<{
   openFilters: () => void
   refresh: () => Promise<void>
+  autoRefresh: () => Promise<boolean>
   filterCount: number
 } | null>(null)
 const usageTab = ref<{
@@ -60,6 +63,18 @@ const healthRefreshPending = ref(false)
 const logsRefreshPending = ref(false)
 const usageRefreshPending = ref(false)
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
+// 请求日志的自动刷新默认关闭，只在日志页生效。
+const logsAutoRefresh = ref('0')
+const logsAutoRefreshOptions = computed(() => [
+  { value: '0', label: t('monitor.logs.autoRefresh.off') },
+  ...autoRefreshIntervals.map((ms) => ({
+    value: String(ms),
+    label:
+      ms < 60_000
+        ? t('monitor.logs.autoRefresh.seconds', { count: ms / 1_000 })
+        : t('monitor.logs.autoRefresh.minutes', { count: ms / 60_000 }),
+  })),
+])
 const canonicalQuery = computed(() =>
   isAccessKey.value
     ? normalizeAccessKeyMonitorQuery(route.query)
@@ -71,6 +86,11 @@ const dataRefreshPending = computed(() =>
   activeTab.value === 'logs' ? logsRefreshPending.value : usageRefreshPending.value,
 )
 const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
+useAutoRefresh({
+  interval: () => (activeTab.value === 'logs' ? Number(logsAutoRefresh.value) : 0),
+  run: () => logsTab.value?.autoRefresh() ?? Promise.resolve(true),
+  busy: () => logsRefreshPending.value,
+})
 const items = computed<AppTabItem[]>(() => {
   const shared = [
     { value: 'usage', label: t('monitor.tabs.usage') },
@@ -156,12 +176,11 @@ const timeErrors = computed(() => {
           : undefined,
   }
 })
+// 快捷区间随刷新推进时不重置正在编辑的时间草稿；打开选择器时会重新同步。
 watch(
   () => [
     activeTab.value,
-    timeFilters.value.from_ms,
-    timeFilters.value.to_ms,
-    timeFilters.value.preset,
+    timeFilters.value.preset ?? `${timeFilters.value.from_ms}:${timeFilters.value.to_ms}`,
   ],
   resetTimeDraft,
   { immediate: true },
@@ -386,6 +405,13 @@ function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void
               />
               {{ t('monitor.usage.filters.refresh') }}
             </AppButton>
+            <AppSelect
+              v-if="activeTab === 'logs'"
+              v-model="logsAutoRefresh"
+              :label="t('monitor.logs.autoRefresh.label')"
+              :options="logsAutoRefreshOptions"
+              size="compact"
+            />
           </div>
         </template>
 

@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   RefreshCw,
+  Timer,
   X,
 } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
@@ -19,6 +20,7 @@ import { desktopMediaQuery } from '@modern/app/breakpoints'
 import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
 import { providePageRefresh } from '@modern/app/page-refresh'
+import { autoRefreshIntervals } from '@shared/auto-refresh'
 import { useMessageSource } from '@modern/app/messages'
 import { usePageTitle } from '@modern/app/use-page-title'
 import {
@@ -28,6 +30,7 @@ import {
   AppIcon,
   AppIconButton,
   AppLoadingIndicator,
+  AppSelectMenu,
   AppTooltip,
 } from '@modern/components/ui'
 import { useAuthSession } from '@modern/features/auth/auth-session'
@@ -100,6 +103,19 @@ const refreshedAt = computed(() =>
         }).format(pageRefresh.updatedAt.value),
       }),
 )
+const autoRefreshOptions = computed(() => [
+  { value: '0', label: t('shell.autoRefreshOff') },
+  ...autoRefreshIntervals.map((ms) => ({
+    value: String(ms),
+    label:
+      ms < 60_000
+        ? t('shell.autoRefreshSeconds', { count: ms / 1_000 })
+        : t('shell.autoRefreshMinutes', { count: ms / 60_000 }),
+  })),
+])
+function changeAutoRefresh(value: string): void {
+  pageRefresh.autoInterval.value = Number(value)
+}
 watch(
   () => route.fullPath,
   () => {
@@ -198,6 +214,15 @@ useMessageSource(() =>
             :loading="pageRefresh.pending.value"
             :disabled="pageRefresh.busy.value"
             @click="pageRefresh.run()"
+          />
+          <AppSelectMenu
+            v-if="pageRefresh.autoAvailable.value"
+            :label="t('shell.autoRefresh')"
+            :icon="Timer"
+            :model-value="String(pageRefresh.autoInterval.value)"
+            :options="autoRefreshOptions"
+            :show-value="pageRefresh.autoInterval.value > 0"
+            @update:model-value="changeAutoRefresh"
           />
         </div>
         <span
@@ -427,8 +452,8 @@ useMessageSource(() =>
     gap: var(--modern-space-2);
     padding-block: var(--modern-space-2);
   }
-  /* 移动端顶栏只留刷新按钮，时间文字和竖线让位给标题。 */
-  .modern-topbar-refresh span,
+  /* 移动端顶栏只留刷新控件，时间文字和竖线让位给标题。 */
+  .modern-topbar-refresh > span,
   .modern-topbar-divider {
     display: none;
   }

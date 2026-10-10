@@ -158,6 +158,8 @@ const filterCommitPending = ref(false)
 const paginationPending = ref(false)
 const pageTransitionOrigin = ref<LogsMonitorState | null>(null)
 const currentCursor = computed(() => routeState.value.cursorHistory.at(-1))
+// 自动刷新静默拉取当前页：快捷区间按当前时间推进，保留游标与滚动位置，不切换骨架屏或禁用分页。
+const silentRefresh = ref(false)
 let detailFocusTimer: number | undefined
 
 const groupsQuery = useQuery(groupOptionsQueryOptions(client, () => !isAccessKey.value))
@@ -191,7 +193,7 @@ const {
 } = useCollectionLoading(
   {
     pending: () => logsQuery.isPending.value,
-    placeholder: () => logsQuery.isPlaceholderData.value,
+    placeholder: () => logsQuery.isPlaceholderData.value && !silentRefresh.value,
     fetching: () => logsQuery.isFetching.value,
     hasData: () => logsQuery.data.value !== undefined,
     itemCount: () => logs.value.length,
@@ -210,7 +212,9 @@ const logsRefreshing = computed(
       accessKeyOptionsQuery.isFetching.value),
 )
 const currentPage = computed(() => routeState.value.cursorHistory.length + 1)
-const paginationBusy = computed(() => paginationPending.value || logsQuery.isFetching.value)
+const paginationBusy = computed(
+  () => paginationPending.value || (logsQuery.isFetching.value && !silentRefresh.value),
+)
 const filterSignature = computed(() =>
   JSON.stringify([
     serializeAppliedLogFilters(appliedFilters.value),
@@ -565,7 +569,27 @@ async function refresh(): Promise<void> {
   ])
 }
 
-defineExpose({ openFilters, refresh, filterCount })
+async function autoRefresh(): Promise<boolean> {
+  if (logsQuery.isFetching.value || paginationPending.value || filterCommitPending.value)
+    return true
+  const { from_ms, to_ms, preset } = appliedFilters.value
+  silentRefresh.value = true
+  try {
+    if (preset) {
+      const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
+      if (interval.to_ms > interval.from_ms) emit('time-range-resolved', { ...interval, preset })
+      await nextTick()
+    }
+    const ok = !(await logsQuery.refetch({ cancelRefetch: false })).isError
+    // 推进后的区间没有数据可保留，失败时退回上一个区间，继续展示已加载的日志与失败提示。
+    if (!ok && preset) emit('time-range-resolved', { from_ms, to_ms, preset })
+    return ok
+  } finally {
+    silentRefresh.value = false
+  }
+}
+
+defineExpose({ openFilters, refresh, autoRefresh, filterCount })
 
 async function setDetailOpen(requestID: string | undefined, open: boolean): Promise<void> {
   const closingID = selectedRequestID.value

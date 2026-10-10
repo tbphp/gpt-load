@@ -6,10 +6,12 @@ import {
   ref,
   shallowRef,
   toValue,
+  watch,
   type InjectionKey,
   type MaybeRefOrGetter,
   type ShallowRef,
 } from 'vue'
+import { useAutoRefresh } from '@shared/auto-refresh'
 import { useLoadingFeedback } from '../components/ui/loading'
 
 // 顶栏的刷新入口是公共结构，页面只登记自己的刷新动作与数据时间。
@@ -17,6 +19,8 @@ export interface PageRefreshSource {
   refresh: () => unknown
   pending?: MaybeRefOrGetter<boolean>
   updatedAt?: MaybeRefOrGetter<number | undefined>
+  // 支持自动刷新的页面提供静默刷新：保留分页与滚动位置，返回本次是否成功。
+  autoRefresh?: () => Promise<boolean>
 }
 
 const pageRefreshKey: InjectionKey<ShallowRef<PageRefreshSource | undefined>> =
@@ -28,6 +32,16 @@ export function providePageRefresh() {
   const busy = computed(() => running.value || (toValue(source.value?.pending) ?? false))
   // 刷新按钮只为手动整页刷新转动，局部请求仅用于防止重复刷新。
   const pending = useLoadingFeedback(running)
+  const autoInterval = ref(0)
+  // 自动刷新只属于当前页面，换页后恢复默认关闭。
+  watch(source, () => {
+    autoInterval.value = 0
+  })
+  useAutoRefresh({
+    interval: () => (source.value?.autoRefresh ? autoInterval.value : 0),
+    run: () => source.value?.autoRefresh?.() ?? Promise.resolve(true),
+    busy: () => busy.value,
+  })
   provide(pageRefreshKey, source)
   return {
     available: computed(() => source.value !== undefined),
@@ -35,6 +49,8 @@ export function providePageRefresh() {
     running: computed(() => running.value),
     pending,
     updatedAt: computed(() => toValue(source.value?.updatedAt)),
+    autoAvailable: computed(() => source.value?.autoRefresh !== undefined),
+    autoInterval,
     run: async () => {
       if (busy.value || !source.value) return
       running.value = true

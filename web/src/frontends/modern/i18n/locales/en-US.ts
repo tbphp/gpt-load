@@ -58,6 +58,10 @@ export default {
   shell: {
     refresh: 'Refresh',
     refreshedAt: 'Updated {time}',
+    autoRefresh: 'Auto refresh',
+    autoRefreshOff: 'Off',
+    autoRefreshSeconds: '{count}s',
+    autoRefreshMinutes: '{count} min',
     importCredentials: 'Import credentials',
     goHome: 'GPT-Load overview',
     mascotHint:

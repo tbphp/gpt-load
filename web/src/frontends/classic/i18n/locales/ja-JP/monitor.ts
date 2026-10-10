@@ -601,6 +601,12 @@ export default {
       nextPageFailed: '次のページを読み込めません。現在のログは保持されています。',
       refresh: '更新',
       refreshFailed: 'リクエストログを更新できません。現在の全ページは保持されています。',
+      autoRefresh: {
+        label: '自動更新',
+        off: '自動更新オフ',
+        seconds: '{count} 秒ごと',
+        minutes: '{count} 分ごと',
+      },
       stale: '最新の更新に失敗したため、最後に成功した結果を表示しています。',
       caption: 'リクエストログ',
       empty: {

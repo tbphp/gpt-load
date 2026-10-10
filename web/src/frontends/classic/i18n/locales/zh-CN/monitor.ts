@@ -581,6 +581,12 @@ export default {
       nextPageFailed: '加载下一页失败；已保留当前日志。',
       refresh: '刷新',
       refreshFailed: '刷新请求日志失败；已保留当前所有日志页。',
+      autoRefresh: {
+        label: '自动刷新',
+        off: '不自动刷新',
+        seconds: '每 {count} 秒',
+        minutes: '每 {count} 分钟',
+      },
       stale: '最近一次刷新失败，当前显示最近一次成功结果。',
       caption: '请求日志',
       empty: {
