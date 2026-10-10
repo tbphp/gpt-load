@@ -241,7 +241,7 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if err != nil {
 		return parsed, metadata, decision, &reasonInvalidProtocolRequest
 	}
-	body, _, err := chosen.Rules.Apply(selectedDialect.Protocol(), metadata.Operation, chosen.Model, rewritten.Body)
+	body, _, err := chosen.Rules.ApplyWithLimit(selectedDialect.Protocol(), metadata.Operation, chosen.Model, rewritten.Body, maxRequestBodyBytes)
 	if err != nil || int64(len(body)) > maxRequestBodyBytes {
 		return parsed, metadata, decision, &reasonParameterOverrideUnavailable
 	}

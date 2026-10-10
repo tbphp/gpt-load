@@ -715,7 +715,7 @@ func sameWebsocketIdentity(a, b state.CredentialRef) bool {
 }
 
 func prepareWebsocketPayload(body []byte, original websocketRequest, selection scheduler.Selection) ([]byte, websocketRequest, error) {
-	effectiveBody, _, err := selection.Group.ParameterOverrides.Apply(protocol.OpenAIResponses, execution.OperationResponsesCreate, *original.metadata.Model, body)
+	effectiveBody, _, err := selection.Group.ParameterOverrides.ApplyWithLimit(protocol.OpenAIResponses, execution.OperationResponsesCreate, *original.metadata.Model, body, maxRequestBodyBytes)
 	if err != nil {
 		return nil, original, err
 	}

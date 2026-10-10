@@ -1,6 +1,7 @@
 package bifrost
 
 import (
+	"slices"
 	"strconv"
 
 	"github.com/tidwall/gjson"
@@ -10,7 +11,7 @@ import (
 )
 
 // 仅修正 DeepSeek 原生协议的字段差异，不重建或重排消息历史。
-func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protocol) ([]byte, error) {
+func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protocol, removedPaths [][]string) ([]byte, error) {
 	var err error
 	body, err = normalizeDeepSeekDefaultThinking(body, clientProtocol)
 	if err != nil {
@@ -28,6 +29,10 @@ func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protoco
 	if !history.IsArray() {
 		return body, nil
 	}
+	// 显式删除优先于别名补全；后续 set 已重新写入的值仍原样保留。
+	reasoningRemoved := slices.ContainsFunc(removedPaths, func(path []string) bool {
+		return slices.Equal(path, []string{"messages", "*", "reasoning_content"})
+	})
 	for index, message := range history.Array() {
 		if !message.IsObject() {
 			continue
@@ -47,7 +52,7 @@ func normalizeDeepSeekNativeRequest(body []byte, clientProtocol protocol.Protoco
 				return nil, err
 			}
 		}
-		if clientProtocol == protocol.OpenAICompletions && message.Get("role").String() == "assistant" && !message.Get("reasoning_content").Exists() {
+		if clientProtocol == protocol.OpenAICompletions && !reasoningRemoved && message.Get("role").String() == "assistant" && !message.Get("reasoning_content").Exists() {
 			// 只复制已有的完整文本，不用摘要、密文或空占位补造思考内容。
 			reasoning := message.Get("reasoning")
 			if reasoning.Type == gjson.String && reasoning.Str != "" {

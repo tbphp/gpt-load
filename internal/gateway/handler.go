@@ -24,6 +24,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
@@ -943,6 +944,7 @@ func (handler *Handler) executeAttempts(
 	authRefreshReplayUsed := false
 	type preparedRequest struct {
 		configuredParameters  []string
+		removedParameterPaths [][]string
 		request               *dialect.ParsedRequest
 		observations          dialect.RequestMetadata
 		observationsAvailable bool
@@ -975,11 +977,12 @@ func (handler *Handler) executeAttempts(
 		if recorder.autoDecision != nil {
 			routeModel = recorder.autoDecision.Selection.TargetModel
 		}
-		body, applied, err := selection.Group.ParameterOverrides.Apply(
+		body, applied, err := selection.Group.ParameterOverrides.ApplyWithLimit(
 			selectedDialect.Protocol(),
 			originalMetadata.Operation,
 			routeModel,
 			parsed.Body,
+			maxRequestBodyBytes,
 		)
 		if err != nil {
 			prepared.err = err
@@ -991,6 +994,7 @@ func (handler *Handler) executeAttempts(
 			return prepared
 		}
 		prepared.configuredParameters = selection.Group.ParameterOverrides.ConfiguredFields(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)
+		prepared.removedParameterPaths = selection.Group.ParameterOverrides.RemovedPaths(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)
 		if int64(len(body)) > maxRequestBodyBytes {
 			prepared.err = errRequestTooLarge
 			cachedPrepared = &prepared
@@ -1154,7 +1158,7 @@ func (handler *Handler) executeAttempts(
 				handler.completeReason(ginContext, recorder, reasonRedactionFailed)
 				return
 			}
-			if errors.Is(prepared.err, errRequestTooLarge) {
+			if errors.Is(prepared.err, errRequestTooLarge) || errors.Is(prepared.err, parameteroverride.ErrBodyTooLarge) {
 				if parameterOverrideFailure == nil {
 					parameterOverrideFailure = &reasonRequestTooLarge
 				}
@@ -1306,8 +1310,9 @@ func (handler *Handler) executeAttempts(
 			restoreCipher = nil
 		}
 		input := ForwardInput{
-			ConfiguredParameters: prepared.configuredParameters,
-			Dialect:              selectedDialect, ObserveUsage: attemptObservations.ObserveUsage,
+			ConfiguredParameters:  prepared.configuredParameters,
+			RemovedParameterPaths: prepared.removedParameterPaths,
+			Dialect:               selectedDialect, ObserveUsage: attemptObservations.ObserveUsage,
 			RedactionCipher: restoreCipher,
 			Group:           selection.Group, APIKey: normalizedCredential.apiKey,
 			CredentialSecrets: normalizedCredential.secrets, Request: prepared.request,
