@@ -15,7 +15,7 @@ const (
 	// CodexModelCatalogVersion identifies the Codex client contract represented by the embedded snapshot.
 	CodexModelCatalogVersion = modelcatalog.ClientVersion
 	// CodexModelCatalogCPASDKVersion identifies the CPA SDK release tested with this snapshot.
-	CodexModelCatalogCPASDKVersion = "v8.0.8"
+	CodexModelCatalogCPASDKVersion = "v8.0.23"
 	codexModelCatalogSHA256        = modelcatalog.ClientSHA256
 	codexFallbackModel             = "gpt-5.5"
 )

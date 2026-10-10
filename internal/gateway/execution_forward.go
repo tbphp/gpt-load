@@ -54,6 +54,14 @@ func (session *rpmObservedWebsocketSession) ExecuteTurn(ctx context.Context, pay
 	return session.WebsocketSession.ExecuteTurn(ctx, payload, emit)
 }
 
+func (session *rpmObservedWebsocketSession) Interrupt(ctx context.Context, payload []byte) error {
+	sender, ok := session.WebsocketSession.(execution.WebsocketInterrupter)
+	if !ok {
+		return execution.ErrWebsocketInterruptUnsupported
+	}
+	return sender.Interrupt(ctx, payload)
+}
+
 func NewExecutionForwarder(executor execution.Executor) *ExecutionForwarder {
 	return &ExecutionForwarder{
 		executor: executor, representation: &responseProcessor{redactor: redact.New()},

@@ -349,12 +349,6 @@ func normalizeAntigravityConvertedUsage(format string, stream bool, raw []byte) 
 	result := append([]byte(nil), raw...)
 	format = strings.TrimSpace(format)
 	switch format {
-	case "openai":
-		// CPA 的 Chat 流式转换仍单独报告思考 tokens；非流式及 Responses 已计入输出总数。
-		if stream {
-			return addAntigravityUsageIntegers(result, "usage.completion_tokens", "usage.completion_tokens_details.reasoning_tokens")
-		}
-		return result
 	case "claude":
 		if stream {
 			return result
@@ -363,20 +357,6 @@ func normalizeAntigravityConvertedUsage(format string, stream bool, raw []byte) 
 	default:
 		return result
 	}
-}
-
-func addAntigravityUsageIntegers(raw []byte, totalPath, extraPath string) []byte {
-	total, totalOK := antigravityUsageInteger(raw, totalPath)
-	extra, extraOK := antigravityUsageInteger(raw, extraPath)
-	if !totalOK || !extraOK || extra > 0 && total > int64(^uint64(0)>>1)-extra {
-		return raw
-	}
-	updated, err := sjson.SetBytes(raw, totalPath, total+extra)
-	if err != nil {
-		return raw
-	}
-	clear(raw)
-	return updated
 }
 
 func subtractAntigravityUsageIntegers(raw []byte, totalPath, cachedPath string) []byte {
