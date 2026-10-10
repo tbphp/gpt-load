@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Plus, Trash2 } from '@lucide/vue'
+import { Trash2 } from '@lucide/vue'
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppIconButton, AppSelect, AppTextField } from '@modern/components/ui'
+import { AppIconButton, AppRulesEmpty, AppSelect, AppTextField } from '@modern/components/ui'
 import { newHeader, type HeaderRow, type HeaderSetting } from './settings-draft'
 
 const props = defineProps<{
@@ -26,6 +26,7 @@ async function addRule(): Promise<void> {
     .item(model.value.length - 1)
     ?.focus()
 }
+defineExpose({ addRule })
 </script>
 
 <template>
@@ -80,12 +81,7 @@ async function addRule(): Promise<void> {
         @click="model = model.filter((value) => value.id !== row.id)"
       />
     </div>
-    <div class="modern-settings-header-footer" :class="{ 'is-empty': !model.length }">
-      <span v-if="!model.length">{{ t('settingsForm.headers.empty') }}</span>
-      <AppButton size="sm" :icon="Plus" :disabled="disabled" @click="addRule">{{
-        t('settingsForm.headers.add')
-      }}</AppButton>
-    </div>
+    <AppRulesEmpty v-if="!model.length" />
   </div>
 </template>
 
@@ -120,20 +116,6 @@ async function addRule(): Promise<void> {
   align-self: center;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
-}
-.modern-settings-header-footer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-settings-header-footer.is-empty {
-  padding: var(--modern-space-3);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-subtle);
 }
 @container modern-settings-headers (max-width: 600px) {
   .modern-settings-header-labels {

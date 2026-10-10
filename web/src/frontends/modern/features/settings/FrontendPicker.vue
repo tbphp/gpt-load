@@ -38,6 +38,7 @@ async function select(frontend: FrontendID): Promise<void> {
         :image="frontend.preview"
         :selected="frontend.id === 'modern'"
         :selected-label="t('frontend.current')"
+        compact
         :disabled="pending || disabled"
         @click="select(frontend.id)"
       />
@@ -50,13 +51,13 @@ async function select(frontend: FrontendID): Promise<void> {
 .modern-frontend-body {
   display: grid;
   min-width: 0;
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
 }
 
 .modern-frontend-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 280px));
-  gap: var(--modern-space-4);
+  gap: var(--modern-space-3);
 }
 @container modern-settings-content (max-width: 500px) {
   .modern-frontend-options {

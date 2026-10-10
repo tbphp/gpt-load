@@ -224,7 +224,11 @@ function defaultReasoning(value: string): void {
           @click="reset('auto_compact_token_limit')"
       /></template>
       <template #suffix
-        ><AppIcon :icon="Info" size="xs" :label="t('modelManager.profile.autoCompactHelp')"
+        ><AppIcon
+          :icon="Info"
+          size="xs"
+          :label="t('modelManager.profile.autoCompactHelp')"
+          class="modern-help-trigger"
       /></template>
     </AppTextField>
     <AppSelect

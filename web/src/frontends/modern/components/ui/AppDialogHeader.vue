@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { X } from '@lucide/vue'
+import { Info, X } from '@lucide/vue'
 import AppIconButton from './AppIconButton.vue'
 import AppOverflowText from './AppOverflowText.vue'
-import AppTooltip from './AppTooltip.vue'
 
 defineProps<{
   title: string
@@ -17,9 +16,16 @@ defineEmits<{ close: [] }>()
 <template>
   <header class="modern-dialog-header">
     <div>
-      <AppTooltip :label="hint">
-        <h2 :class="{ 'has-hint': hint }" :tabindex="hint ? 0 : undefined">{{ title }}</h2>
-      </AppTooltip>
+      <div class="modern-dialog-title">
+        <h2>{{ title }}</h2>
+        <AppIconButton
+          v-if="hint"
+          :icon="Info"
+          :label="hint"
+          size="xxs"
+          class="modern-help-trigger"
+        />
+      </div>
       <p v-if="description"><AppOverflowText :text="description" /></p>
     </div>
     <AppIconButton
@@ -50,8 +56,10 @@ defineEmits<{ close: [] }>()
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
 }
-.modern-dialog-header h2.has-hint {
-  cursor: help;
+.modern-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-1-5);
 }
 .modern-dialog-header p {
   margin-top: var(--modern-space-1);

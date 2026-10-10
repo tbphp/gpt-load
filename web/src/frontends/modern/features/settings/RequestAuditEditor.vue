@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
+import { ChevronDown, ChevronRight, Trash2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { createUUID } from '@shared/uuid'
 import type { AuditConfig, AuditAccessKey, AuditRule } from '@modern/api/experimental'
 import {
   AppBadge,
   AppButton,
+  AppFormActions,
   AppIconButton,
   AppMultiSelect,
   AppNotice,
+  AppRulesEmpty,
   AppSelect,
   AppSwitch,
   AppTextArea,
   AppTextField,
-  AppTooltip,
 } from '@modern/components/ui'
 
 const props = defineProps<{
@@ -42,6 +43,7 @@ const missingPresetRules = computed(() =>
     (preset) => !props.modelValue.rules.some((rule) => rule.id === preset.id),
   ),
 )
+const canAdd = computed(() => !props.disabled && props.modelValue.rules.length < 16)
 function update(change: (value: AuditConfig) => void) {
   if (props.disabled) return
   const draft = JSON.parse(JSON.stringify(props.modelValue)) as AuditConfig
@@ -57,6 +59,7 @@ function toggle(id: string) {
     : [...expanded.value, id]
 }
 function addRule() {
+  if (!canAdd.value) return
   const id = 'rule_' + createUUID().replaceAll('-', '')
   expanded.value.push(id)
   update((value) =>
@@ -74,6 +77,7 @@ function addPreset() {
   if (props.modelValue.rules.length + missingPresetRules.value.length > 16) return
   update((value) => value.rules.push(...missingPresetRules.value.map((rule) => ({ ...rule }))))
 }
+defineExpose({ addRule, canAdd })
 </script>
 
 <template>
@@ -84,17 +88,14 @@ function addPreset() {
       :options="scope"
       :label="t('requestAudit.scope')"
       :hint="t('requestAudit.scopeHelp') + '\n' + t('requestAudit.coverageHelp')"
+      size="sm"
       :disabled="disabled"
       @update:model-value="update((v) => (v.access_key_ids = $event.map(Number)))"
     />
-    <div class="modern-request-audit-heading modern-request-audit-toolbar">
-      <AppTooltip :label="t('requestAudit.rulesHelp')">
-        <span tabindex="0"
-          >{{ t('requestAudit.rulesTitle') }} · {{ modelValue.rules.length }}/16</span
-        >
-      </AppTooltip>
+    <div class="modern-request-audit-presets">
       <AppButton
-        size="sm"
+        variant="outline"
+        size="xxs"
         :disabled="
           disabled ||
           !missingPresetRules.length ||
@@ -103,14 +104,9 @@ function addPreset() {
         @click="addPreset"
         >{{ t('requestAudit.addPreset') }}</AppButton
       >
-      <AppButton
-        :icon="Plus"
-        size="sm"
-        :disabled="disabled || modelValue.rules.length >= 16"
-        @click="addRule"
-        >{{ t('requestAudit.addRule') }}</AppButton
-      >
+      <AppBadge size="xs" variant="plain">{{ modelValue.rules.length }}/16</AppBadge>
     </div>
+    <AppRulesEmpty v-if="!modelValue.rules.length" />
     <div v-for="(rule, index) in modelValue.rules" :key="rule.id" class="modern-request-audit-rule">
       <div class="modern-request-audit-heading">
         <AppButton
@@ -129,25 +125,29 @@ function addPreset() {
           variant="plain"
           >{{ t('requestAudit.actions.' + rule.action) }}</AppBadge
         >
-        <AppSwitch
-          :model-value="rule.enabled"
-          :label="t('requestAudit.ruleEnabled')"
-          :disabled="disabled"
-          @update:model-value="update((v) => (v.rules[index]!.enabled = $event))"
-        />
-        <AppIconButton
-          :icon="Trash2"
-          size="xs"
-          :label="t('requestAudit.removeRule')"
-          :disabled="disabled"
-          @click="update((v) => v.rules.splice(index, 1))"
-        />
+        <AppFormActions>
+          <AppIconButton
+            :icon="Trash2"
+            size="xs"
+            :label="t('requestAudit.removeRule')"
+            :disabled="disabled"
+            @click="update((v) => v.rules.splice(index, 1))"
+          />
+          <AppSwitch
+            :model-value="rule.enabled"
+            :label="t('requestAudit.ruleEnabled')"
+            size="sm"
+            :disabled="disabled"
+            @update:model-value="update((v) => (v.rules[index]!.enabled = $event))"
+          />
+        </AppFormActions>
       </div>
       <div v-if="isOpen(rule)" :id="'guardrail-' + rule.id" class="modern-request-audit-fields">
         <div class="modern-request-audit-grid">
           <AppTextField
             :model-value="rule.name"
             :label="t('requestAudit.ruleName')"
+            size="sm"
             :disabled="disabled"
             @update:model-value="update((v) => (v.rules[index]!.name = $event))"
           />
@@ -155,6 +155,7 @@ function addPreset() {
             :model-value="rule.action"
             :options="actions"
             :label="t('requestAudit.action')"
+            size="sm"
             :disabled="disabled"
             @update:model-value="
               update((v) => (v.rules[index]!.action = $event as AuditRule['action']))
@@ -167,6 +168,8 @@ function addPreset() {
             max="1"
             step="0.05"
             :label="t('requestAudit.threshold')"
+            :hint="t('requestAudit.thresholdHelp')"
+            size="sm"
             :disabled="disabled"
             @update:model-value="update((v) => (v.rules[index]!.threshold = Number($event)))"
           />
@@ -175,6 +178,7 @@ function addPreset() {
           :model-value="rule.instructions"
           :rows="2"
           :label="t('requestAudit.instructions')"
+          size="sm"
           :disabled="disabled"
           @update:model-value="update((v) => (v.rules[index]!.instructions = $event))"
         />
@@ -200,19 +204,17 @@ function addPreset() {
   flex: 1;
   min-width: 0;
 }
-.modern-request-audit-toolbar {
+.modern-request-audit-presets {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: var(--modern-space-2);
 }
 .modern-request-audit-name {
   justify-content: flex-start;
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: left;
-}
-.modern-request-audit-heading > span:first-child {
-  font-size: var(--modern-font-size-secondary);
-  font-weight: var(--modern-weight-medium);
-  cursor: help;
 }
 .modern-request-audit-rule {
   display: grid;

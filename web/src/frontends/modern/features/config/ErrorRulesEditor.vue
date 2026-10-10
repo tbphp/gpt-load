@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from '@lucide/vue'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onScopeDispose, ref, toRaw, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -19,6 +19,7 @@ import {
   AppIconButton,
   AppNotice,
   AppOverflowText,
+  AppRulesEmpty,
   AppSelect,
   AppSwitch,
   AppTag,
@@ -43,6 +44,7 @@ const elements = new Map<number, HTMLElement>()
 const announcement = ref('')
 const attempted = ref(false)
 const inactive = computed(() => props.disabled || props.readonly)
+const canAdd = computed(() => !inactive.value && rows.value.length < 100)
 const values = computed(() => rows.value.map(errorRuleValue))
 const errors = computed(() => new Map(rows.value.map((row) => [row.key, errorRuleErrors(row)])))
 const valid = computed(
@@ -217,24 +219,13 @@ async function prepareSave(): Promise<boolean> {
   await focusFirstInvalid()
   return false
 }
-defineExpose({ focusFirstInvalid, prepareSave })
+defineExpose({ add, canAdd, focusFirstInvalid, prepareSave })
 </script>
 
 <template>
   <div class="modern-error-editor">
-    <div v-if="!readonly" class="modern-error-toolbar">
-      <AppButton
-        :icon="Plus"
-        variant="outline"
-        size="xs"
-        :disabled="disabled || rows.length >= 100"
-        @click="add"
-      >
-        {{ t('errorRules.add') }}
-      </AppButton>
-    </div>
     <p class="modern-sr-only" role="status">{{ announcement }}</p>
-    <div v-if="!rows.length" class="modern-error-empty">{{ t('errorRules.empty') }}</div>
+    <AppRulesEmpty v-if="!rows.length" />
     <article
       v-for="(row, index) in rows"
       :key="row.key"
@@ -412,27 +403,12 @@ defineExpose({ focusFirstInvalid, prepareSave })
   min-width: 0;
   gap: var(--modern-space-2);
 }
-.modern-error-toolbar,
 .modern-error-heading,
 .modern-error-tools,
 .modern-error-move {
   display: flex;
   align-items: center;
   gap: var(--modern-space-2);
-}
-.modern-error-toolbar {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.modern-error-empty {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  line-height: var(--modern-leading-body);
-}
-.modern-error-empty {
-  padding: var(--modern-space-4);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-subtle);
 }
 .modern-error-rule {
   min-width: 0;

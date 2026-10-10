@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import { protocolLabel } from '@modern/i18n/protocols'
-import { Plus, Trash2 } from '@lucide/vue'
+import { Trash2 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
@@ -32,6 +32,7 @@ import {
   AppNotice,
   AppFormSection,
   AppSearchSelect,
+  AppSegmentedControl,
   AppSegmentedField,
   AppSelect,
   AppTextArea,
@@ -78,10 +79,6 @@ const rules = ref<ParameterRule[]>([])
 const errorRules = ref<ErrorRule[]>([])
 const errorRulesMode = ref('inherit')
 const errorRulesPending = ref(false)
-const errorModeOptions = computed(() => [
-  { value: 'inherit', label: t('errorRules.inherit') },
-  { value: 'override', label: t('errorRules.override') },
-])
 const rulesValid = ref(true)
 const rulesEditor = ref<InstanceType<typeof ParameterRulesEditor>>()
 const errorRulesEditor = ref<InstanceType<typeof ErrorRulesEditor>>()
@@ -140,7 +137,7 @@ watch(
     proxyMode.value = data.proxy.mode
     // 未改选时保留原关联，包括暂时停用或已删除的代理引用。
     proxyID.value = ''
-    headersMode.value = data.overrides.header_rules === undefined ? 'inherit' : 'custom'
+    headersMode.value = data.overrides.header_rules === undefined ? 'inherit' : 'override'
     const value = data.overrides.header_rules ?? data.effective.header_rules
     headers.value = Object.entries(value.set).map(([name, value]) => ({
       key: nextHeader++,
@@ -158,22 +155,18 @@ watch(
 )
 const inheritOptions = computed(() => [
   { value: 'inherit', label: t('groupDetail.inherit') },
-  { value: 'custom', label: t('groupDetail.override') },
+  { value: 'override', label: t('groupDetail.override') },
 ])
 const switchOptions = computed(() => [
   { value: '', label: t('groupDetail.inherit') },
   { value: 'true', label: t('groupDetail.on') },
   { value: 'false', label: t('groupDetail.off') },
 ])
-const proxyOptions = computed(() =>
-  ['inherit', 'direct', 'custom'].map((value) => ({
-    value,
-    label:
-      value === 'custom'
-        ? t('proxies.select')
-        : t('groupCreate.proxy' + value[0]!.toUpperCase() + value.slice(1)),
-  })),
-)
+const proxyOptions = computed(() => [
+  { value: 'inherit', label: t('groupCreate.proxyInherit') },
+  { value: 'direct', label: t('groupCreate.proxyDirect') },
+  { value: 'custom', label: t('settingsForm.proxy.custom') },
+])
 const modelOptions = computed(() => [
   { value: '', label: t('groupDetail.automatic') },
   ...groupValidationModelOptions(props.models),
@@ -219,7 +212,7 @@ const proxyInvalid = computed(
     !validProxySelection(proxyID.value.trim()),
 )
 const headerInvalid = computed(() => {
-  if (headersMode.value !== 'custom') return false
+  if (headersMode.value !== 'override') return false
   const names = headers.value.map((header) => header.name.trim().toLowerCase())
   return (
     new Set(names).size !== names.length ||
@@ -393,7 +386,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <AppFormSection :title="t('groupDetail.connection')">
+      <AppFormSection>
         <GroupChannelSelect
           v-if="switchable"
           :model-value="saved.channelID"
@@ -457,29 +450,32 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             >
           </AppSelect>
         </div>
-        <template v-if="channel?.proxy">
-          <div class="modern-advanced-columns">
-            <AppSegmentedField
-              v-model="proxyMode"
-              :label="t('groupCreate.proxy')"
-              :options="proxyOptions"
-              size="sm"
-              :disabled="busy"
-            />
-            <ProxySelect
-              v-if="proxyMode === 'custom'"
-              v-model="proxyID"
-              :saved-id="saved?.proxy.id"
-              :saved-name="saved?.proxy.name"
-              :saved-address="saved?.proxy.display"
-              :reference-state="saved?.proxy.referenceState"
-              :disabled="busy"
-              :error="attempted && proxyInvalid ? t('proxies.selectHelp') : undefined"
-            />
-          </div>
-        </template>
       </AppFormSection>
-      <AppFormSection :title="t('groupDetail.runtime')" :hint="t('groupDetail.runtimeHelp')">
+      <AppFormSection v-if="channel?.proxy" compact :title="t('groupCreate.proxy')">
+        <template #actions>
+          <AppSegmentedControl
+            v-model="proxyMode"
+            :label="t('groupCreate.proxy')"
+            :options="proxyOptions"
+            appearance="field"
+            size="xs"
+            :disabled="busy"
+          />
+        </template>
+        <ProxySelect
+          v-if="proxyMode === 'custom'"
+          v-model="proxyID"
+          label-hidden
+          size="sm"
+          :saved-id="saved?.proxy.id"
+          :saved-name="saved?.proxy.name"
+          :saved-address="saved?.proxy.display"
+          :reference-state="saved?.proxy.referenceState"
+          :disabled="busy"
+          :error="attempted && proxyInvalid ? t('proxies.selectHelp') : undefined"
+        />
+      </AppFormSection>
+      <AppFormSection>
         <div class="modern-advanced-columns">
           <AppTextField
             v-for="key in runtimeNumbers"
@@ -487,7 +483,11 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :model-value="numbers[key] ?? ''"
             :label="t('groupDetail.runtimeFields.' + key)"
             :placeholder="t('groupDetail.effective', { value: saved.effective[key] })"
-            :hint="key === 'concurrency_limit' ? t('concurrency.overrideHelp') : undefined"
+            :hint="
+              key === 'concurrency_limit'
+                ? t('concurrency.overrideHelp')
+                : t('groupDetail.runtimeHelp')
+            "
             :error="attempted && numberInvalid(key) ? t('groupDetail.invalidNumber') : undefined"
             inputmode="numeric"
             size="sm"
@@ -519,83 +519,81 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           />
         </div>
       </AppFormSection>
-      <AppFormSection compact :title="t('groupDetail.headers')">
-        <template #actions
-          ><AppSegmentedField
-            v-model="headersMode"
-            class="modern-advanced-mode"
-            :label="t('groupDetail.headers')"
-            label-hidden
-            :options="inheritOptions"
-            size="xs"
-            :disabled="busy" /><AppIconButton
-            :icon="Plus"
-            :label="t('groupDetail.addHeader')"
-            size="xs"
-            :disabled="busy || headersMode === 'inherit'"
-            @click="headers.push({ key: nextHeader++, name: '', value: '' })"
-        /></template>
-        <div v-if="headers.length" class="modern-advanced-header-labels" aria-hidden="true">
-          <span>{{ t('groupDetail.headerName') }}</span
-          ><span>{{ t('groupDetail.headerValue') }}</span>
-        </div>
-        <div v-for="header in headers" :key="header.key" class="modern-advanced-header-row">
-          <AppTextField
-            v-model="header.name"
-            :label="t('groupDetail.headerName')"
-            label-hidden
-            :placeholder="t('groupDetail.headerName')"
-            size="xs"
-            :disabled="busy || headersMode === 'inherit'"
-          />
-          <AppTextField
-            v-model="header.value"
-            :label="t('groupDetail.headerValue')"
-            label-hidden
-            :placeholder="t('groupDetail.headerValue')"
-            size="xs"
-            :disabled="busy || headersMode === 'inherit'"
-          />
-          <AppIconButton
-            :icon="Trash2"
-            :label="t('groupDetail.removeHeader')"
-            size="xs"
-            :disabled="busy || headersMode === 'inherit'"
-            @click="headers = headers.filter((row) => row.key !== header.key)"
-          />
-        </div>
-        <AppTextArea
-          v-model="removeHeaders"
-          :label="t('groupDetail.removeHeaders')"
-          :rows="2"
-          size="xs"
-          :placeholder="t('groupDetail.oneHeaderPerLine')"
-          mono
-          :disabled="busy || headersMode === 'inherit'"
-        />
-        <AppNotice v-if="attempted && headerInvalid" tone="danger">{{
-          t('groupDetail.invalidHeaders')
-        }}</AppNotice>
-      </AppFormSection>
-      <AppFormSection compact :title="t('groupDetail.parameters')">
-        <ParameterRulesEditor
-          ref="rulesEditor"
-          v-model="rules"
-          :protocols="channel?.parameterProtocols ?? []"
-          :models="models"
-          :disabled="busy"
-          :attempted="attempted"
-          @update:valid="rulesValid = $event"
-        />
-      </AppFormSection>
-      <AppFormSection compact :title="t('errorRules.title')" :hint="t('errorRules.order')">
+      <AppFormSection
+        compact
+        :title="t('groupDetail.headers')"
+        :add-label="t('groupDetail.addHeader')"
+        :add-disabled="busy || headersMode === 'inherit'"
+        @add="headers.push({ key: nextHeader++, name: '', value: '' })"
+      >
         <template #actions>
-          <AppSegmentedField
+          <AppSegmentedControl
+            v-model="headersMode"
+            :label="t('groupDetail.headers')"
+            :options="inheritOptions"
+            appearance="field"
+            size="xs"
+            :disabled="busy"
+          />
+        </template>
+        <template v-if="headersMode === 'override'">
+          <div v-if="headers.length" class="modern-advanced-header-labels" aria-hidden="true">
+            <span>{{ t('groupDetail.headerName') }}</span
+            ><span>{{ t('groupDetail.headerValue') }}</span>
+          </div>
+          <div v-for="header in headers" :key="header.key" class="modern-advanced-header-row">
+            <AppTextField
+              v-model="header.name"
+              :label="t('groupDetail.headerName')"
+              label-hidden
+              :placeholder="t('groupDetail.headerName')"
+              size="xs"
+              :disabled="busy"
+            />
+            <AppTextField
+              v-model="header.value"
+              :label="t('groupDetail.headerValue')"
+              label-hidden
+              :placeholder="t('groupDetail.headerValue')"
+              size="xs"
+              :disabled="busy"
+            />
+            <AppIconButton
+              :icon="Trash2"
+              :label="t('groupDetail.removeHeader')"
+              size="xs"
+              :disabled="busy"
+              @click="headers = headers.filter((row) => row.key !== header.key)"
+            />
+          </div>
+          <AppTextArea
+            v-model="removeHeaders"
+            :label="t('groupDetail.removeHeaders')"
+            :rows="2"
+            size="xs"
+            :placeholder="t('groupDetail.oneHeaderPerLine')"
+            mono
+            :disabled="busy"
+          />
+          <AppNotice v-if="attempted && headerInvalid" tone="danger">{{
+            t('groupDetail.invalidHeaders')
+          }}</AppNotice>
+        </template>
+      </AppFormSection>
+      <AppFormSection
+        compact
+        :title="t('groupDetail.errorHandling')"
+        :hint="t('errorRules.order')"
+        :add-label="t('errorRules.add')"
+        :add-disabled="busy || errorRulesMode === 'inherit' || !errorRulesEditor?.canAdd"
+        @add="errorRulesEditor?.add()"
+      >
+        <template #actions>
+          <AppSegmentedControl
             v-model="errorRulesMode"
-            class="modern-advanced-mode"
-            :label="t('errorRules.title')"
-            label-hidden
-            :options="errorModeOptions"
+            :label="t('groupDetail.errorHandling')"
+            :options="inheritOptions"
+            appearance="field"
             size="xs"
             :disabled="busy"
           />
@@ -606,6 +604,33 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           v-model="errorRules"
           :disabled="busy"
           @update:pending="errorRulesPending = $event"
+        />
+      </AppFormSection>
+      <AppFormSection
+        compact
+        :title="t('groupDetail.parameters')"
+        :hint="
+          [
+            t('parameterRules.order'),
+            t('parameterRules.modelHelp'),
+            t('parameterRules.typeHelp'),
+            t('parameterRules.pathHelp'),
+            t('parameterRules.mergeHelp'),
+            t('parameterRules.jsonHelp'),
+          ].join('\n')
+        "
+        :add-label="t('parameterRules.addRule')"
+        :add-disabled="busy || !rulesEditor?.canAdd"
+        @add="rulesEditor?.addRule()"
+      >
+        <ParameterRulesEditor
+          ref="rulesEditor"
+          v-model="rules"
+          :protocols="channel?.parameterProtocols ?? []"
+          :models="models"
+          :disabled="busy"
+          :attempted="attempted"
+          @update:valid="rulesValid = $event"
         />
       </AppFormSection>
     </template>
@@ -640,9 +665,6 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: var(--modern-space-3) var(--modern-space-4);
-}
-.modern-advanced-mode {
-  width: var(--modern-menu-min-width);
 }
 .modern-advanced-header-labels,
 .modern-advanced-header-row {

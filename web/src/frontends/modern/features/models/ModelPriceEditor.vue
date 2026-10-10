@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Trash2 } from '@lucide/vue'
+import { Info, Plus, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { priceFields, saveModelPrice, type ModelPrice } from '@modern/api/models'
@@ -13,6 +13,7 @@ import {
   AppConfirmDialog,
   AppCopyValue,
   AppFormSection,
+  AppIcon,
   AppIconButton,
   AppTextField,
   AppTooltip,
@@ -126,8 +127,11 @@ async function save(confirmed = false): Promise<void> {
         {{ t('modelManager.priceImpact', { models: n(modelCount), groups: n(groupCount) }) }}
       </p>
       <div class="modern-model-price-editor-hint">
+        <span>{{ t('modelManager.unit') }}</span>
         <AppTooltip :label="t('modelManager.emptySlotsHint')">
-          <span tabindex="0" class="modern-model-price-help">{{ t('modelManager.unit') }}</span>
+          <span tabindex="0" class="modern-model-price-help modern-help-trigger"
+            ><AppIcon :icon="Info" size="sm"
+          /></span>
         </AppTooltip>
       </div>
       <AppFormSection
@@ -299,7 +303,6 @@ async function save(confirmed = false): Promise<void> {
 .modern-model-price-help {
   display: inline-flex;
   border-radius: var(--modern-radius-small);
-  cursor: help;
 }
 .modern-model-price-inputs {
   display: grid;

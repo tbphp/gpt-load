@@ -20,12 +20,13 @@ import {
   AppButton,
   AppCollectionState,
   AppConfirmDialog,
+  AppFormSection,
   AppIcon,
   AppIconButton,
   AppNotice,
   AppProtocolTag,
   AppSearchSelect,
-  AppSegmentedField,
+  AppSegmentedControl,
   AppTextArea,
   AppTextField,
 } from '@modern/components/ui'
@@ -214,7 +215,7 @@ const credentialPlaceholder = computed(() =>
 const proxyOptions = computed(() => [
   { value: 'inherit', label: t('groupCreate.proxyInherit') },
   { value: 'direct', label: t('groupCreate.proxyDirect') },
-  { value: 'custom', label: t('proxies.select') },
+  { value: 'custom', label: t('settingsForm.proxy.custom') },
 ])
 function cancelDiscovery(): void {
   discoveryController?.abort()
@@ -687,21 +688,30 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
                 :disabled="inputLocked"
                 :error="attempted ? priceError : undefined"
               />
-              <AppSegmentedField
+              <AppFormSection
                 v-if="channel.proxy"
-                v-model="proxyMode"
-                :label="t('groupCreate.proxy')"
-                :options="proxyOptions"
-                :disabled="inputLocked || stages.length > 0"
+                :title="t('groupCreate.proxy')"
                 :hint="stages.length ? t('subscriptions.proxyLocked') : undefined"
-              />
-              <ProxySelect
-                v-if="channel.proxy && proxyMode === 'custom'"
-                ref="proxyInput"
-                v-model="proxyID"
-                :disabled="inputLocked || stages.length > 0"
-                :error="attempted ? proxyError : undefined"
-              />
+                compact
+              >
+                <template #actions>
+                  <AppSegmentedControl
+                    v-model="proxyMode"
+                    :label="t('groupCreate.proxy')"
+                    :options="proxyOptions"
+                    appearance="field"
+                    size="xs"
+                    :disabled="inputLocked || stages.length > 0"
+                  />
+                </template>
+                <ProxySelect
+                  v-if="proxyMode === 'custom'"
+                  ref="proxyInput"
+                  v-model="proxyID"
+                  :disabled="inputLocked || stages.length > 0"
+                  :error="attempted ? proxyError : undefined"
+                />
+              </AppFormSection>
             </div>
           </details>
         </template>

@@ -2,6 +2,8 @@
 import { layoutAttrs } from './field-attrs'
 import { computed, useId, useSlots } from 'vue'
 import type { FieldProps } from './types'
+import { Info } from '@lucide/vue'
+import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
 
 defineOptions({ inheritAttrs: false })
@@ -37,27 +39,31 @@ const describedBy = computed(
       'modern-field--subgrid': inline === 'subgrid',
     }"
   >
-    <div v-if="$slots['label-extra']" class="modern-field-heading">
-      <AppTooltip :label="hint" :disabled="labelHidden">
-        <label
-          :id="`${fieldId}-label`"
-          :for="fieldId"
-          :class="{ 'modern-sr-only': labelHidden, 'has-hint': hint }"
-          :tabindex="hint && !labelHidden ? 0 : undefined"
-          >{{ label }}</label
+    <div v-if="$slots['label-extra'] || (hint && !labelHidden)" class="modern-field-heading">
+      <label :id="`${fieldId}-label`" :for="fieldId" :class="{ 'modern-sr-only': labelHidden }">{{
+        label
+      }}</label>
+      <AppTooltip v-if="hint && !labelHidden" :label="hint">
+        <span
+          class="modern-field-hint modern-help-trigger"
+          tabindex="0"
+          role="img"
+          :aria-label="hint"
         >
+          <AppIcon :icon="Info" size="xs" />
+        </span>
       </AppTooltip>
-      <div :id="labelExtraId" class="modern-field-label-extra"><slot name="label-extra" /></div>
+      <div v-if="$slots['label-extra']" :id="labelExtraId" class="modern-field-label-extra">
+        <slot name="label-extra" />
+      </div>
     </div>
-    <AppTooltip v-else :label="hint" :disabled="labelHidden">
-      <label
-        :id="`${fieldId}-label`"
-        :for="fieldId"
-        :class="{ 'modern-sr-only': labelHidden, 'has-hint': hint }"
-        :tabindex="hint && !labelHidden ? 0 : undefined"
-        >{{ label }}</label
-      >
-    </AppTooltip>
+    <label
+      v-else
+      :id="`${fieldId}-label`"
+      :for="fieldId"
+      :class="{ 'modern-sr-only': labelHidden }"
+      >{{ label }}</label
+    >
     <span v-if="hint" :id="hintId" class="modern-sr-only">{{ hint }}</span>
     <slot v-bind="{ id: fieldId, describedBy, invalid: Boolean(error || invalid) }" />
     <p
@@ -104,6 +110,9 @@ const describedBy = computed(
 .modern-field--inline .modern-field-heading > label {
   flex: 1;
 }
+.modern-field--inline .modern-field-hint {
+  margin-inline-start: var(--modern-space-1-5);
+}
 .modern-field--inline .modern-field-label-extra {
   flex: none;
   min-width: var(--modern-control-xxs);
@@ -121,14 +130,17 @@ const describedBy = computed(
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
 }
-.modern-field label.has-hint {
-  cursor: help;
+.modern-field-hint {
+  display: inline-flex;
+  flex: none;
+  color: var(--modern-muted);
+  border-radius: var(--modern-radius-control);
 }
 .modern-field-heading {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-1-5);
 }
 .modern-field-heading > label {
   flex-shrink: 0;
