@@ -675,7 +675,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if convertedImages || convertedEmbeddings || mode == channel.RouteNative && (nativeMessagePassthrough || providerSupportsPassthrough(providerKind)) {
 		body, sanitizedHeaders, err := sanitizeNativePassthroughRequest(spec, stream)
 		if err == nil && mode == channel.RouteNative && providerKind == channel.ProviderDeepSeek {
-			body, err = normalizeDeepSeekNativeRequest(body, spec.ClientProtocol)
+			body, err = normalizeDeepSeekNativeRequest(body, spec.ClientProtocol, spec.RemovedParameterPaths)
 		}
 		if err != nil {
 			failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid native request body")

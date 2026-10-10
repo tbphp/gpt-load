@@ -203,12 +203,12 @@ func TestDeepSeekForcedToolsRespectExplicitThinking(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := `{"tool_choice":` + test.choice + test.control + `}`
-			got, err := normalizeDeepSeekNativeRequest([]byte(body), test.protocol)
+			got, err := normalizeDeepSeekNativeRequest([]byte(body), test.protocol, nil)
 			want := strings.TrimSuffix(body, "}") + test.added + "}"
 			if err != nil || string(got) != want {
 				t.Fatalf("tool/thinking compatibility: error=%v got=%s want=%s", err, got, want)
 			}
-			again, err := normalizeDeepSeekNativeRequest(got, test.protocol)
+			again, err := normalizeDeepSeekNativeRequest(got, test.protocol, nil)
 			if err != nil || !bytes.Equal(got, again) {
 				t.Fatal("normalization changed an already prepared request")
 			}
@@ -229,7 +229,7 @@ func TestDeepSeekDefaultThinkingPreservesOtherOptions(t *testing.T) {
 			`{"tool_choice":{"type":"any"},"output_config":{"format":{"type":"json_schema","schema":{"type":"object"}}}}`,
 			`{"tool_choice":{"type":"any"},"output_config":{"format":{"type":"json_schema","schema":{"type":"object"}}},"thinking":{"type":"disabled"}}`},
 	} {
-		got, err := normalizeDeepSeekNativeRequest([]byte(test.body), test.protocol)
+		got, err := normalizeDeepSeekNativeRequest([]byte(test.body), test.protocol, nil)
 		if err != nil || string(got) != test.want {
 			t.Fatalf("changed unrelated options: error=%v body=%s", err, got)
 		}
@@ -251,7 +251,7 @@ func TestDeepSeekCompatibilityLeavesUnsupportedContentAndCanonicalReasoning(t *t
 		{protocol.Anthropic, `{"system":"global","messages":[{"role":"user","content":"start"},{"role":"system","content":"instruction"}]}`},
 	} {
 		body := []byte(test.body)
-		got, err := normalizeDeepSeekNativeRequest(body, test.protocol)
+		got, err := normalizeDeepSeekNativeRequest(body, test.protocol, nil)
 		if err != nil || !bytes.Equal(body, got) {
 			t.Fatalf("unexpected rewrite for %s: error=%v body=%s", test.protocol, err, got)
 		}
@@ -269,7 +269,7 @@ func TestDeepSeekCompatibilityTextBlocks(t *testing.T) {
 		{protocol.OpenAICompletions, `{"messages":[{"role":"developer","content":[{"type":"text","text":"instruction","cache_control":{"type":"ephemeral"}}]}]}`},
 		{protocol.OpenAIResponses, `{"input":[{"type":"message","id":"msg_1","role":"developer","content":[{"type":"input_text","text":"instruction"}]}]}`},
 	} {
-		got, err := normalizeDeepSeekNativeRequest([]byte(test.body), test.protocol)
+		got, err := normalizeDeepSeekNativeRequest([]byte(test.body), test.protocol, nil)
 		want := strings.Replace(test.body, `"role":"developer"`, `"role":"system"`, 1)
 		if err != nil || string(got) != want {
 			t.Fatalf("text instruction or its metadata changed: error=%v body=%s", err, got)
