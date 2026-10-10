@@ -20,6 +20,30 @@ func TestRulesApplyArrayWildcards(t *testing.T) {
 		want  string
 	}{
 		{
+			name:  "nested wildcard skips non-array content and still edits content blocks",
+			rules: `[{"set":{"messages":{"*":{"content":{"*":{"cache_control":{"type":"ephemeral"}}}}}}}]`,
+			body:  `{"messages":[{"content":"hello"},{"content":null},{"content":42},{"content":false},{},{"content":[]},{"content":[{"type":"text","text":"hello"}]}]}`,
+			want:  `{"messages":[{"content":"hello"},{"content":null},{"content":42},{"content":false},{},{"content":[]},{"content":[{"type":"text","text":"hello","cache_control":{"type":"ephemeral"}}]}]}`,
+		},
+		{
+			name:  "wildcard does not create absent arrays or their ancestors",
+			rules: `[{"set":{"tools":{"*":{"strict":true}},"missing":{"nested":{"items":{"*":{"flag":true}}}},"metadata":{"tools":{"*":{"strict":true}},"enabled":true},"empty":{}}}]`,
+			body:  `{"model":"m","messages":[],"metadata":null,"empty":"old"}`,
+			want:  `{"model":"m","messages":[],"metadata":{"enabled":true},"empty":{}}`,
+		},
+		{
+			name:  "missing wildcard branches do not suppress ordinary sibling settings",
+			rules: `[{"set":{"messages":{"*":{"content":{"*":{"flag":true}},"metadata":{"enabled":true}}}}}]`,
+			body:  `{"messages":[{"content":"hello"},{"metadata":null},{"content":{"*":{"keep":true}}}]}`,
+			want:  `{"messages":[{"content":"hello","metadata":{"enabled":true}},{"metadata":{"enabled":true}},{"content":{"*":{"keep":true,"flag":true}},"metadata":{"enabled":true}}]}`,
+		},
+		{
+			name:  "literal stars in replacement array values are preserved",
+			rules: `[{"set":{"tools":[{"schema":{"properties":{"*":{"type":"string"}}}}]}}]`,
+			body:  `{}`,
+			want:  `{"tools":[{"schema":{"properties":{"*":{"type":"string"}}}}]}`,
+		},
+		{
 			name:  "wildcard removal does not delete array elements or create missing parents",
 			rules: `[{"remove":["/messages/*","/missing/*/field","/messages/*/missing/field"]}]`,
 			body:  `{"messages":[null,{"content":"one"},[1,2]]}`,

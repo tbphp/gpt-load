@@ -30,6 +30,8 @@ import (
 
 var reasonWebsocketCapability = reason{400, "websocket_capability_unavailable", "The selected upstream does not support this WebSocket capability."}
 
+const maxWebsocketPayloadBytes = 10 << 20
+
 func websocketFailureReason(result UpstreamResult) reason {
 	if result.Stream.EndReason == StreamEndRedactionFailed {
 		return reasonResponseRedactionFailed
@@ -420,7 +422,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		} else {
 			payload, err = snapshot.RequestRedaction.Apply(payload)
 		}
-		if err != nil || len(payload) > 10<<20 {
+		if err != nil || len(payload) > maxWebsocketPayloadBytes {
 			reject(reasonRedactionFailed)
 			return
 		}
@@ -715,7 +717,7 @@ func sameWebsocketIdentity(a, b state.CredentialRef) bool {
 }
 
 func prepareWebsocketPayload(body []byte, original websocketRequest, selection scheduler.Selection) ([]byte, websocketRequest, error) {
-	effectiveBody, _, err := selection.Group.ParameterOverrides.ApplyWithLimit(protocol.OpenAIResponses, execution.OperationResponsesCreate, *original.metadata.Model, body, maxRequestBodyBytes)
+	effectiveBody, _, err := selection.Group.ParameterOverrides.ApplyWithLimit(protocol.OpenAIResponses, execution.OperationResponsesCreate, *original.metadata.Model, body, maxWebsocketPayloadBytes)
 	if err != nil {
 		return nil, original, err
 	}
@@ -734,7 +736,7 @@ func prepareWebsocketPayload(body []byte, original websocketRequest, selection s
 		}
 	}
 	payload, err := json.Marshal(effective.fields)
-	if len(payload) > 10<<20 {
+	if len(payload) > maxWebsocketPayloadBytes {
 		return nil, original, ErrUpstreamProtocol
 	}
 	return payload, effective, err

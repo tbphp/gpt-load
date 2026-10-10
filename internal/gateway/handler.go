@@ -964,6 +964,9 @@ func (handler *Handler) executeAttempts(
 		prepared = preparedRequest{
 			request: parsed, observations: originalMetadata, observationsAvailable: true,
 		}
+		if recorder.autoDecision != nil {
+			prepared.removedParameterPaths = append([][]string(nil), recorder.autoDecision.RemovedParameterPaths...)
+		}
 		defer func() {
 			if prepared.err == nil {
 				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request, redactionCipher)
@@ -994,7 +997,8 @@ func (handler *Handler) executeAttempts(
 			return prepared
 		}
 		prepared.configuredParameters = selection.Group.ParameterOverrides.ConfiguredFields(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)
-		prepared.removedParameterPaths = selection.Group.ParameterOverrides.RemovedPaths(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)
+		prepared.removedParameterPaths = append(prepared.removedParameterPaths,
+			selection.Group.ParameterOverrides.RemovedPaths(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)...)
 		if int64(len(body)) > maxRequestBodyBytes {
 			prepared.err = errRequestTooLarge
 			cachedPrepared = &prepared

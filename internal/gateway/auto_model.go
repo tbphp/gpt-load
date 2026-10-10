@@ -245,6 +245,7 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if err != nil || int64(len(body)) > maxRequestBodyBytes {
 		return parsed, metadata, decision, &reasonParameterOverrideUnavailable
 	}
+	decision.RemovedParameterPaths = chosen.Rules.RemovedPaths(selectedDialect.Protocol(), metadata.Operation, chosen.Model)
 	rewritten.Body = body
 	updated, err := selectedDialect.InspectRequest(rewritten)
 	if err != nil {
@@ -315,6 +316,7 @@ func (recorder *requestRecorder) autoLogDecision() *automodel.Decision {
 		return nil
 	}
 	copy := *recorder.autoDecision
+	copy.RemovedParameterPaths = nil
 	copy.Selection.ParameterOverrides = nil
 	copy.Selection.TaskFingerprint = ""
 	return &copy

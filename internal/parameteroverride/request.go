@@ -171,18 +171,27 @@ func (value *requestValue) remove(path []string) error {
 
 // 同一条规则的设置值只编码一次，数组各元素共享只读字节，避免批量设置放大中间内存。
 type requestSet struct {
-	value  any
-	fields map[string]*requestSet
-	raw    []byte
+	value      any
+	fields     map[string]*requestSet
+	raw        []byte
+	canReplace bool
 }
 
 func newRequestSet(source any) *requestSet {
-	result := &requestSet{value: source}
+	result := &requestSet{value: source, canReplace: true}
 	if object, ok := source.(map[string]any); ok {
 		result.fields = make(map[string]*requestSet, len(object))
+		// 缺少可遍历的容器时，只创建普通字段，不能把通配规则作为值写入请求。
+		replacement := make(map[string]any, len(object))
 		for key, child := range object {
-			result.fields[key] = newRequestSet(child)
+			setting := newRequestSet(child)
+			result.fields[key] = setting
+			if key != "*" && setting.canReplace {
+				replacement[key] = setting.value
+			}
 		}
+		result.value = replacement
+		result.canReplace = len(object) == 0 || len(replacement) > 0
 	}
 	return result
 }
@@ -226,6 +235,9 @@ func (value *requestValue) merge(source *requestSet) error {
 		return nil
 	}
 	// 仅序列化受配置大小限制的替换值，客户端的大值不会进入通用 JSON 树。
+	if !source.canReplace {
+		return nil
+	}
 	if source.raw == nil {
 		var encoded bytes.Buffer
 		encoder := json.NewEncoder(&encoded)
