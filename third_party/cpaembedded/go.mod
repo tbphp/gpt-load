@@ -10,7 +10,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 )
 
 require (

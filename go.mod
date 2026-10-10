@@ -26,7 +26,7 @@ require (
 	github.com/tink-crypto/tink-go/v2 v2.8.0
 	go.uber.org/dig v1.19.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 	gorm.io/driver/mysql v1.6.0
