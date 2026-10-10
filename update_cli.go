@@ -134,6 +134,14 @@ func (updater selfUpdater) install(ctx context.Context, tag, asset, target strin
 			_ = os.Remove(temporaryPath)
 		}
 	}()
+	// 下载前先确认新文件能保留原属主和属组，保留不了就不替换。
+	if err := preserveExecutableOwner(temporary, info); err != nil {
+		return fmt.Errorf(
+			"cannot keep the owner and group of %s (run the update as root or as its owner): %w",
+			target,
+			err,
+		)
+	}
 
 	var sums bytes.Buffer
 	if err := updater.download(ctx, tag, releaseChecksumAsset, maxReleaseChecksumBytes, &sums); err != nil {

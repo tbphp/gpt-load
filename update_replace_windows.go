@@ -33,6 +33,11 @@ func replaceExecutable(target, replacement string) error {
 	return nil
 }
 
+// preserveExecutableOwner 在 Windows 上无需处理：新文件继承所在目录的访问控制。
+func preserveExecutableOwner(*os.File, os.FileInfo) error {
+	return nil
+}
+
 // cleanupReplacedExecutable 删除上次更新移开的旧文件。旧进程仍在运行或没有删除权限时会失败，
 // 留到下次启动或下次更新再删，因此忽略错误。
 func cleanupReplacedExecutable() {
