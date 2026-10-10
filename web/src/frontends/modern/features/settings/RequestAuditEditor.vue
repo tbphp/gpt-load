@@ -14,6 +14,7 @@ import {
   AppSwitch,
   AppTextArea,
   AppTextField,
+  AppTooltip,
 } from '@modern/components/ui'
 
 const props = defineProps<{
@@ -82,12 +83,16 @@ function addPreset() {
       :model-value="modelValue.access_key_ids.map(String)"
       :options="scope"
       :label="t('requestAudit.scope')"
-      :description="t('requestAudit.scopeHelp')"
+      :hint="t('requestAudit.scopeHelp') + '\n' + t('requestAudit.coverageHelp')"
       :disabled="disabled"
       @update:model-value="update((v) => (v.access_key_ids = $event.map(Number)))"
     />
     <div class="modern-request-audit-heading modern-request-audit-toolbar">
-      <span>{{ t('requestAudit.rulesTitle') }} · {{ modelValue.rules.length }}/16</span>
+      <AppTooltip :label="t('requestAudit.rulesHelp')">
+        <span tabindex="0"
+          >{{ t('requestAudit.rulesTitle') }} · {{ modelValue.rules.length }}/16</span
+        >
+      </AppTooltip>
       <AppButton
         size="sm"
         :disabled="
@@ -106,7 +111,6 @@ function addPreset() {
         >{{ t('requestAudit.addRule') }}</AppButton
       >
     </div>
-    <p class="modern-request-audit-help">{{ t('requestAudit.rulesHelp') }}</p>
     <div v-for="(rule, index) in modelValue.rules" :key="rule.id" class="modern-request-audit-rule">
       <div class="modern-request-audit-heading">
         <AppButton
@@ -176,7 +180,6 @@ function addPreset() {
         />
       </div>
     </div>
-    <p class="modern-request-audit-help">{{ t('requestAudit.coverageHelp') }}</p>
   </div>
 </template>
 
@@ -209,6 +212,7 @@ function addPreset() {
 .modern-request-audit-heading > span:first-child {
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
+  cursor: help;
 }
 .modern-request-audit-rule {
   display: grid;
@@ -221,11 +225,6 @@ function addPreset() {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--modern-space-3);
-}
-.modern-request-audit-help {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-  line-height: var(--modern-leading-body);
 }
 @container modern-settings-content (max-width: 620px) {
   .modern-request-audit-grid {

@@ -163,7 +163,6 @@ onScopeDispose(() => {
     >
       <AppDialogHeader
         :title="t('ui.copy.manualTitle')"
-        :description="t('ui.copy.manualHelp')"
         :close-label="t('ui.close')"
         @close="closeFallback"
       />

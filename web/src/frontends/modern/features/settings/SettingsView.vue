@@ -242,7 +242,7 @@ function settingItem(key: SettingKey) {
   return {
     ...settingState(key),
     label: key === 'error_rules' ? t('errorRules.title') : t('settingsForm.fields.' + key),
-    hint: key === 'error_rules' ? undefined : t('settingsForm.hints.' + key),
+    hint: key === 'error_rules' ? t('errorRules.order') : t('settingsForm.hints.' + key),
     controlId: 'settings-' + key,
   }
 }
@@ -447,7 +447,6 @@ onScopeDispose(() => {
           :id="'settings-section-' + id"
           :key="id"
           :title="t('settingsForm.sections.' + id)"
-          :description="t('settingsForm.sectionHelp.' + id)"
           compact
           class="modern-settings-section"
         >
@@ -498,7 +497,6 @@ onScopeDispose(() => {
                 <SettingItem
                   v-if="matches('affinity_enabled')"
                   v-bind="settingItem('affinity_enabled')"
-                  :description="t('settingsForm.hints.affinity_enabled')"
                   @reset="restore('affinity_enabled')"
                   @undo="undoRestore('affinity_enabled')"
                 >
@@ -586,7 +584,6 @@ onScopeDispose(() => {
               <SettingItem
                 v-if="matches('proxy_config')"
                 v-bind="settingItem('proxy_config')"
-                :description="t('settingsForm.hints.proxy_config')"
                 wrap-control
                 class="modern-settings-block"
                 @reset="restore('proxy_config')"
@@ -692,7 +689,6 @@ onScopeDispose(() => {
               <SettingItem
                 v-if="matches('cors')"
                 v-bind="settingItem('cors')"
-                :description="t('settingsForm.hints.cors')"
                 class="modern-settings-block"
                 @reset="restore('cors')"
                 @undo="undoRestore('cors')"
@@ -709,7 +705,7 @@ onScopeDispose(() => {
                       v-model="draft.cors.allowed_origins"
                       :label="t('settingsForm.cors.allowed_origins')"
                       :placeholder="t('settingsForm.cors.originsPlaceholder')"
-                      :description="t('settingsForm.cors.listHint')"
+                      :hint="t('settingsForm.cors.listHint')"
                       :rows="2"
                       :error="fieldErrors['cors.allowed_origins']"
                       :disabled="disabled('cors')"
@@ -763,7 +759,6 @@ onScopeDispose(() => {
                 <SettingItem
                   v-if="matches(key)"
                   v-bind="settingItem(key)"
-                  :description="t('settingsForm.hints.' + key)"
                   stacked
                   class="modern-settings-block"
                   @reset="restore(key)"
@@ -795,7 +790,6 @@ onScopeDispose(() => {
               <SettingItem
                 v-if="matches('models_dev_auto_sync_enabled')"
                 v-bind="settingItem('models_dev_auto_sync_enabled')"
-                :description="t('settingsForm.hints.models_dev_auto_sync_enabled')"
                 class="modern-settings-block"
                 @reset="restore('models_dev_auto_sync_enabled')"
                 @undo="undoRestore('models_dev_auto_sync_enabled')"

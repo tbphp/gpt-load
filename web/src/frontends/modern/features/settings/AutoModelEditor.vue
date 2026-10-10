@@ -138,7 +138,7 @@ function validRules(value: string): boolean {
             <AppTextField
               :model-value="entry.name"
               :label="t('autoModel.entryName')"
-              :description="t('autoModel.nameHint')"
+              :hint="t('autoModel.nameHint')"
               :disabled="disabled"
               @update:model-value="update((draft) => (draft.models[index]!.name = $event))"
             />
@@ -198,7 +198,6 @@ function validRules(value: string): boolean {
                   :label="t('autoModel.targetModel')"
                   :options="modelOptions"
                   :selected-option="{ value: preset.model, label: preset.model }"
-                  :description="t('autoModel.targetHint')"
                   :disabled="disabled"
                   @update:model-value="
                     update((draft) => (draft.models[index]!.presets[presetIndex]!.model = $event))
@@ -208,7 +207,7 @@ function validRules(value: string): boolean {
               <AppTextArea
                 :model-value="preset.description"
                 :label="t('autoModel.criteria')"
-                :description="t('autoModel.englishHint')"
+                :hint="t('autoModel.englishHint')"
                 :rows="2"
                 :disabled="disabled"
                 @update:model-value="
@@ -231,7 +230,7 @@ function validRules(value: string): boolean {
                 "
                 :model-value="preset.parameter_overrides"
                 :label="t('autoModel.overrides')"
-                :description="t('autoModel.overrideHint')"
+                :hint="t('autoModel.overrideHint')"
                 :error="
                   validRules(preset.parameter_overrides) ? undefined : t('autoModel.invalidJSON')
                 "

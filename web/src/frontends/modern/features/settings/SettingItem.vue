@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { Info, LockKeyhole, RotateCcw, Undo2 } from '@lucide/vue'
+import { LockKeyhole, RotateCcw, Undo2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
-import { AppBadge, AppIcon, AppIconButton } from '@modern/components/ui'
+import { AppBadge, AppIcon, AppIconButton, AppTooltip } from '@modern/components/ui'
 
 withDefaults(
   defineProps<{
     label: string
     controlId?: string
     hint?: string
-    description?: string
     overridden?: boolean
     changed?: boolean
     resetting?: boolean
@@ -17,7 +16,7 @@ withDefaults(
     stacked?: boolean
     wrapControl?: boolean
   }>(),
-  { controlId: undefined, hint: undefined, description: undefined },
+  { controlId: undefined, hint: undefined },
 )
 defineEmits<{ reset: []; undo: [] }>()
 const { t } = useI18n()
@@ -30,14 +29,11 @@ const { t } = useI18n()
   >
     <div class="modern-setting-heading">
       <div class="modern-setting-label">
-        <label :for="controlId">{{ label }}</label>
-        <AppIcon
-          v-if="hint && !description"
-          :icon="Info"
-          size="xs"
-          :label="hint"
-          class="modern-setting-hint"
-        />
+        <AppTooltip :label="hint">
+          <label :for="controlId" :class="{ 'has-hint': hint }" :tabindex="hint ? 0 : undefined">{{
+            label
+          }}</label>
+        </AppTooltip>
         <AppIcon
           v-if="locked"
           :icon="LockKeyhole"
@@ -80,7 +76,6 @@ const { t } = useI18n()
           @click="resetting ? $emit('undo') : $emit('reset')"
         />
       </div>
-      <p v-if="description" class="modern-setting-description">{{ description }}</p>
     </div>
     <p v-if="resetting" class="modern-setting-reset">{{ t('settingsForm.restoreAfterSave') }}</p>
     <div v-else class="modern-setting-control"><slot /></div>
@@ -118,8 +113,8 @@ const { t } = useI18n()
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
 }
-.modern-setting-hint {
-  color: var(--modern-muted);
+.modern-setting-label label.has-hint {
+  cursor: help;
 }
 .modern-setting-source {
   display: flex;
@@ -132,15 +127,11 @@ const { t } = useI18n()
   min-width: 0;
   justify-items: end;
 }
-.modern-setting-description,
 .modern-setting-reset {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
   overflow-wrap: anywhere;
-}
-.modern-setting-description {
-  flex-basis: 100%;
 }
 .modern-setting-reset {
   min-height: var(--modern-control-md);

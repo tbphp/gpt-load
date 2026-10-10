@@ -21,6 +21,7 @@ export interface FieldProps {
   labelHidden?: boolean
   inline?: boolean | 'subgrid'
   id?: string
+  hint?: string
   description?: string
   descriptionWarning?: string
   error?: string

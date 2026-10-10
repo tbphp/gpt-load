@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Info, Plus, Trash2 } from '@lucide/vue'
+import { Plus, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { priceFields, saveModelPrice, type ModelPrice } from '@modern/api/models'
@@ -13,7 +13,6 @@ import {
   AppConfirmDialog,
   AppCopyValue,
   AppFormSection,
-  AppIcon,
   AppIconButton,
   AppTextField,
   AppTooltip,
@@ -127,26 +126,21 @@ async function save(confirmed = false): Promise<void> {
         {{ t('modelManager.priceImpact', { models: n(modelCount), groups: n(groupCount) }) }}
       </p>
       <div class="modern-model-price-editor-hint">
-        <span>{{ t('modelManager.unit') }}</span>
         <AppTooltip :label="t('modelManager.emptySlotsHint')">
-          <span tabindex="0" class="modern-model-price-help"
-            ><AppIcon :icon="Info" size="sm"
-          /></span>
+          <span tabindex="0" class="modern-model-price-help">{{ t('modelManager.unit') }}</span>
         </AppTooltip>
       </div>
       <AppFormSection
         v-for="schedule in draft"
         :key="schedule.mode"
         :title="modeLabel(schedule.mode)"
+        :hint="schedule.mode === 'standard' ? undefined : t('modelManager.noTierMode')"
         compact
       >
         <template #actions>
           <!-- 阶梯价只在标准档提供：Fast 后端直接驳回，Ultrafast 统一不做。 -->
-          <span v-if="schedule.mode !== 'standard'" class="modern-model-price-note">
-            {{ t('modelManager.noTierMode') }}
-          </span>
           <AppButton
-            v-else
+            v-if="schedule.mode === 'standard'"
             variant="text"
             size="xs"
             :icon="Plus"
@@ -256,10 +250,6 @@ async function save(confirmed = false): Promise<void> {
 </template>
 
 <style scoped>
-.modern-model-price-note {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-}
 .modern-model-price-editor {
   display: flex;
   flex: 1;
@@ -309,6 +299,7 @@ async function save(confirmed = false): Promise<void> {
 .modern-model-price-help {
   display: inline-flex;
   border-radius: var(--modern-radius-small);
+  cursor: help;
 }
 .modern-model-price-inputs {
   display: grid;

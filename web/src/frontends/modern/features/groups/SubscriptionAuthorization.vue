@@ -9,6 +9,7 @@ import {
   AppExternalLink,
   AppIcon,
   AppTextArea,
+  AppTooltip,
 } from '@modern/components/ui'
 import { copyText } from '@modern/components/ui/clipboard'
 
@@ -136,10 +137,12 @@ async function submitPastedCallback(): Promise<void> {
       </div>
     </section>
     <section class="modern-subscription-auth-step">
-      <h4>
-        <span aria-hidden="true">2</span
-        >{{ t(device ? 'subscriptions.deviceStep' : 'subscriptions.callbackStep') }}
-      </h4>
+      <AppTooltip :label="device ? undefined : t('subscriptions.callbackHelp')">
+        <h4 :tabindex="device ? undefined : 0" :class="{ 'has-hint': !device }">
+          <span aria-hidden="true">2</span
+          >{{ t(device ? 'subscriptions.deviceStep' : 'subscriptions.callbackStep') }}
+        </h4>
+      </AppTooltip>
       <template v-if="device">
         <div v-if="stage.userCode" class="modern-subscription-device-code">
           <AppCopyValue :value="stage.userCode" :label="t('subscriptions.copyDeviceCode')" wrap />
@@ -151,7 +154,7 @@ async function submitPastedCallback(): Promise<void> {
           :model-value="modelValue"
           :label="t('subscriptions.callbackURL')"
           label-hidden
-          :description="t('subscriptions.callbackHelp')"
+          :hint="t('subscriptions.callbackHelp')"
           :placeholder="placeholder"
           :rows="3"
           mono
@@ -231,6 +234,9 @@ async function submitPastedCallback(): Promise<void> {
   font-size: var(--modern-font-size-small);
   color: var(--modern-muted);
   line-height: var(--modern-leading-body);
+}
+.modern-subscription-auth-step h4.has-hint {
+  cursor: help;
 }
 .modern-subscription-auth-heading,
 .modern-subscription-auth-footer,

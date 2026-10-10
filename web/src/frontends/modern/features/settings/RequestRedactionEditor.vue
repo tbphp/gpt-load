@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { CircleHelp, Plus, Trash2 } from '@lucide/vue'
+import { Plus, Trash2 } from '@lucide/vue'
 import { computed, onScopeDispose, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { redactionPresets, type RedactionRule } from '@modern/api/request-redaction'
-import { AppButton, AppIconButton, AppSelect, AppTextField } from '@modern/components/ui'
+import {
+  AppButton,
+  AppIconButton,
+  AppSelect,
+  AppTextField,
+  AppTooltip,
+} from '@modern/components/ui'
 import { useRedactionValidation } from './use-redaction-validation'
 
 const props = defineProps<{ modelValue: RedactionRule[]; disabled?: boolean }>()
@@ -61,16 +67,21 @@ function error(index: number): string | undefined {
     </div>
     <p v-if="!modelValue.length" class="modern-redaction-note">{{ t('requestRedaction.empty') }}</p>
     <div v-if="modelValue.length" class="modern-redaction-heading">
-      <span>{{ t('requestRedaction.pattern') }}</span>
-      <span class="modern-redaction-mode-label">
-        {{ t('requestRedaction.mode') }}
-        <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xxs" />
-      </span>
+      <AppTooltip :label="t('requestRedaction.syntax')">
+        <span tabindex="0" class="modern-redaction-help">{{ t('requestRedaction.pattern') }}</span>
+      </AppTooltip>
+      <AppTooltip :label="t('requestRedaction.modeHelp')">
+        <span tabindex="0" class="modern-redaction-help">{{ t('requestRedaction.mode') }}</span>
+      </AppTooltip>
       <span>{{ t('requestRedaction.replacement') }}</span>
     </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="modern-redaction-row">
       <div class="modern-redaction-field">
-        <span class="modern-redaction-mobile-label">{{ t('requestRedaction.pattern') }}</span>
+        <AppTooltip :label="t('requestRedaction.syntax')">
+          <span tabindex="0" class="modern-redaction-mobile-label modern-redaction-help">{{
+            t('requestRedaction.pattern')
+          }}</span>
+        </AppTooltip>
         <AppTextField
           :model-value="rule.pattern"
           :label="t('requestRedaction.pattern')"
@@ -90,12 +101,11 @@ function error(index: number): string | undefined {
         </p>
       </div>
       <div class="modern-redaction-field modern-redaction-mode">
-        <span class="modern-redaction-mobile-label">
-          <span class="modern-redaction-mode-label">
+        <AppTooltip :label="t('requestRedaction.modeHelp')">
+          <span tabindex="0" class="modern-redaction-mobile-label modern-redaction-help">
             {{ t('requestRedaction.mode') }}
-            <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xxs" />
           </span>
-        </span>
+        </AppTooltip>
         <AppSelect
           :model-value="rule.mode ?? 'replace'"
           :options="modeOptions"
@@ -163,7 +173,6 @@ function error(index: number): string | undefined {
         )
       }}
     </p>
-    <p class="modern-redaction-note">{{ t('requestRedaction.syntax') }}</p>
   </div>
 </template>
 
@@ -204,10 +213,8 @@ function error(index: number): string | undefined {
 .modern-redaction-mobile-label {
   display: none;
 }
-.modern-redaction-mode-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--modern-space-1);
+.modern-redaction-help {
+  cursor: help;
 }
 .modern-redaction-remove {
   grid-column: 4;

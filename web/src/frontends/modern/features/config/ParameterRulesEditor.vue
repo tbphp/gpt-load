@@ -287,7 +287,20 @@ defineExpose({
 <template>
   <div class="modern-parameter-editor">
     <div class="modern-parameter-toolbar">
-      <p>{{ t('parameterRules.order') }}</p>
+      <AppTooltip
+        :label="
+          [
+            t('parameterRules.order'),
+            t('parameterRules.modelHelp'),
+            t('parameterRules.typeHelp'),
+            t('parameterRules.pathHelp'),
+            t('parameterRules.mergeHelp'),
+            t('parameterRules.jsonHelp'),
+          ].join('\n')
+        "
+      >
+        <AppButton :icon="Info" variant="text" size="xs">{{ t('parameterRules.help') }}</AppButton>
+      </AppTooltip>
       <AppButton
         :icon="Plus"
         variant="outline"
@@ -401,7 +414,7 @@ defineExpose({
             :models="modelNames"
             size="xs"
             :disabled="disabled"
-            :description="modelDescription(row)"
+            :hint="t('parameterRules.modelHelp') + '\n' + modelDescription(row)"
             :error="
               results.get(row.key)?.modelError ? t('parameterRules.errors.modelPattern') : undefined
             "
@@ -579,20 +592,6 @@ defineExpose({
         >
       </div>
     </article>
-    <AppTooltip
-      v-if="rows.length"
-      :label="
-        [
-          t('parameterRules.modelHelp'),
-          t('parameterRules.typeHelp'),
-          t('parameterRules.pathHelp'),
-          t('parameterRules.mergeHelp'),
-          t('parameterRules.jsonHelp'),
-        ].join('\n')
-      "
-    >
-      <AppButton :icon="Info" variant="text" size="xs">{{ t('parameterRules.help') }}</AppButton>
-    </AppTooltip>
   </div>
 </template>
 
@@ -619,10 +618,8 @@ defineExpose({
   flex-wrap: wrap;
   justify-content: space-between;
 }
-.modern-parameter-toolbar p,
 .modern-parameter-note,
-.modern-parameter-empty,
-.modern-parameter-help {
+.modern-parameter-empty {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);

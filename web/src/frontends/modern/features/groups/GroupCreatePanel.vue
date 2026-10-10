@@ -631,9 +631,7 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
             ref="credentialInput"
             v-model="credentials"
             :label="t('groupCreate.credentials')"
-            :description="
-              t(structured ? 'groupCreate.structuredHelp' : 'groupCreate.credentialsHelp')
-            "
+            :hint="t(structured ? 'groupCreate.structuredHelp' : 'groupCreate.credentialsHelp')"
             :placeholder="credentialPlaceholder"
             :rows="6"
             mono
@@ -695,7 +693,7 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
                 :label="t('groupCreate.proxy')"
                 :options="proxyOptions"
                 :disabled="inputLocked || stages.length > 0"
-                :description="stages.length ? t('subscriptions.proxyLocked') : undefined"
+                :hint="stages.length ? t('subscriptions.proxyLocked') : undefined"
               />
               <ProxySelect
                 v-if="channel.proxy && proxyMode === 'custom'"

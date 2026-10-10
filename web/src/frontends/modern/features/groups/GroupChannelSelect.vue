@@ -10,7 +10,7 @@ const props = defineProps<{
   modelValue: string
   channels: readonly GroupChannel[]
   label: string
-  description?: string
+  hint?: string
   disabled?: boolean
   error?: string
   size?: 'sm'
@@ -29,7 +29,7 @@ const subscription = (id: string) => byID.value.get(id)?.connectionType === 'sub
     ref="input"
     :model-value="modelValue"
     :label="label"
-    :description="description"
+    :hint="hint"
     :options="options"
     :size="size"
     :disabled="disabled"

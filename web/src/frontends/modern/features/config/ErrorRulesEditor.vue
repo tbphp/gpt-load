@@ -222,10 +222,8 @@ defineExpose({ focusFirstInvalid, prepareSave })
 
 <template>
   <div class="modern-error-editor">
-    <div v-if="rows.length || !readonly" class="modern-error-toolbar">
-      <p>{{ t('errorRules.order') }}</p>
+    <div v-if="!readonly" class="modern-error-toolbar">
       <AppButton
-        v-if="!readonly"
         :icon="Plus"
         variant="outline"
         size="xs"
@@ -424,9 +422,8 @@ defineExpose({ focusFirstInvalid, prepareSave })
 }
 .modern-error-toolbar {
   flex-wrap: wrap;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
-.modern-error-toolbar p,
 .modern-error-empty {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);

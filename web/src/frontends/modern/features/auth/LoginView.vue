@@ -139,17 +139,14 @@ async function submit(): Promise<void> {
 <template>
   <div class="modern-login-stage">
     <LoginMascot :quiet="typing || submitting" />
-    <AuthCard
-      class="modern-login-card"
-      :title="t('auth.title')"
-      :description="t('auth.description')"
-    >
+    <AuthCard class="modern-login-card" :title="t('auth.title')">
       <form class="modern-login-form" novalidate @submit.prevent="submit">
         <template v-if="!authenticated">
           <AppTextField
             ref="input"
             v-model="candidate"
             :label="t('auth.keyLabel')"
+            :hint="t('auth.description')"
             name="auth-key"
             :type="visible ? 'text' : 'password'"
             autocomplete="current-password"

@@ -2,6 +2,7 @@
 import { layoutAttrs } from './field-attrs'
 import { computed, useId, useSlots } from 'vue'
 import type { FieldProps } from './types'
+import AppTooltip from './AppTooltip.vue'
 
 defineOptions({ inheritAttrs: false })
 const props = defineProps<FieldProps>()
@@ -9,6 +10,7 @@ const slots = useSlots()
 const fallbackId = useId()
 const fieldId = computed(() => props.id ?? fallbackId)
 const labelExtraId = computed(() => `${fieldId.value}-label-extra`)
+const hintId = computed(() => `${fieldId.value}-hint`)
 const descriptionId = computed(() => `${fieldId.value}-description`)
 const errorId = computed(() => `${fieldId.value}-error`)
 const describedBy = computed(
@@ -16,6 +18,7 @@ const describedBy = computed(
     [
       props.describedBy,
       slots['label-extra'] && labelExtraId.value,
+      props.hint && hintId.value,
       (props.description || props.descriptionWarning) && descriptionId.value,
       props.error && errorId.value,
     ]
@@ -35,18 +38,27 @@ const describedBy = computed(
     }"
   >
     <div v-if="$slots['label-extra']" class="modern-field-heading">
-      <label :id="`${fieldId}-label`" :for="fieldId" :class="{ 'modern-sr-only': labelHidden }">{{
-        label
-      }}</label>
+      <AppTooltip :label="hint" :disabled="labelHidden">
+        <label
+          :id="`${fieldId}-label`"
+          :for="fieldId"
+          :class="{ 'modern-sr-only': labelHidden, 'has-hint': hint }"
+          :tabindex="hint && !labelHidden ? 0 : undefined"
+          >{{ label }}</label
+        >
+      </AppTooltip>
       <div :id="labelExtraId" class="modern-field-label-extra"><slot name="label-extra" /></div>
     </div>
-    <label
-      v-else
-      :id="`${fieldId}-label`"
-      :for="fieldId"
-      :class="{ 'modern-sr-only': labelHidden }"
-      >{{ label }}</label
-    >
+    <AppTooltip v-else :label="hint" :disabled="labelHidden">
+      <label
+        :id="`${fieldId}-label`"
+        :for="fieldId"
+        :class="{ 'modern-sr-only': labelHidden, 'has-hint': hint }"
+        :tabindex="hint && !labelHidden ? 0 : undefined"
+        >{{ label }}</label
+      >
+    </AppTooltip>
+    <span v-if="hint" :id="hintId" class="modern-sr-only">{{ hint }}</span>
     <slot v-bind="{ id: fieldId, describedBy, invalid: Boolean(error || invalid) }" />
     <p
       v-if="description || descriptionWarning"
@@ -108,6 +120,9 @@ const describedBy = computed(
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
+}
+.modern-field label.has-hint {
+  cursor: help;
 }
 .modern-field-heading {
   display: flex;

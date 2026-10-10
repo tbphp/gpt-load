@@ -2,9 +2,11 @@
 import { X } from '@lucide/vue'
 import AppIconButton from './AppIconButton.vue'
 import AppOverflowText from './AppOverflowText.vue'
+import AppTooltip from './AppTooltip.vue'
 
 defineProps<{
   title: string
+  hint?: string
   description?: string
   closeLabel: string
   closeDisabled?: boolean
@@ -15,7 +17,9 @@ defineEmits<{ close: [] }>()
 <template>
   <header class="modern-dialog-header">
     <div>
-      <h2>{{ title }}</h2>
+      <AppTooltip :label="hint">
+        <h2 :class="{ 'has-hint': hint }" :tabindex="hint ? 0 : undefined">{{ title }}</h2>
+      </AppTooltip>
       <p v-if="description"><AppOverflowText :text="description" /></p>
     </div>
     <AppIconButton
@@ -45,6 +49,9 @@ defineEmits<{ close: [] }>()
   color: var(--modern-text);
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-dialog-header h2.has-hint {
+  cursor: help;
 }
 .modern-dialog-header p {
   margin-top: var(--modern-space-1);

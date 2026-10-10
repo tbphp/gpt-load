@@ -1,12 +1,16 @@
 <script setup lang="ts">
-defineProps<{ title: string; description?: string; compact?: boolean }>()
+import AppTooltip from './AppTooltip.vue'
+
+defineProps<{ title: string; hint?: string; description?: string; compact?: boolean }>()
 </script>
 
 <template>
   <section class="modern-form-section" :class="{ 'is-compact': compact }">
     <header class="modern-form-section-heading">
       <div>
-        <h3>{{ title }}</h3>
+        <AppTooltip :label="hint">
+          <h3 :class="{ 'has-hint': hint }" :tabindex="hint ? 0 : undefined">{{ title }}</h3>
+        </AppTooltip>
         <p v-if="description">{{ description }}</p>
       </div>
       <div v-if="$slots.actions" class="modern-form-section-actions"><slot name="actions" /></div>
@@ -37,6 +41,9 @@ defineProps<{ title: string; description?: string; compact?: boolean }>()
 .modern-form-section-heading h3 {
   font-size: var(--modern-font-size-secondary);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-form-section-heading h3.has-hint {
+  cursor: help;
 }
 .modern-form-section-heading p {
   margin-top: var(--modern-space-1);

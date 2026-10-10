@@ -399,9 +399,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           :model-value="saved.channelID"
           :channels="switchableChannels"
           :label="t('groupDetail.channel')"
-          :description="
-            dirty ? t('groupDetail.channelSwitchBlocked') : t('groupDetail.channelHelp')
-          "
+          :hint="dirty ? t('groupDetail.channelSwitchBlocked') : t('groupDetail.channelHelp')"
           size="sm"
           :disabled="busy || dirty"
           @update:model-value="requestChannelSwitch($event)"
@@ -481,19 +479,15 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           </div>
         </template>
       </AppFormSection>
-      <AppFormSection :title="t('groupDetail.runtime')" :description="t('groupDetail.runtimeHelp')">
+      <AppFormSection :title="t('groupDetail.runtime')" :hint="t('groupDetail.runtimeHelp')">
         <div class="modern-advanced-columns">
           <AppTextField
             v-for="key in runtimeNumbers"
             :key="key"
             :model-value="numbers[key] ?? ''"
             :label="t('groupDetail.runtimeFields.' + key)"
-            :placeholder="String(saved.effective[key])"
-            :description="
-              key === 'concurrency_limit'
-                ? t('concurrency.overrideHelp')
-                : t('groupDetail.effective', { value: saved.effective[key] })
-            "
+            :placeholder="t('groupDetail.effective', { value: saved.effective[key] })"
+            :hint="key === 'concurrency_limit' ? t('concurrency.overrideHelp') : undefined"
             :error="attempted && numberInvalid(key) ? t('groupDetail.invalidNumber') : undefined"
             inputmode="numeric"
             size="sm"
@@ -514,7 +508,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             :model-value="switches[key] ?? ''"
             :label="t('groupDetail.runtimeFields.' + key)"
             :options="switchOptions"
-            :description="
+            :hint="
               t('groupDetail.effective', {
                 value: t(saved.effective[key] ? 'groupDetail.on' : 'groupDetail.off'),
               })
@@ -594,7 +588,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           @update:valid="rulesValid = $event"
         />
       </AppFormSection>
-      <AppFormSection compact :title="t('errorRules.title')">
+      <AppFormSection compact :title="t('errorRules.title')" :hint="t('errorRules.order')">
         <template #actions>
           <AppSegmentedField
             v-model="errorRulesMode"
