@@ -170,6 +170,8 @@ defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
       >
         <AppTag
           :text="labels.get(value) ?? value"
+          size="xs"
+          variant="outline"
           removable
           :disabled="disabled"
           @remove="removeValue(value)"

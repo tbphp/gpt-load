@@ -60,6 +60,8 @@ const liveOptions = computed(() =>
   codexLiveModes.map((value) => ({ value, label: t('settingsForm.liveModes.' + value) })),
 )
 const redactionInvalid = ref(false)
+const errorRulesPending = ref(false)
+const errorRulesEditor = ref<InstanceType<typeof ErrorRulesEditor>>()
 const client = useApiClient()
 const {
   query,
@@ -76,7 +78,7 @@ const {
   undoRestore,
   discard,
   save,
-} = useSettingsEditor()
+} = useSettingsEditor(() => (errorRulesPending.value ? ['error_rules'] : []))
 const redactionBlocksSave = computed(
   () =>
     redactionInvalid.value &&
@@ -99,9 +101,14 @@ const sectionIDs = [
 ] as const
 type SectionID = (typeof sectionIDs)[number]
 const sectionFields: Record<SectionID, readonly SettingKey[]> = {
-  routing: ['route_strategy', 'affinity_enabled', 'affinity_ttl', 'affinity_capacity'],
-  connection: [
+  routing: [
+    'route_strategy',
+    'affinity_enabled',
+    'affinity_ttl',
+    'affinity_capacity',
     'error_rules',
+  ],
+  connection: [
     'global_concurrency_limit',
     'default_access_key_concurrency_limit',
     'default_group_concurrency_limit',
@@ -180,7 +187,9 @@ function matches(key: SettingKey): boolean {
   const text = [
     key,
     key === 'error_rules' ? t('errorRules.title') : t('settingsForm.fields.' + key),
-    key === 'error_rules' ? t('errorRules.conditionsHelp') : t('settingsForm.hints.' + key),
+    key === 'error_rules'
+      ? [t('errorRules.statuses'), t('errorRules.keywords')].join(' ')
+      : t('settingsForm.hints.' + key),
     sectionText(section),
     key === 'cors'
       ? Object.keys(base.value?.values.cors ?? {})
@@ -233,7 +242,7 @@ function settingItem(key: SettingKey) {
   return {
     ...settingState(key),
     label: key === 'error_rules' ? t('errorRules.title') : t('settingsForm.fields.' + key),
-    hint: key === 'error_rules' ? t('errorRules.conditionsHelp') : t('settingsForm.hints.' + key),
+    hint: key === 'error_rules' ? undefined : t('settingsForm.hints.' + key),
     controlId: 'settings-' + key,
   }
 }
@@ -328,7 +337,8 @@ watch(
   { immediate: true },
 )
 async function submit(): Promise<void> {
-  if (redactionBlocksSave.value) return
+  if (saving.value || redactionBlocksSave.value) return
+  if (errorRulesEditor.value && !(await errorRulesEditor.value.prepareSave())) return
   const result = await save()
   if (result !== 'invalid') return
   clearSearch()
@@ -336,6 +346,9 @@ async function submit(): Promise<void> {
   const input = scroller.value?.querySelector<HTMLElement>('[aria-invalid="true"]')
   input?.scrollIntoView({ block: 'center' })
   input?.focus({ preventScroll: true })
+}
+function errorRulesRef(editor: unknown): void {
+  errorRulesEditor.value = (editor as InstanceType<typeof ErrorRulesEditor> | null) ?? undefined
 }
 function confirmDiscard(): void {
   discardOpen.value = false
@@ -509,20 +522,24 @@ onScopeDispose(() => {
                   />
                 </div>
               </div>
-            </template>
-            <template v-else-if="id === 'connection'">
               <SettingItem
                 v-if="matches('error_rules')"
                 v-bind="settingItem('error_rules')"
                 class="modern-settings-block"
+                stacked
                 @reset="restore('error_rules')"
                 @undo="undoRestore('error_rules')"
               >
                 <ErrorRulesEditor
+                  :ref="errorRulesRef"
                   v-model="draft.error_rules"
                   :disabled="disabled('error_rules') || resets.has('error_rules')"
+                  :readonly="locked('error_rules')"
+                  @update:pending="errorRulesPending = $event"
                 />
               </SettingItem>
+            </template>
+            <template v-else-if="id === 'connection'">
               <SettingItem
                 v-if="matches('codex_live_mode')"
                 v-bind="settingItem('codex_live_mode')"

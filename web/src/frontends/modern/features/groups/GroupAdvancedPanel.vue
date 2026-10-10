@@ -46,7 +46,7 @@ import GroupBaseURLField from './GroupBaseURLField.vue'
 import GroupWorkspacePanel from './GroupWorkspacePanel.vue'
 import ParameterRulesEditor from '../config/ParameterRulesEditor.vue'
 import ErrorRulesEditor from '../config/ErrorRulesEditor.vue'
-import { cloneErrorRules, validErrorRules, type ErrorRule } from '@shared/error-rules'
+import { cloneErrorRules, type ErrorRule } from '@shared/error-rules'
 import { groupValidationModelOptions } from './group-model-options'
 
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel; models: GroupModel[] }>()
@@ -77,23 +77,14 @@ const removeHeaders = ref('')
 const rules = ref<ParameterRule[]>([])
 const errorRules = ref<ErrorRule[]>([])
 const errorRulesMode = ref('inherit')
-const displayedErrorRules = computed(() =>
-  errorRulesMode.value === 'inherit' ? (saved.value?.defaultErrorRules ?? []) : errorRules.value,
-)
-watch(errorRulesMode, (mode, previous) => {
-  if (
-    mode === 'override' &&
-    previous === 'inherit' &&
-    saved.value?.overrides.error_rules === undefined
-  )
-    errorRules.value = cloneErrorRules(saved.value?.defaultErrorRules ?? [])
-})
+const errorRulesPending = ref(false)
 const errorModeOptions = computed(() => [
   { value: 'inherit', label: t('errorRules.inherit') },
   { value: 'override', label: t('errorRules.override') },
 ])
 const rulesValid = ref(true)
 const rulesEditor = ref<InstanceType<typeof ParameterRulesEditor>>()
+const errorRulesEditor = ref<InstanceType<typeof ErrorRulesEditor>>()
 const baseline = ref('')
 const attempted = ref(false)
 const saving = ref(false)
@@ -119,7 +110,11 @@ function snapshot(): string {
   ])
 }
 const dirty = computed(
-  () => Boolean(saved.value) && (snapshot() !== baseline.value || !rulesValid.value),
+  () =>
+    Boolean(saved.value) &&
+    (snapshot() !== baseline.value ||
+      !rulesValid.value ||
+      (errorRulesMode.value === 'override' && errorRulesPending.value)),
 )
 watch(
   query.data,
@@ -155,7 +150,7 @@ watch(
     removeHeaders.value = value.remove.join('\n')
     rules.value = JSON.parse(JSON.stringify(data.overrides.parameter_overrides ?? []))
     errorRulesMode.value = data.overrides.error_rules === undefined ? 'inherit' : 'override'
-    errorRules.value = cloneErrorRules(data.overrides.error_rules ?? data.effective.error_rules)
+    errorRules.value = cloneErrorRules(data.overrides.error_rules ?? [])
     rulesValid.value = true
     baseline.value = snapshot()
   },
@@ -237,7 +232,11 @@ const headerInvalid = computed(() => {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value || switching.value) return
   attempted.value = true
-  if (errorRulesMode.value === 'override' && !validErrorRules(errorRules.value)) return
+  if (errorRulesMode.value === 'override' && !(await errorRulesEditor.value?.prepareSave())) return
+  if (!dirty.value) {
+    emit('close')
+    return
+  }
   if (!rulesValid.value) {
     await rulesEditor.value?.focusFirstInvalid()
     return
@@ -596,17 +595,23 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         />
       </AppFormSection>
       <AppFormSection compact :title="t('errorRules.title')">
-        <AppSelect
-          v-model="errorRulesMode"
-          :label="t('errorRules.title')"
-          :options="errorModeOptions"
-          size="xs"
-          :disabled="busy"
-        />
+        <template #actions>
+          <AppSegmentedField
+            v-model="errorRulesMode"
+            class="modern-advanced-mode"
+            :label="t('errorRules.title')"
+            label-hidden
+            :options="errorModeOptions"
+            size="xs"
+            :disabled="busy"
+          />
+        </template>
         <ErrorRulesEditor
-          :model-value="displayedErrorRules"
-          :disabled="busy || errorRulesMode === 'inherit'"
-          @update:model-value="errorRules = $event"
+          v-if="errorRulesMode === 'override'"
+          ref="errorRulesEditor"
+          v-model="errorRules"
+          :disabled="busy"
+          @update:pending="errorRulesPending = $event"
         />
       </AppFormSection>
     </template>

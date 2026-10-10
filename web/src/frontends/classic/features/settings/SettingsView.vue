@@ -344,7 +344,7 @@ function settingLabel(key: RuntimeSettingKey): string {
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
-  if (key === 'error_rules') return 'settings-reliability'
+  if (key === 'error_rules') return 'settings-routing'
   if (key === 'request_redaction') return 'settings-redaction'
   if (['auto_model', 'jev', 'request_audit'].includes(key)) return 'settings-experimental'
   if (key === 'header_rules' || key === 'cors' || key === 'response_header_rules')
@@ -361,7 +361,8 @@ function sectionForKey(key: RuntimeSettingKey): SettingsSection {
     key === 'route_strategy' ||
     key === 'affinity_enabled' ||
     key === 'affinity_ttl' ||
-    key === 'affinity_capacity'
+    key === 'affinity_capacity' ||
+    key === 'error_rules'
   )
     return 'routing'
   if (
@@ -375,7 +376,6 @@ function sectionForKey(key: RuntimeSettingKey): SettingsSection {
   )
     return 'connection'
   if (
-    key === 'error_rules' ||
     key === 'retry_count' ||
     key === 'blacklist_threshold' ||
     key === 'empty_response_retry' ||

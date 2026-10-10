@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { cloneErrorRules, type ErrorRule } from '@shared/error-rules'
 import { useI18n } from 'vue-i18n'
 
 import { routeStrategies } from '@/api/control/types'
@@ -11,6 +12,8 @@ import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/S
 import { formatInteger } from '@/lib/format'
 
 import SettingRow from '@/components/config/SettingRow.vue'
+import SettingBlock from '@/components/config/SettingBlock.vue'
+import ErrorRulesEditor from '@/components/config/ErrorRulesEditor.vue'
 import {
   createSettingsDraft,
   isValidAffinityCapacity,
@@ -111,6 +114,12 @@ function numberFieldValue(key: (typeof numericKeys)[number]): string {
   return t(`settings.affinity.${key}Effective`, {
     value: formatInteger(props.base.settings.values[key], locale.value),
   })
+}
+function setErrorRules(value: ErrorRule[]): void {
+  const draft = cloneDraft()
+  draft.values.error_rules = cloneErrorRules(value)
+  draft.overrides.add('error_rules')
+  publish('error_rules', draft)
 }
 </script>
 
@@ -217,6 +226,23 @@ function numberFieldValue(key: (typeof numericKeys)[number]): string {
           </div>
         </template>
       </SettingRow>
+      <SettingBlock
+        class="settings-routing__error-rules"
+        :title="t('errorRules.title')"
+        :source-label="sourceLabel('error_rules')"
+        :action-label="actionLabel('error_rules')"
+        :overridden="hasOverride('error_rules')"
+        :pending-restore="isPendingRestore('error_rules')"
+        :disabled="disabled"
+        @toggle="toggleOverride('error_rules')"
+      >
+        <ErrorRulesEditor
+          :model-value="draft.values.error_rules"
+          :disabled="disabled"
+          :readonly="!hasOverride('error_rules')"
+          @update:model-value="setErrorRules"
+        />
+      </SettingBlock>
     </div>
   </section>
 </template>
@@ -258,5 +284,10 @@ function numberFieldValue(key: (typeof numericKeys)[number]): string {
   grid-template-columns: minmax(0, 112px) auto;
   align-items: center;
   gap: var(--space-2);
+}
+.settings-routing__error-rules {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
 }
 </style>

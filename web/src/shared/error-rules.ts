@@ -21,7 +21,10 @@ export interface ErrorRuleDraft {
   key: number
   open: boolean
   statuses: string
+  statusInput: string
+  statusInvalid: boolean
   keywords: string
+  keywordInput: string
   retry: ErrorRule['retry']
   effect: ErrorRule['effect']
   cooldown: string
@@ -109,7 +112,10 @@ export function errorRuleDraft(rule: ErrorRule, key: number, open = false): Erro
     key,
     open,
     statuses: rule.status_codes?.join(', ') ?? '',
+    statusInput: '',
+    statusInvalid: false,
     keywords: rule.keywords?.join('\n') ?? '',
+    keywordInput: '',
     retry: rule.retry,
     effect: rule.effect,
     cooldown: rule.cooldown_seconds === undefined ? '' : String(rule.cooldown_seconds),
@@ -140,7 +146,10 @@ export function errorRuleErrors(row: ErrorRuleDraft): Record<string, string> {
   const rule = errorRuleValue(row)
   const errors: Record<string, string> = {}
   if (!rule.status_codes?.length && !rule.keywords?.length) errors.condition = 'condition'
-  if (rule.status_codes?.some((code) => !Number.isSafeInteger(code) || code < 200 || code > 599))
+  if (
+    row.statusInvalid ||
+    rule.status_codes?.some((code) => !Number.isSafeInteger(code) || code < 200 || code > 599)
+  )
     errors.statuses = 'statuses'
   if (
     hasErrorRuleCooldown(row.effect) &&

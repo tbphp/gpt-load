@@ -23,6 +23,7 @@ import {
   AppModelSelect,
   AppSegmentedField,
   AppSelect,
+  AppTag,
   AppTextArea,
   AppTextField,
   AppTooltip,
@@ -358,13 +359,15 @@ defineExpose({
         <AppBadge v-if="!results.get(row.key)?.value" tone="warning" variant="plain">{{
           t('parameterRules.incomplete')
         }}</AppBadge>
-        <span
+        <AppTag
           v-for="(entry, entryIndex) in summaries.get(row.key)?.slice(0, 3)"
           :key="entryIndex"
           class="modern-parameter-chip"
-        >
-          <AppOverflowText :text="entry" />
-        </span>
+          :text="entry"
+          size="xs"
+          tone="neutral"
+          mono
+        />
         <span v-if="(summaries.get(row.key)?.length ?? 0) > 3"
           >+{{ n((summaries.get(row.key)?.length ?? 0) - 3) }}</span
         >
@@ -676,12 +679,7 @@ defineExpose({
   font-size: var(--modern-font-size-small);
 }
 .modern-parameter-chip {
-  min-width: 0;
   max-width: min(100%, 32ch);
-  padding: var(--modern-space-0-5) var(--modern-space-1-5);
-  border-radius: var(--modern-radius-small);
-  background: var(--modern-subtle);
-  font-family: var(--modern-font-mono);
 }
 .modern-parameter-body {
   display: grid;

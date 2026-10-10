@@ -1073,7 +1073,8 @@ onBeforeUnmount(() => {
             >
               <ErrorRulesEditor
                 :model-value="displayedErrorRules"
-                :disabled="mutationPending || !errorRulesOverridden"
+                :disabled="mutationPending"
+                :readonly="!errorRulesOverridden"
                 @update:model-value="updateErrorRules"
               />
             </SettingBlock>
