@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { customErrorRuleLabel } from '@shared/error-rules'
 import { ChevronRight } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
@@ -397,6 +398,12 @@ function toggleAttemptErrorMessage(sequence: number): void {
   if (next.has(sequence)) next.delete(sequence)
   else next.add(sequence)
   expandedAttemptErrorMessages.value = next
+}
+function decisionRuleLabel(ruleID: string): string {
+  const rule = customErrorRuleLabel(ruleID)
+  return rule
+    ? t('errorRules.logRule', { source: t('errorRules.' + rule.source), number: rule.number })
+    : ruleID
 }
 </script>
 
@@ -959,7 +966,7 @@ function toggleAttemptErrorMessage(sequence: number): void {
               <div v-if="attempt.rule_id">
                 <dt>{{ t('monitor.logs.drawer.ruleId') }}</dt>
                 <dd>
-                  <code>{{ attempt.rule_id }}</code>
+                  <code>{{ decisionRuleLabel(attempt.rule_id) }}</code>
                 </dd>
               </div>
               <div>

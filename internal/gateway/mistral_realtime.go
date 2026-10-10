@@ -302,6 +302,7 @@ func (handler *Handler) dialMistralRealtimeSelection(ctx context.Context, record
 		ErrorSummary: value.Message, UpstreamProtocol: protocol.Mistral, ExecutionError: evidence,
 	}
 	decision := judgeUpstreamResult(result, handler.now(), health.DecisionContext{
+		ErrorRules:               selection.Group.ErrorRules,
 		DefaultRateLimitCooldown: subscriptionruntime.DefaultRefreshFailureCooldown,
 		Method:                   http.MethodGet, Operation: execution.OperationMistralRealtimeTranscription,
 	})

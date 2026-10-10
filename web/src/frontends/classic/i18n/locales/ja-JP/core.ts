@@ -1,5 +1,7 @@
+import { errorRuleMessages } from '@shared/error-rule-messages'
 import { jaJP as proxies } from '@shared/proxies/messages'
 export default {
+  errorRules: errorRuleMessages['ja-JP'],
   proxies,
   concurrency: {
     label: '同時実行数の上限',

@@ -1,5 +1,7 @@
+import { errorRuleMessages } from '@shared/error-rule-messages'
 import { zhCN as proxies } from '@shared/proxies/messages'
 export default {
+  errorRules: errorRuleMessages['zh-CN'],
   proxies,
   concurrency: {
     label: '并发上限',

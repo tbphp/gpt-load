@@ -16,11 +16,11 @@ import {
   AppIcon,
   AppIconButton,
   AppOverflowText,
+  AppTag,
   AppTooltip,
 } from '@modern/components/ui'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { modelGroupCount, modelUnitPrice, priceStatus } from './models-display'
-import './model-group-chip.css'
 
 const props = defineProps<{
   model: RequestModel
@@ -124,12 +124,15 @@ function hiddenGroupsLabel(source: ModelSource): string {
           </span>
           <span v-if="admin" class="modern-model-source-groups">
             <template v-for="group in visibleGroups(source)" :key="group.id">
-              <RouterLink
+              <AppTag
+                :as="RouterLink"
                 :to="{ name: 'modern-group-detail', params: { id: group.id } }"
+                :text="group.name || t('logs.deleted')"
+                size="xs"
+                tone="neutral"
                 class="modern-model-group-chip"
                 :class="{ 'is-disabled': !group.enabled }"
-                ><AppOverflowText :text="group.name || t('logs.deleted')"
-              /></RouterLink>
+              />
             </template>
             <AppTooltip v-if="source.groups.length > 1" :label="hiddenGroupsLabel(source)">
               <span tabindex="0" class="modern-model-source-more"
@@ -316,6 +319,9 @@ function hiddenGroupsLabel(source: ModelSource): string {
   font-family: var(--modern-font-mono);
   font-size: var(--modern-font-size-caption);
   line-height: var(--modern-leading-compact);
+}
+.modern-model-group-chip.is-disabled {
+  opacity: var(--modern-opacity-quiet);
 }
 /* 不换行：分组一多就折行会把行高撑乱，超出的交给 +N 提示。 */
 .modern-model-source-groups {

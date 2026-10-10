@@ -22,7 +22,7 @@ import {
   type SettingsDraft,
 } from './settings-draft'
 
-export function useSettingsEditor() {
+export function useSettingsEditor(pendingKeys: () => readonly SettingKey[] = () => []) {
   const { t, n } = useI18n()
   const client = useApiClient()
   const cache = useQueryClient()
@@ -41,7 +41,14 @@ export function useSettingsEditor() {
   const saveError = ref('')
   const controller = new AbortController()
   const changed = computed(() =>
-    baseline.value && draft.value ? changedSettings(baseline.value, draft.value, resets.value) : [],
+    baseline.value && draft.value
+      ? [
+          ...new Set([
+            ...changedSettings(baseline.value, draft.value, resets.value),
+            ...pendingKeys(),
+          ]),
+        ]
+      : [],
   )
   const dirty = computed(() => changed.value.length > 0)
   const effectiveBase = computed(() =>
@@ -63,7 +70,9 @@ export function useSettingsEditor() {
               key,
               range
                 ? t('settingsForm.errors.number', { min: n(range.min), max: n(range.max) })
-                : t('settingsForm.errors.' + code),
+                : code === 'errorRules'
+                  ? t('errorRules.errors.invalid')
+                  : t('settingsForm.errors.' + code),
             ]
           }),
         )

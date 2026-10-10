@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"gpt-load/internal/health"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/httpheader"
@@ -38,6 +39,7 @@ const (
 	SettingRequestLogRetentionDays          = "request_log_retention_days"
 	SettingModelsDevAutoSyncEnabled         = "models_dev_auto_sync_enabled"
 	SettingParameterOverrides               = "parameter_overrides"
+	SettingErrorRules                       = "error_rules"
 )
 
 type CodexLiveMode string
@@ -65,6 +67,7 @@ const (
 )
 
 type RuntimeSettings struct {
+	ErrorRules                       health.ErrorRules
 	GlobalConcurrencyLimit           int64
 	DefaultAccessKeyConcurrencyLimit int64
 	DefaultGroupConcurrencyLimit     int64
@@ -89,6 +92,7 @@ type RuntimeSettings struct {
 }
 
 type ResolvedGroupSettings struct {
+	ErrorRules                health.ErrorRules
 	ConcurrencyLimit          int64
 	Timeouts                  TimeoutConfig
 	HeaderRules               HeaderRules
@@ -145,6 +149,8 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingRequestLogRetentionDays,
 		SettingModelsDevAutoSyncEnabled:
 		return true
+	case SettingErrorRules:
+		return true
 	default:
 		return false
 	}
@@ -191,6 +197,12 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.HeaderRules = rules
+		case SettingErrorRules:
+			rules, err := health.CompileErrorRules(value, "global")
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.ErrorRules = rules
 		case SettingCORS:
 			cors, err := parseCORSConfig(value)
 			if err != nil {
@@ -292,6 +304,7 @@ func ResolveGroupRuntimeSettings(
 	settings config.Settings,
 ) (ResolvedGroupSettings, error) {
 	resolved := ResolvedGroupSettings{
+		ErrorRules:       base.ErrorRules,
 		ConcurrencyLimit: base.DefaultGroupConcurrencyLimit,
 		Timeouts: TimeoutConfig{
 			FirstByte:  base.FirstByteTimeout,
@@ -376,6 +389,12 @@ func ResolveGroupRuntimeSettings(
 				return ResolvedGroupSettings{}, err
 			}
 			resolved.ParameterOverrides = parsed
+		case SettingErrorRules:
+			rules, err := health.CompileErrorRules(value, "group")
+			if err != nil {
+				return ResolvedGroupSettings{}, err
+			}
+			resolved.ErrorRules = rules
 		default:
 			return ResolvedGroupSettings{}, fmt.Errorf("unknown group setting %q", key)
 		}
@@ -385,6 +404,9 @@ func ResolveGroupRuntimeSettings(
 
 func ValidateRuntimeSetting(key string, value any) error {
 	switch key {
+	case SettingErrorRules:
+		_, err := health.CompileErrorRules(value, "global")
+		return err
 	case SettingFirstByteTimeout,
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,

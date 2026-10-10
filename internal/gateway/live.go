@@ -364,6 +364,7 @@ func (handler *Handler) createCodexLive(c *gin.Context, request *dataPlaneReques
 				ResponseStarted: dispatch == execution.DispatchMaybeSent && evidence.StatusCode != 0, UpstreamProtocol: protocol.CodexLive}
 			decisionAt := handler.now()
 			decision := judgeUpstreamResult(result, decisionAt, health.DecisionContext{
+				ErrorRules:               selection.Group.ErrorRules,
 				DefaultRateLimitCooldown: subscriptionruntime.DefaultRefreshFailureCooldown,
 				CredentialRefreshable:    true, Method: http.MethodPost, Operation: execution.OperationLiveCall,
 			})

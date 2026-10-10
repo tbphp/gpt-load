@@ -1,4 +1,5 @@
 import { isValidGroupPriority } from '@shared/group-priority'
+import { cloneErrorRules } from '@shared/error-rules'
 
 import type {
   ChannelParamsDto,
@@ -77,6 +78,7 @@ function cloneParameterOverrides(value: ParameterOverrideRuleDto[]): ParameterOv
 
 function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   const next: GroupRuntimeConfigDto = {}
+  if (value.error_rules !== undefined) next.error_rules = cloneErrorRules(value.error_rules)
   for (const key of groupTimeoutKeys) if (value[key] !== undefined) next[key] = value[key]
   for (const key of groupPolicyCountKeys) if (value[key] !== undefined) next[key] = value[key]
   if (value.header_rules) next.header_rules = cloneHeaders(value.header_rules)

@@ -13,7 +13,7 @@ import {
 
 export type GroupTab = 'credentials' | 'models' | 'settings'
 export type GroupSettingsSection =
-  'general' | 'routing' | 'runtime' | 'parameters' | 'headers' | 'danger'
+  'general' | 'routing' | 'runtime' | 'parameters' | 'errors' | 'headers' | 'danger'
 export type GroupModelDiscoveryFilter = 'unadded' | 'all'
 
 export interface CredentialRouteState {
@@ -44,6 +44,7 @@ const settingsSections = new Set<GroupSettingsSection>([
   'routing',
   'runtime',
   'parameters',
+  'errors',
   'headers',
   'danger',
 ])

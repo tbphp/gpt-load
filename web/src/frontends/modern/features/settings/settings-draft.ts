@@ -1,4 +1,5 @@
 import type { CodexLiveMode } from '@shared/codex-live'
+import { cloneErrorRules, validErrorRules, type ErrorRule } from '@shared/error-rules'
 import type { RedactionRule } from '@modern/api/request-redaction'
 import {
   settingKeys,
@@ -57,6 +58,7 @@ export type SettingsDraft = Record<SettingNumber, string> &
     jev: JevConfig
     request_redaction: RedactionRule[]
     request_audit: AuditConfig
+    error_rules: ErrorRule[]
   }
 let nextHeader = 0
 export function newHeader(): HeaderRow {
@@ -92,6 +94,7 @@ export function createSettingsDraft(data: SettingsData): SettingsDraft {
     jev: cloneDraft(values.jev),
     request_audit: cloneDraft(values.request_audit),
     request_redaction: cloneDraft(values.request_redaction),
+    error_rules: cloneErrorRules(values.error_rules),
     cors: {
       ...values.cors,
       allowed_origins: values.cors.allowed_origins.join('\n'),
@@ -273,6 +276,8 @@ export function settingsErrors(
   for (const key of changed) {
     if (resets.has(key) || base.readOnly.includes(key)) continue
     if (key === 'auto_model' && !validAutoDraft(draft.auto_model)) errors.auto_model = 'autoModel'
+    if (key === 'error_rules' && !validErrorRules(draft.error_rules))
+      errors.error_rules = 'errorRules'
     if (key in settingNumbers) {
       const number = key as SettingNumber
       const rule = settingNumbers[number]

@@ -1,4 +1,5 @@
 import { credentialDisplayText } from '@shared/credential-display'
+import { readErrorRules, type ErrorRule } from '@shared/error-rules'
 import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import type { ApiClient } from '@shared/http/client'
 import { ApiError, InvalidResponseError } from '@shared/http/errors'
@@ -63,8 +64,10 @@ export type RuntimeSettings = Partial<
   codex_live_mode?: CodexLiveMode
   header_rules?: HeaderRules
   parameter_overrides?: ParameterRule[]
+  error_rules?: ErrorRule[]
 }
 export interface GroupSettings extends GroupBasics {
+  defaultErrorRules: ErrorRule[]
   channelID: string
   params: Record<string, string>
   validationModel: string | null
@@ -94,6 +97,7 @@ function stringMap(value: unknown): Record<string, string> {
 function readRuntime(value: unknown): RuntimeSettings {
   const raw = record(value)
   const result: RuntimeSettings = {}
+  if (raw.error_rules !== undefined) result.error_rules = readErrorRules(raw.error_rules)
   for (const key of runtimeNumbers) if (raw[key] !== undefined) result[key] = integer(raw[key])
   for (const key of runtimeSwitches) if (raw[key] !== undefined) result[key] = boolean(raw[key])
   if (raw.codex_live_mode !== undefined)
@@ -122,6 +126,7 @@ function readSettings(value: unknown): GroupSettings {
   const data = record(value)
   const proxy = record(data.proxy)
   const effective = readRuntime(data.effective)
+  effective.error_rules ??= []
   if (
     [...runtimeNumbers, ...runtimeSwitches, 'codex_live_mode', 'header_rules'].some(
       (key) => effective[key as keyof RuntimeSettings] === undefined,
@@ -130,6 +135,7 @@ function readSettings(value: unknown): GroupSettings {
     throw new InvalidResponseError()
   return {
     ...readGroupBasics(data),
+    defaultErrorRules: readErrorRules(data.default_error_rules ?? []),
     channelID: text(data.channel_id),
     params: stringMap(data.params),
     validationModel: data.validation_model === null ? null : text(data.validation_model),

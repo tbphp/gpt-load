@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { customErrorRuleLabel } from '@shared/error-rules'
 import { Activity, ArrowDownToLine, Clock3, Coins, Copy, ShieldCheck } from '@lucide/vue'
 import { timeRangeQuery } from '@modern/app/time-range'
 import type { DateRangePreset } from '@modern/components/ui/date-time'
@@ -184,6 +185,12 @@ useMessageSource(() =>
 function resolveRedactedLog(): Promise<string> {
   if (!log.value) throw new Error('LOG_NOT_AVAILABLE')
   return createRedactedLogExport(log.value)
+}
+function decisionRuleLabel(ruleID: string): string {
+  const rule = customErrorRuleLabel(ruleID)
+  return rule
+    ? t('errorRules.logRule', { source: t('errorRules.' + rule.source), number: rule.number })
+    : ruleID
 }
 </script>
 
@@ -588,7 +595,7 @@ function resolveRedactedLog(): Promise<string> {
                     </div>
                     <div v-if="attempt.rule_id" class="is-wide">
                       <dt>{{ t('logs.matchedRule') }}</dt>
-                      <dd>{{ attempt.rule_id }}</dd>
+                      <dd>{{ decisionRuleLabel(attempt.rule_id) }}</dd>
                     </div>
                     <div v-if="attempt.error_code" class="is-wide">
                       <dt>{{ t('logs.columns.error_code') }}</dt>
