@@ -61,6 +61,12 @@ func SelectUpdate(current string, releases []Release) *Update {
 	}
 }
 
+// IsReleaseVersion reports whether current identifies an official release build.
+func IsReleaseVersion(current string) bool {
+	_, ok := parseVersion(current)
+	return ok && !isDevelopmentVersion(current)
+}
+
 func isDevelopmentVersion(raw string) bool {
 	version, ok := parseVersion(raw)
 	return ok && len(version.prerelease) > 0 && version.prerelease[0].raw == "dev"

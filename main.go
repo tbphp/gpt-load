@@ -7,12 +7,16 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/sirupsen/logrus"
+
+	"gpt-load/internal/platform/version"
 )
 
 func main() {
+	cleanupReplacedExecutable()
 	if len(os.Args) > 1 {
 		os.Exit(dispatchCommand(os.Args[1:], os.Stdout, os.Stderr))
 	}
@@ -32,6 +36,10 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) int {
 	case "help", "-h", "--help":
 		printHelp(stdout)
 		return 0
+	case "version", "--version":
+		return runVersionCommand(args[1:], stdout, stderr)
+	case "update":
+		return runUpdateCommand(args[1:], stdout, stderr)
 	case "migrate-keys":
 		fmt.Fprintln(stderr, "migrate-keys will be available in a later release")
 		return 1
@@ -49,6 +57,8 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Usage:")
 	fmt.Fprintln(output, "  gpt-load                    Start the gateway")
+	fmt.Fprintln(output, "  gpt-load version            Display the version")
+	fmt.Fprintln(output, "  gpt-load update             Update to the latest release")
 	fmt.Fprintln(output, "  gpt-load help               Display this help message")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Windows Service Commands:")
@@ -59,6 +69,15 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Deferred Commands:")
 	fmt.Fprintln(output, "  migrate-keys      Key rotation support will be available in a later release")
+}
+
+func runVersionCommand(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "version does not accept arguments")
+		return 1
+	}
+	fmt.Fprintf(stdout, "GPT-Load %s (%s/%s)\n", version.Version, runtime.GOOS, runtime.GOARCH)
+	return 0
 }
 
 func runServer() error {

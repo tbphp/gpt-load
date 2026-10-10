@@ -5,7 +5,55 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"gpt-load/internal/platform/version"
 )
+
+func TestDispatchCommandPrintsVersion(t *testing.T) {
+	want := "GPT-Load " + version.Version + " (" + runtime.GOOS + "/" + runtime.GOARCH + ")\n"
+	for _, command := range []string{"version", "--version"} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+
+		exitCode := dispatchCommand([]string{command}, &stdout, &stderr)
+
+		if exitCode != 0 || stdout.String() != want || stderr.Len() != 0 {
+			t.Fatalf(
+				"dispatchCommand(%s) = %d, stdout %q, stderr %q; want 0, %q, empty",
+				command,
+				exitCode,
+				stdout.String(),
+				stderr.String(),
+				want,
+			)
+		}
+	}
+}
+
+func TestDispatchCommandRejectsArgumentsForVersionAndUpdate(t *testing.T) {
+	for _, args := range [][]string{{"version", "extra"}, {"update", "--yes"}} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+
+		exitCode := dispatchCommand(args, &stdout, &stderr)
+
+		if exitCode == 0 || !strings.Contains(stderr.String(), "does not accept arguments") {
+			t.Fatalf("dispatchCommand(%v) = %d, stderr %q; want argument error", args, exitCode, stderr.String())
+		}
+	}
+}
+
+func TestPrintHelpDocumentsVersionAndUpdate(t *testing.T) {
+	var output bytes.Buffer
+	printHelp(&output)
+
+	help := output.String()
+	for _, required := range []string{"gpt-load version", "gpt-load update"} {
+		if !strings.Contains(help, required) {
+			t.Fatalf("help does not document %q:\n%s", required, help)
+		}
+	}
+}
 
 func TestPrintHelpMarksKeyMigrationAsDeferred(t *testing.T) {
 	var output bytes.Buffer
