@@ -128,10 +128,12 @@ func TestWebsocketInterruptBypassesActiveTurnAndContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	read("response.incomplete")
-	if err := conn.WriteMessage(websocket.TextMessage, interrupt); err != nil {
-		t.Fatal(err)
+	// 迟到或重复的中断不能留下 error 帧，影响下一轮读取。
+	for range 2 {
+		if err := conn.WriteMessage(websocket.TextMessage, interrupt); err != nil {
+			t.Fatal(err)
+		}
 	}
-	read("error")
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","previous_response_id":"resp_1","input":"answer","store":false}`)); err != nil {
 		t.Fatal(err)
 	}

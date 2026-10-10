@@ -248,9 +248,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 			defer s.mu.Unlock()
 			s.activeResponseID = id
 			interrupted := status == "incomplete" && reason == "interrupted" && s.interruptResponseID == id && id != ""
-			if status == "completed" || status == "incomplete" || status == "failed" || status == "cancelled" {
-				s.activeResponseID = ""
-			}
+			// 保留本轮 ID 到收尾，让 CPA 忽略终态交付期间到达的迟到中断。
 			return interrupted
 		},
 	}
@@ -359,7 +357,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	return result, nil
 }
 
-// Interrupt 复用 CPA 的控制帧接口，只允许中断当前正在生成的响应。
+// Interrupt 复用 CPA 的控制帧接口，只处理本轮响应；已结束响应的迟到中断由 CPA 忽略。
 func (s *CodexWSSession) Interrupt(ctx context.Context, payload []byte) error {
 	if s == nil {
 		return codexWSError("response_not_active")
