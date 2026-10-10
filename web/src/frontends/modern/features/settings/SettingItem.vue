@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { Info, LockKeyhole, RotateCcw, Undo2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
-import { AppBadge, AppIcon, AppIconButton } from '@modern/components/ui'
+import { AppBadge, AppFormActions, AppIcon, AppIconButton } from '@modern/components/ui'
 
 withDefaults(
   defineProps<{
     label: string
     controlId?: string
     hint?: string
-    description?: string
     overridden?: boolean
     changed?: boolean
     resetting?: boolean
@@ -16,27 +15,32 @@ withDefaults(
     disabled?: boolean
     stacked?: boolean
     wrapControl?: boolean
+    addLabel?: string
+    addDisabled?: boolean
   }>(),
-  { controlId: undefined, hint: undefined, description: undefined },
+  { controlId: undefined, hint: undefined, addLabel: undefined },
 )
-defineEmits<{ reset: []; undo: [] }>()
+defineEmits<{ reset: []; undo: []; add: [] }>()
 const { t } = useI18n()
 </script>
 
 <template>
   <div
     class="modern-setting-item"
-    :class="{ 'is-stacked': stacked, 'is-wrap-control': wrapControl }"
+    :class="{
+      'is-stacked': stacked || Boolean(addLabel || $slots.actions),
+      'is-wrap-control': wrapControl,
+    }"
   >
     <div class="modern-setting-heading">
       <div class="modern-setting-label">
         <label :for="controlId">{{ label }}</label>
         <AppIcon
-          v-if="hint && !description"
+          v-if="hint"
           :icon="Info"
           size="xs"
           :label="hint"
-          class="modern-setting-hint"
+          class="modern-setting-hint modern-help-trigger"
         />
         <AppIcon
           v-if="locked"
@@ -80,10 +84,17 @@ const { t } = useI18n()
           @click="resetting ? $emit('undo') : $emit('reset')"
         />
       </div>
-      <p v-if="description" class="modern-setting-description">{{ description }}</p>
+      <AppFormActions
+        v-if="addLabel || $slots.actions"
+        :add-label="addLabel"
+        :add-disabled="addDisabled || disabled || locked || resetting"
+        @add="$emit('add')"
+      >
+        <slot v-if="!resetting" name="actions" />
+      </AppFormActions>
     </div>
     <p v-if="resetting" class="modern-setting-reset">{{ t('settingsForm.restoreAfterSave') }}</p>
-    <div v-else class="modern-setting-control"><slot /></div>
+    <div v-else-if="$slots.default" class="modern-setting-control"><slot /></div>
     <div v-if="$slots.details && !resetting" class="modern-setting-details">
       <slot name="details" />
     </div>
@@ -132,15 +143,11 @@ const { t } = useI18n()
   min-width: 0;
   justify-items: end;
 }
-.modern-setting-description,
 .modern-setting-reset {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
   overflow-wrap: anywhere;
-}
-.modern-setting-description {
-  flex-basis: 100%;
 }
 .modern-setting-reset {
   min-height: var(--modern-control-md);

@@ -129,7 +129,7 @@ async function save(confirmed = false): Promise<void> {
       <div class="modern-model-price-editor-hint">
         <span>{{ t('modelManager.unit') }}</span>
         <AppTooltip :label="t('modelManager.emptySlotsHint')">
-          <span tabindex="0" class="modern-model-price-help"
+          <span tabindex="0" class="modern-model-price-help modern-help-trigger"
             ><AppIcon :icon="Info" size="sm"
           /></span>
         </AppTooltip>
@@ -138,15 +138,13 @@ async function save(confirmed = false): Promise<void> {
         v-for="schedule in draft"
         :key="schedule.mode"
         :title="modeLabel(schedule.mode)"
+        :hint="schedule.mode === 'standard' ? undefined : t('modelManager.noTierMode')"
         compact
       >
         <template #actions>
           <!-- 阶梯价只在标准档提供：Fast 后端直接驳回，Ultrafast 统一不做。 -->
-          <span v-if="schedule.mode !== 'standard'" class="modern-model-price-note">
-            {{ t('modelManager.noTierMode') }}
-          </span>
           <AppButton
-            v-else
+            v-if="schedule.mode === 'standard'"
             variant="text"
             size="xs"
             :icon="Plus"
@@ -256,10 +254,6 @@ async function save(confirmed = false): Promise<void> {
 </template>
 
 <style scoped>
-.modern-model-price-note {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-caption);
-}
 .modern-model-price-editor {
   display: flex;
   flex: 1;

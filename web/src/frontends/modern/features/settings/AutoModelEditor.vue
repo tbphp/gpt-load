@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Plus, Trash2 } from '@lucide/vue'
+import { ChevronDown, ChevronRight, Trash2 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -8,9 +8,11 @@ import { autoModelDraft, type AutoEntry, type AutoModelDraft } from '@modern/api
 import { getGroupWorkspace, groupQueryKey } from '@modern/api/groups'
 import {
   AppButton,
+  AppFormActions,
   AppFormSection,
   AppIconButton,
   AppNotice,
+  AppRulesEmpty,
   AppSearchSelect,
   AppSelect,
   AppTextArea,
@@ -43,6 +45,7 @@ const modelOptions = computed(() =>
     .sort()
     .map((value) => ({ value, label: value })),
 )
+const canAdd = computed(() => !props.disabled && Boolean(props.template))
 function update(change: (draft: AutoModelDraft) => void) {
   if (props.disabled) return
   const draft = JSON.parse(JSON.stringify(props.modelValue)) as AutoModelDraft
@@ -50,7 +53,7 @@ function update(change: (draft: AutoModelDraft) => void) {
   emit('update:modelValue', draft)
 }
 function addEntry() {
-  if (!props.template) return
+  if (!canAdd.value || !props.template) return
   update((draft) => {
     const entry = autoModelDraft({
       ...draft,
@@ -68,6 +71,9 @@ function addEntry() {
   })
 }
 function addPreset(index: number) {
+  const entry = props.modelValue.models[index]
+  if (props.disabled || !entry) return
+  if (!expandedEntries.value.includes(entry.id)) expandedEntries.value.push(entry.id)
   const id = createUUID()
   expandedPresets.value.push(id)
   update((draft) =>
@@ -94,19 +100,15 @@ function validRules(value: string): boolean {
     return false
   }
 }
+defineExpose({ addEntry, canAdd })
 </script>
 
 <template>
   <div class="modern-auto-model">
     <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
     <AppNotice v-if="!decisionModels.length">{{ t('autoModel.decisionModelEmpty') }}</AppNotice>
-    <AppFormSection :title="t('autoModel.entries')" compact>
-      <template #actions
-        ><AppButton :icon="Plus" size="sm" :disabled="disabled || !template" @click="addEntry">{{
-          t('autoModel.addTemplate')
-        }}</AppButton></template
-      >
-      <AppNotice v-if="!modelValue.models.length">{{ t('autoModel.empty') }}</AppNotice>
+    <AppFormSection compact>
+      <AppRulesEmpty v-if="!modelValue.models.length" />
       <div
         v-for="(entry, index) in modelValue.models"
         :key="entry.id"
@@ -122,12 +124,19 @@ function validRules(value: string): boolean {
             @click="expandedEntries = toggleExpanded(expandedEntries, entry.id)"
             >{{ entry.name || t('autoModel.unnamedEntry') }} · {{ entry.presets.length }}</AppButton
           >
-          <AppIconButton
-            :icon="Trash2"
-            :label="t('autoModel.removeEntry')"
-            :disabled="disabled"
-            @click="update((draft) => draft.models.splice(index, 1))"
-          />
+          <AppFormActions
+            :add-label="t('autoModel.addPreset')"
+            :add-disabled="disabled"
+            @add="addPreset(index)"
+          >
+            <AppIconButton
+              :icon="Trash2"
+              :label="t('autoModel.removeEntry')"
+              size="xs"
+              :disabled="disabled"
+              @click="update((draft) => draft.models.splice(index, 1))"
+            />
+          </AppFormActions>
         </div>
         <div
           v-if="expandedEntries.includes(entry.id)"
@@ -138,13 +147,15 @@ function validRules(value: string): boolean {
             <AppTextField
               :model-value="entry.name"
               :label="t('autoModel.entryName')"
-              :description="t('autoModel.nameHint')"
+              size="sm"
+              :hint="t('autoModel.nameHint')"
               :disabled="disabled"
               @update:model-value="update((draft) => (draft.models[index]!.name = $event))"
             />
             <AppSelect
               :model-value="entry.fallback"
               :label="t('autoModel.fallback')"
+              size="sm"
               :options="
                 entry.presets.map((preset) => ({
                   value: preset.id,
@@ -175,6 +186,7 @@ function validRules(value: string): boolean {
               ><AppIconButton
                 :icon="Trash2"
                 :label="t('autoModel.removePreset')"
+                size="xs"
                 :disabled="disabled || entry.presets.length === 1"
                 @click="removePreset(index, presetIndex)"
               />
@@ -188,6 +200,7 @@ function validRules(value: string): boolean {
                 <AppTextField
                   :model-value="preset.name"
                   :label="t('autoModel.presetName')"
+                  size="sm"
                   :disabled="disabled"
                   @update:model-value="
                     update((draft) => (draft.models[index]!.presets[presetIndex]!.name = $event))
@@ -196,9 +209,9 @@ function validRules(value: string): boolean {
                 <AppSearchSelect
                   :model-value="preset.model"
                   :label="t('autoModel.targetModel')"
+                  size="sm"
                   :options="modelOptions"
                   :selected-option="{ value: preset.model, label: preset.model }"
-                  :description="t('autoModel.targetHint')"
                   :disabled="disabled"
                   @update:model-value="
                     update((draft) => (draft.models[index]!.presets[presetIndex]!.model = $event))
@@ -208,7 +221,8 @@ function validRules(value: string): boolean {
               <AppTextArea
                 :model-value="preset.description"
                 :label="t('autoModel.criteria')"
-                :description="t('autoModel.englishHint')"
+                size="sm"
+                :hint="t('autoModel.englishHint')"
                 :rows="2"
                 :disabled="disabled"
                 @update:model-value="
@@ -231,7 +245,8 @@ function validRules(value: string): boolean {
                 "
                 :model-value="preset.parameter_overrides"
                 :label="t('autoModel.overrides')"
-                :description="t('autoModel.overrideHint')"
+                size="sm"
+                :hint="t('autoModel.overrideHint')"
                 :error="
                   validRules(preset.parameter_overrides) ? undefined : t('autoModel.invalidJSON')
                 "
@@ -247,9 +262,6 @@ function validRules(value: string): boolean {
               />
             </div>
           </div>
-          <AppButton size="sm" :icon="Plus" :disabled="disabled" @click="addPreset(index)">{{
-            t('autoModel.addPreset')
-          }}</AppButton>
         </div>
       </div>
     </AppFormSection>

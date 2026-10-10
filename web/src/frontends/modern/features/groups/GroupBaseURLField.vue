@@ -92,7 +92,12 @@ const warning = computed(() => {
         :text="t('groupCreate.defaultURLs', { urls: defaults.join(', ') })"
       />
       <AppTooltip :label="description">
-        <span class="modern-base-url-help" tabindex="0" role="img" :aria-label="description">
+        <span
+          class="modern-base-url-help modern-help-trigger"
+          tabindex="0"
+          role="img"
+          :aria-label="description"
+        >
           <AppIcon :icon="CircleHelp" size="sm" />
         </span>
       </AppTooltip>
@@ -105,7 +110,6 @@ const warning = computed(() => {
   display: inline-flex;
   flex-shrink: 0;
   border-radius: var(--modern-radius-control);
-  cursor: help;
 }
 .modern-base-url-help:focus-visible {
   outline: var(--modern-focus-width) solid var(--modern-accent);

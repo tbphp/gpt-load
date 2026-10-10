@@ -126,7 +126,7 @@ function escape(event: Event): void {
     >
       <AppDialogHeader
         :title="t('modelManager.clientCatalog.title')"
-        :description="t('modelManager.clientCatalog.help')"
+        :hint="t('modelManager.clientCatalog.help')"
         :close-label="t('ui.close')"
         :close-disabled="saving || sort.active.value"
         @close="close"

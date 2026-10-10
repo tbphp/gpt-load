@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { CircleHelp, Plus, Trash2 } from '@lucide/vue'
+import { CircleHelp, Trash2 } from '@lucide/vue'
 import { computed, onScopeDispose, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { redactionPresets, type RedactionRule } from '@modern/api/request-redaction'
-import { AppButton, AppIconButton, AppSelect, AppTextField } from '@modern/components/ui'
+import {
+  AppButton,
+  AppIconButton,
+  AppRulesEmpty,
+  AppSelect,
+  AppTextField,
+} from '@modern/components/ui'
 import { useRedactionValidation } from './use-redaction-validation'
 
 const props = defineProps<{ modelValue: RedactionRule[]; disabled?: boolean }>()
@@ -17,9 +23,11 @@ const modeOptions = computed(() => [
   { value: 'replace', label: t('requestRedaction.modes.replace') },
 ])
 const { issues, failed, invalid } = useRedactionValidation(() => props.modelValue)
+const canAdd = computed(() => !props.disabled && props.modelValue.length < 64)
 watch(invalid, (value) => emit('invalid', value), { immediate: true })
 onScopeDispose(() => emit('invalid', false))
 function add(rule: RedactionRule = { pattern: '', replacement: '[REDACTED]' }) {
+  if (!canAdd.value) return
   emit('update:modelValue', [
     ...props.modelValue,
     {
@@ -42,6 +50,7 @@ function error(index: number): string | undefined {
   if (issue.error === 'invalid_length') return t('requestRedaction.length')
   return t('requestRedaction.invalid', { reason: issue.error })
 }
+defineExpose({ add, canAdd })
 </script>
 
 <template>
@@ -59,22 +68,46 @@ function error(index: number): string | undefined {
         {{ t('requestRedaction.presets.' + preset.key) }}
       </AppButton>
     </div>
-    <p v-if="!modelValue.length" class="modern-redaction-note">{{ t('requestRedaction.empty') }}</p>
+    <AppRulesEmpty v-if="!modelValue.length" />
     <div v-if="modelValue.length" class="modern-redaction-heading">
-      <span>{{ t('requestRedaction.pattern') }}</span>
+      <span class="modern-redaction-mode-label">
+        {{ t('requestRedaction.pattern') }}
+        <AppIconButton
+          :icon="CircleHelp"
+          :label="t('requestRedaction.syntax')"
+          size="xxs"
+          class="modern-help-trigger"
+        />
+      </span>
       <span class="modern-redaction-mode-label">
         {{ t('requestRedaction.mode') }}
-        <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xxs" />
+        <AppIconButton
+          :icon="CircleHelp"
+          :label="t('requestRedaction.modeHelp')"
+          size="xxs"
+          class="modern-help-trigger"
+        />
       </span>
       <span>{{ t('requestRedaction.replacement') }}</span>
     </div>
     <div v-for="(rule, index) in modelValue" :key="index" class="modern-redaction-row">
       <div class="modern-redaction-field">
-        <span class="modern-redaction-mobile-label">{{ t('requestRedaction.pattern') }}</span>
+        <span class="modern-redaction-mobile-label">
+          <span class="modern-redaction-mode-label">
+            {{ t('requestRedaction.pattern') }}
+            <AppIconButton
+              :icon="CircleHelp"
+              :label="t('requestRedaction.syntax')"
+              size="xxs"
+              class="modern-help-trigger"
+            />
+          </span>
+        </span>
         <AppTextField
           :model-value="rule.pattern"
           :label="t('requestRedaction.pattern')"
           label-hidden
+          size="sm"
           :error="error(index)"
           :disabled="disabled"
           :spellcheck="false"
@@ -93,7 +126,12 @@ function error(index: number): string | undefined {
         <span class="modern-redaction-mobile-label">
           <span class="modern-redaction-mode-label">
             {{ t('requestRedaction.mode') }}
-            <AppIconButton :icon="CircleHelp" :label="t('requestRedaction.modeHelp')" size="xxs" />
+            <AppIconButton
+              :icon="CircleHelp"
+              :label="t('requestRedaction.modeHelp')"
+              size="xxs"
+              class="modern-help-trigger"
+            />
           </span>
         </span>
         <AppSelect
@@ -117,6 +155,7 @@ function error(index: number): string | undefined {
           :model-value="rule.replacement"
           :label="t('requestRedaction.replacement')"
           label-hidden
+          size="sm"
           :disabled="disabled"
           :spellcheck="false"
           autocomplete="off"
@@ -137,16 +176,6 @@ function error(index: number): string | undefined {
         "
       />
     </div>
-    <div>
-      <AppButton
-        :icon="Plus"
-        size="sm"
-        variant="ghost"
-        :disabled="disabled || modelValue.length >= 64"
-        @click="add()"
-        >{{ t('requestRedaction.add') }}</AppButton
-      >
-    </div>
     <p v-if="failed" class="modern-redaction-error" role="alert">
       {{ t('requestRedaction.failed') }}
     </p>
@@ -163,7 +192,6 @@ function error(index: number): string | undefined {
         )
       }}
     </p>
-    <p class="modern-redaction-note">{{ t('requestRedaction.syntax') }}</p>
   </div>
 </template>
 
@@ -214,16 +242,12 @@ function error(index: number): string | undefined {
   align-self: start;
   margin-top: var(--modern-space-0-5);
 }
-.modern-redaction-note,
 .modern-redaction-warning,
 .modern-redaction-error {
   margin: 0;
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
   overflow-wrap: anywhere;
-}
-.modern-redaction-note {
-  color: var(--modern-muted);
 }
 .modern-redaction-warning {
   color: var(--modern-warning);

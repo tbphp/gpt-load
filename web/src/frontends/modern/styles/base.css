@@ -73,6 +73,9 @@ p {
 svg {
   flex-shrink: 0;
 }
+.modern-help-trigger {
+  cursor: help;
+}
 .modern-sr-only {
   position: absolute;
   top: 0;

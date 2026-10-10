@@ -8,11 +8,18 @@ defineProps<{
   selected?: boolean
   selectedLabel?: string
   disabled?: boolean
+  compact?: boolean
 }>()
 </script>
 
 <template>
-  <button class="modern-choice-card" type="button" :aria-pressed="selected" :disabled="disabled">
+  <button
+    class="modern-choice-card"
+    :class="{ 'is-compact': compact }"
+    type="button"
+    :aria-pressed="selected"
+    :disabled="disabled"
+  >
     <img :src="image" alt="" width="320" height="180" />
     <span class="modern-choice-card-label">
       <strong>{{ label }}</strong>
@@ -70,5 +77,20 @@ defineProps<{
   gap: var(--modern-space-1);
   color: var(--modern-accent);
   font-size: var(--modern-font-size-caption);
+}
+.modern-choice-card.is-compact {
+  flex-direction: row;
+  align-items: center;
+}
+.modern-choice-card.is-compact img {
+  flex: none;
+  width: 96px;
+}
+.modern-choice-card.is-compact .modern-choice-card-label {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--modern-space-1) var(--modern-space-2);
+  padding: 0;
 }
 </style>

@@ -56,6 +56,7 @@ function selectGroup(value: string) {
       :model-value="String(modelValue.group_id)"
       :options="groups"
       :label="t('jev.group')"
+      size="sm"
       :disabled="disabled"
       @update:model-value="selectGroup"
     />
@@ -64,6 +65,7 @@ function selectGroup(value: string) {
       :options="models"
       :selected-option="{ value: modelValue.model, label: modelValue.model }"
       :label="t('jev.model')"
+      size="sm"
       :disabled="disabled"
       @update:model-value="update({ model: $event })"
     />
@@ -71,6 +73,7 @@ function selectGroup(value: string) {
       :model-value="String(modelValue.timeout_seconds)"
       inputmode="numeric"
       :label="t('jev.timeout')"
+      size="sm"
       :disabled="disabled"
       @update:model-value="update({ timeout_seconds: Number($event) })"
     />

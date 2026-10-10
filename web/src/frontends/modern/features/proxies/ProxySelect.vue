@@ -4,7 +4,13 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@shared/http/client-context'
 import { listProxies, proxyOptionLabel, type ProxyItem } from '@shared/proxies/api'
-import { AppButton, AppIcon, AppIconButton, AppSearchSelect } from '@modern/components/ui'
+import {
+  AppButton,
+  AppIcon,
+  AppIconButton,
+  AppSearchSelect,
+  type ControlSize,
+} from '@modern/components/ui'
 import ProxyEditor from './ProxyEditor.vue'
 
 const props = defineProps<{
@@ -14,6 +20,8 @@ const props = defineProps<{
   savedAddress?: string
   referenceState?: string
   error?: string
+  labelHidden?: boolean
+  size?: ControlSize
 }>()
 const model = defineModel<string>({ required: true })
 const { t } = useI18n()
@@ -68,6 +76,8 @@ function saved(proxy: ProxyItem) {
       ref="select"
       v-model="selected"
       :label="t('proxies.select')"
+      :label-hidden="labelHidden"
+      :size="size"
       :placeholder="t('proxies.selectHelp')"
       :load-options="loadOptions"
       :selected-option="selectedOption"
@@ -77,10 +87,11 @@ function saved(proxy: ProxyItem) {
     <AppIconButton
       :icon="Plus"
       :label="t('proxies.new')"
+      :size="size"
       :disabled="disabled"
       @click="adding = true"
     />
-    <AppButton as-child variant="ghost"
+    <AppButton as-child variant="ghost" :size="size"
       ><a href="/proxies" target="_blank" rel="noopener"
         >{{ t('proxies.manage') }}<AppIcon :icon="ExternalLink" size="sm" /></a
     ></AppButton>

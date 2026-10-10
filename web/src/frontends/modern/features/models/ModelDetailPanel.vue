@@ -312,7 +312,7 @@ async function reset(): Promise<void> {
             <template v-else>
               <AppFormSection
                 :title="t(admin ? 'modelManager.pricing' : 'modelManager.basePrices')"
-                :description="admin ? undefined : t('modelManager.readOnlyPriceHelp')"
+                :hint="admin ? undefined : t('modelManager.readOnlyPriceHelp')"
                 compact
               >
                 <template v-if="admin" #actions>

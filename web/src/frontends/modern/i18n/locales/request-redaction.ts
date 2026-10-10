@@ -1,5 +1,6 @@
 export const zhCN = {
   title: '请求脱敏',
+  rules: '脱敏规则',
   help: '按规则替换或加密发送给上游和 JEV 的消息文本；删除规则后仍可还原历史密文。',
   quickAdd: '快捷添加',
   pattern: '规则内容',
@@ -25,6 +26,7 @@ export const zhCN = {
 }
 export const enUS = {
   title: 'Request redaction',
+  rules: 'Redaction rules',
   help: 'Replace or encrypt matching message text sent upstream and to JEV. Existing encrypted text remains restorable after rules are removed.',
   quickAdd: 'Quick add',
   pattern: 'Pattern',
@@ -56,6 +58,7 @@ export const enUS = {
 }
 export const jaJP = {
   title: 'リクエストのマスキング',
+  rules: 'マスキングルール',
   help: '上流と JEV に送信するメッセージの一致箇所を置換または暗号化します。ルール削除後も既存の暗号文は復元できます。',
   quickAdd: 'クイック追加',
   pattern: '正規表現',

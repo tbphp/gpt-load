@@ -451,7 +451,7 @@ function decisionRuleLabel(ruleID: string): string {
               receipt || log.auto_decision || log.request_audit?.calls.some((call) => call.called)
             "
             :title="t('logs.pricingInfo')"
-            :description="t('logs.frozenPricing')"
+            :hint="t('logs.frozenPricing')"
             compact
             ><LogPricingReceipt
               :receipt="receipt"

@@ -27,6 +27,7 @@ defineExpose({ focus: () => select.value?.focus() })
     v-model="model"
     :label="label"
     :label-hidden="labelHidden"
+    :hint="hint"
     :description="description"
     :described-by="describedBy"
     :invalid="invalid"

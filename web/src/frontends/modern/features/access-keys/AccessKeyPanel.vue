@@ -551,7 +551,14 @@ onScopeDispose(() => {
           </AppFormSection>
           <AppFormSection
             :title="t('accessKeys.scope')"
-            :description="t('accessKeys.scopeHelp')"
+            :hint="
+              [
+                t('accessKeys.scopeHelp'),
+                groups.data.value?.autoModels?.length ? t('autoModel.permissionsHint') : '',
+              ]
+                .filter(Boolean)
+                .join('\n')
+            "
             compact
           >
             <div class="modern-access-setting">
@@ -639,9 +646,6 @@ onScopeDispose(() => {
               :error="fieldError('models')"
             />
             <p v-if="modelMismatch" class="modern-access-note">{{ t('accessKeys.mismatch') }}</p>
-            <p v-if="groups.data.value?.autoModels?.length" class="modern-access-note">
-              {{ t('autoModel.permissionsHint') }}
-            </p>
           </AppFormSection>
           <AccessKeyQuotaEditor
             v-model="draft.rules"
@@ -655,7 +659,7 @@ onScopeDispose(() => {
             <AppTextField
               v-model="draft.concurrency"
               :label="t('concurrency.label')"
-              :description="t('concurrency.overrideHelp')"
+              :hint="t('concurrency.overrideHelp')"
               :placeholder="t('concurrency.inherit')"
               inputmode="numeric"
               size="sm"
@@ -666,7 +670,7 @@ onScopeDispose(() => {
               <AppTextField
                 v-model="draft.rpm"
                 :label="t('accessKeys.rpm')"
-                :description="t('accessKeys.rpmHelp')"
+                :hint="t('accessKeys.rpmHelp')"
                 inputmode="numeric"
                 size="sm"
                 :disabled="pending"
@@ -698,7 +702,7 @@ onScopeDispose(() => {
               v-if="draft.source !== 'all'"
               v-model="draft.cidrs"
               :label="t('accessKeys.cidrs')"
-              :description="t('accessKeys.cidrHelp')"
+              :hint="t('accessKeys.cidrHelp')"
               :rows="3"
               :disabled="pending"
               :error="fieldError('cidrs')"

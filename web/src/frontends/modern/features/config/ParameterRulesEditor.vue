@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Info,
   Plus,
   Trash2,
 } from '@lucide/vue'
@@ -18,15 +17,16 @@ import {
   AppProtocolTag,
   AppBadge,
   AppButton,
+  AppFormActions,
   AppIconButton,
   AppOverflowText,
+  AppRulesEmpty,
   AppModelSelect,
   AppSegmentedField,
   AppSelect,
   AppTag,
   AppTextArea,
   AppTextField,
-  AppTooltip,
 } from '@modern/components/ui'
 import {
   blankParameter,
@@ -59,6 +59,7 @@ const instanceId = useId()
 let nextKey = 0
 const key = () => nextKey++
 const rows = ref(props.modelValue.map((rule) => parameterRuleDraft(rule, key)))
+const canAdd = computed(() => !props.disabled && rows.value.length < 100)
 const elements = new Map<number, HTMLElement>()
 const announcement = ref('')
 const results = computed(
@@ -167,14 +168,19 @@ async function focusRule(row: ParameterRuleDraft): Promise<void> {
   await nextTick()
   const element = elements.get(row.key)
   element?.scrollIntoView({ block: 'nearest' })
-  element
-    ?.querySelector<HTMLElement>(
-      '[aria-invalid="true"], [data-parameter-path], [data-parameter-json], [data-add-parameter]',
-    )
-    ?.focus({ preventScroll: true })
+  const field =
+    element?.querySelector<HTMLElement>(
+      '[aria-invalid="true"], [data-parameter-path], [data-parameter-json]',
+    ) ?? element?.querySelector<HTMLElement>('[data-add-parameter]')
+  field?.focus({ preventScroll: true })
 }
 function newAction(operation: 'set' | 'remove' = 'set'): ParameterActionDraft {
   return { key: key(), operation, path: '', type: 'text', typePinned: false, text: '' }
+}
+function addParameter(row: ParameterRuleDraft): void {
+  if (props.disabled) return
+  row.open = true
+  row.actions.push(newAction(row.json ? 'remove' : 'set'))
 }
 function addRule(): void {
   if (props.disabled || rows.value.length >= 100) return
@@ -277,6 +283,8 @@ function modelDescription(row: ParameterRuleDraft): string {
   return t('parameterRules.matches', { count: n(count) })
 }
 defineExpose({
+  addRule,
+  canAdd,
   focusFirstInvalid: async () => {
     const row = rows.value.find((item) => !results.value.get(item.key)?.value)
     if (row) await focusRule(row)
@@ -286,20 +294,8 @@ defineExpose({
 
 <template>
   <div class="modern-parameter-editor">
-    <div class="modern-parameter-toolbar">
-      <p>{{ t('parameterRules.order') }}</p>
-      <AppButton
-        :icon="Plus"
-        variant="outline"
-        size="xs"
-        :disabled="disabled || rows.length >= 100"
-        @click="addRule"
-      >
-        {{ t('parameterRules.addRule') }}
-      </AppButton>
-    </div>
     <p class="modern-sr-only" role="status">{{ announcement }}</p>
-    <div v-if="!rows.length" class="modern-parameter-empty">{{ t('parameterRules.empty') }}</div>
+    <AppRulesEmpty v-if="!rows.length">{{ t('parameterRules.empty') }}</AppRulesEmpty>
     <article
       v-for="(row, index) in rows"
       :key="row.key"
@@ -322,7 +318,15 @@ defineExpose({
             :text="`${row.protocol ? protocolLabel(row.protocol, t) : t('parameterRules.allProtocols')} · ${row.model.trim() || t('parameterRules.allModels')}`"
           />
         </AppButton>
-        <div class="modern-parameter-tools">
+        <AppFormActions class="modern-parameter-tools">
+          <AppIconButton
+            :icon="Plus"
+            :label="t(row.json ? 'parameterRules.addRemove' : 'parameterRules.addParameter')"
+            size="xs"
+            :disabled="disabled"
+            data-add-parameter
+            @click="addParameter(row)"
+          />
           <div class="modern-parameter-move">
             <AppIconButton
               :icon="ArrowUp"
@@ -353,7 +357,7 @@ defineExpose({
             :disabled="disabled"
             @click="rows.splice(index, 1)"
           />
-        </div>
+        </AppFormActions>
       </header>
       <div v-if="!row.open" class="modern-parameter-summary">
         <AppBadge v-if="!results.get(row.key)?.value" tone="warning" variant="plain">{{
@@ -401,7 +405,7 @@ defineExpose({
             :models="modelNames"
             size="xs"
             :disabled="disabled"
-            :description="modelDescription(row)"
+            :hint="t('parameterRules.modelHelp') + '\n' + modelDescription(row)"
             :error="
               results.get(row.key)?.modelError ? t('parameterRules.errors.modelPattern') : undefined
             "
@@ -568,31 +572,8 @@ defineExpose({
         <p v-if="results.get(row.key)?.crossing" class="modern-parameter-note">
           {{ t('parameterRules.crossing') }}
         </p>
-        <AppButton
-          :icon="Plus"
-          variant="ghost"
-          size="xs"
-          :disabled="disabled"
-          data-add-parameter
-          @click="row.actions.push(newAction(row.json ? 'remove' : 'set'))"
-          >{{ t(row.json ? 'parameterRules.addRemove' : 'parameterRules.addParameter') }}</AppButton
-        >
       </div>
     </article>
-    <AppTooltip
-      v-if="rows.length"
-      :label="
-        [
-          t('parameterRules.modelHelp'),
-          t('parameterRules.typeHelp'),
-          t('parameterRules.pathHelp'),
-          t('parameterRules.mergeHelp'),
-          t('parameterRules.jsonHelp'),
-        ].join('\n')
-      "
-    >
-      <AppButton :icon="Info" variant="text" size="xs">{{ t('parameterRules.help') }}</AppButton>
-    </AppTooltip>
   </div>
 </template>
 
@@ -606,31 +587,17 @@ defineExpose({
   gap: var(--modern-space-2);
   min-width: 0;
 }
-.modern-parameter-toolbar,
 .modern-parameter-heading,
-.modern-parameter-tools,
 .modern-parameter-move,
 .modern-parameter-edit-tools {
   display: flex;
   align-items: center;
   gap: var(--modern-space-2);
 }
-.modern-parameter-toolbar {
-  flex-wrap: wrap;
-  justify-content: space-between;
-}
-.modern-parameter-toolbar p,
-.modern-parameter-note,
-.modern-parameter-empty,
-.modern-parameter-help {
+.modern-parameter-note {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   line-height: var(--modern-leading-body);
-}
-.modern-parameter-empty {
-  padding: var(--modern-space-4);
-  background: var(--modern-subtle);
-  border-radius: var(--modern-radius-control);
 }
 .modern-parameter-rule {
   min-width: 0;

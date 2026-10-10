@@ -2,6 +2,9 @@
 import { layoutAttrs } from './field-attrs'
 import { computed, useId, useSlots } from 'vue'
 import type { FieldProps } from './types'
+import { Info } from '@lucide/vue'
+import AppIcon from './AppIcon.vue'
+import AppTooltip from './AppTooltip.vue'
 
 defineOptions({ inheritAttrs: false })
 const props = defineProps<FieldProps>()
@@ -9,6 +12,7 @@ const slots = useSlots()
 const fallbackId = useId()
 const fieldId = computed(() => props.id ?? fallbackId)
 const labelExtraId = computed(() => `${fieldId.value}-label-extra`)
+const hintId = computed(() => `${fieldId.value}-hint`)
 const descriptionId = computed(() => `${fieldId.value}-description`)
 const errorId = computed(() => `${fieldId.value}-error`)
 const describedBy = computed(
@@ -16,6 +20,7 @@ const describedBy = computed(
     [
       props.describedBy,
       slots['label-extra'] && labelExtraId.value,
+      props.hint && hintId.value,
       (props.description || props.descriptionWarning) && descriptionId.value,
       props.error && errorId.value,
     ]
@@ -34,11 +39,23 @@ const describedBy = computed(
       'modern-field--subgrid': inline === 'subgrid',
     }"
   >
-    <div v-if="$slots['label-extra']" class="modern-field-heading">
+    <div v-if="$slots['label-extra'] || (hint && !labelHidden)" class="modern-field-heading">
       <label :id="`${fieldId}-label`" :for="fieldId" :class="{ 'modern-sr-only': labelHidden }">{{
         label
       }}</label>
-      <div :id="labelExtraId" class="modern-field-label-extra"><slot name="label-extra" /></div>
+      <AppTooltip v-if="hint && !labelHidden" :label="hint">
+        <span
+          class="modern-field-hint modern-help-trigger"
+          tabindex="0"
+          role="img"
+          :aria-label="hint"
+        >
+          <AppIcon :icon="Info" size="xs" />
+        </span>
+      </AppTooltip>
+      <div v-if="$slots['label-extra']" :id="labelExtraId" class="modern-field-label-extra">
+        <slot name="label-extra" />
+      </div>
     </div>
     <label
       v-else
@@ -47,6 +64,7 @@ const describedBy = computed(
       :class="{ 'modern-sr-only': labelHidden }"
       >{{ label }}</label
     >
+    <span v-if="hint" :id="hintId" class="modern-sr-only">{{ hint }}</span>
     <slot v-bind="{ id: fieldId, describedBy, invalid: Boolean(error || invalid) }" />
     <p
       v-if="description || descriptionWarning"
@@ -92,6 +110,9 @@ const describedBy = computed(
 .modern-field--inline .modern-field-heading > label {
   flex: 1;
 }
+.modern-field--inline .modern-field-hint {
+  margin-inline-start: var(--modern-space-1-5);
+}
 .modern-field--inline .modern-field-label-extra {
   flex: none;
   min-width: var(--modern-control-xxs);
@@ -109,11 +130,17 @@ const describedBy = computed(
   font-weight: var(--modern-weight-medium);
   line-height: var(--modern-leading-compact);
 }
+.modern-field-hint {
+  display: inline-flex;
+  flex: none;
+  color: var(--modern-muted);
+  border-radius: var(--modern-radius-control);
+}
 .modern-field-heading {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: var(--modern-space-3);
+  gap: var(--modern-space-1-5);
 }
 .modern-field-heading > label {
   flex-shrink: 0;

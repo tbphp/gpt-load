@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { X } from '@lucide/vue'
+import { Info, X } from '@lucide/vue'
 import AppIconButton from './AppIconButton.vue'
 import AppOverflowText from './AppOverflowText.vue'
 
 defineProps<{
   title: string
+  hint?: string
   description?: string
   closeLabel: string
   closeDisabled?: boolean
@@ -15,7 +16,16 @@ defineEmits<{ close: [] }>()
 <template>
   <header class="modern-dialog-header">
     <div>
-      <h2>{{ title }}</h2>
+      <div class="modern-dialog-title">
+        <h2>{{ title }}</h2>
+        <AppIconButton
+          v-if="hint"
+          :icon="Info"
+          :label="hint"
+          size="xxs"
+          class="modern-help-trigger"
+        />
+      </div>
       <p v-if="description"><AppOverflowText :text="description" /></p>
     </div>
     <AppIconButton
@@ -45,6 +55,11 @@ defineEmits<{ close: [] }>()
   color: var(--modern-text);
   font-size: var(--modern-font-size-section);
   font-weight: var(--modern-weight-semibold);
+}
+.modern-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-1-5);
 }
 .modern-dialog-header p {
   margin-top: var(--modern-space-1);

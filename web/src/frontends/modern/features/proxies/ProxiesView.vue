@@ -733,7 +733,7 @@ onScopeDispose(() => {
           <AppTextArea
             v-model="importText"
             :label="t('proxies.address')"
-            :description="t('proxies.importHelp')"
+            :hint="t('proxies.importHelp')"
             :disabled="pending"
             autocomplete="off"
             spellcheck="false"

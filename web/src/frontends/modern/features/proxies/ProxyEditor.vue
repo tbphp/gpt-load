@@ -109,7 +109,7 @@ async function save() {
               v-model="url"
               :label="t('proxies.address')"
               placeholder="http://127.0.0.1:8080"
-              :description="t('proxies.addressHelp')"
+              :hint="t('proxies.addressHelp')"
               :disabled="pending"
               type="text"
               required

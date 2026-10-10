@@ -115,7 +115,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
       v-else
       v-model="credentials"
       :label="t('groupCreate.credentials')"
-      :description="t('groupDetail.credentialsHelp')"
+      :hint="t('groupDetail.credentialsHelp')"
       :rows="12"
       :disabled="locked"
       autocomplete="off"
