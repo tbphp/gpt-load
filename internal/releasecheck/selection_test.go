@@ -67,6 +67,22 @@ func TestSelectUpdateTestCurrentAcceptsAnyNewerReleaseFromSameMajor(t *testing.T
 	}
 }
 
+func TestIsReleaseVersionRejectsDevelopmentAndInvalidVersions(t *testing.T) {
+	for current, want := range map[string]bool{
+		"v2.0.0":       true,
+		"2.0.0":        true,
+		"v2.0.0-rc.45": true,
+		"2.0.0-dev":    false,
+		"v2.0.0-dev.3": false,
+		"":             false,
+		"latest":       false,
+	} {
+		if got := IsReleaseVersion(current); got != want {
+			t.Fatalf("IsReleaseVersion(%q) = %t, want %t", current, got, want)
+		}
+	}
+}
+
 func TestSelectUpdateSkipsDevelopmentVersions(t *testing.T) {
 	releases := []Release{
 		testRelease("v2.0.0-rc.1", "2026-08-18T00:00:00Z"),
