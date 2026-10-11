@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, KeyRound, LockKeyhole } from '@lucide/vue'
+import { useQuery } from '@tanstack/vue-query'
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -35,9 +36,21 @@ const router = useRouter()
 const { locale, t } = useI18n()
 
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
-// 常驻提示，不提供关闭入口；会话重新验证后随管理员设置更新。
+// 常驻提示，不提供关闭入口。
 const requestBodyRecording = computed(() =>
   isAccessKey.value ? session.state.requestBodyRecording : null,
+)
+// 管理员可能在登录后切换记录开关：标签页重新可见和切换页面时重读会话。
+const recordingRefresh = useQuery({
+  queryKey: ['auth', 'request-body-recording'],
+  queryFn: ({ signal }) => session.refreshRequestBodyRecording(signal),
+  enabled: isAccessKey,
+})
+watch(
+  () => route.path,
+  () => {
+    if (isAccessKey.value) void recordingRefresh.refetch()
+  },
 )
 const navigation = computed(() => {
   const shared = [

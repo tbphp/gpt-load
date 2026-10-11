@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,6 +185,28 @@ func TestRequestLogDetailReturnsRecordedRequestBody(t *testing.T) {
 		}
 		if got := string(envelope.Data["request_body"]); got != test.want {
 			t.Fatalf("%s request_body = %s, want %s", test.name, got, test.want)
+		}
+	}
+}
+
+func TestRequestLogBodyFormattingStaysWithinBudget(t *testing.T) {
+	// 深层嵌套的小请求缩进后按层数平方膨胀，超过预算时应返回存储原文。
+	nested := strings.Repeat("[", 2000) + strings.Repeat("]", 2000)
+	ordinary := `{"model":"gpt-4o","messages":[]}`
+	for name, test := range map[string]struct{ stored, want string }{
+		"deeply nested": {stored: nested, want: nested},
+		"ordinary":      {stored: ordinary, want: "{\n  \"model\": \"gpt-4o\",\n  \"messages\": []\n}"},
+	} {
+		stored := test.stored
+		response := mapRequestLogBody(&requestlog.RequestBody{
+			State: requestlog.RequestBodyOriginal, OriginalBytes: int64(len(stored)), Body: &stored,
+		})
+		got := ""
+		if response != nil && response.Body != nil {
+			got = *response.Body
+		}
+		if got != test.want {
+			t.Fatalf("%s formatted body = %d bytes, want %d", name, len(got), len(test.want))
 		}
 	}
 }

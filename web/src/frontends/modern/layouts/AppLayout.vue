@@ -11,7 +11,7 @@ import {
   X,
 } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
-import { useIsFetching } from '@tanstack/vue-query'
+import { useIsFetching, useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -47,10 +47,25 @@ const createGroupLocation = computed(() => ({
   query: { ...(route.name === 'modern-groups' ? route.query : {}), panel: 'create' },
 }))
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
-// 常驻提示，不提供关闭入口；会话重新验证后随管理员设置更新。
+const accessKeySession = computed(() => session.state.principalType === 'access_key')
+// 常驻提示，不提供关闭入口。
 const requestBodyRecording = computed(() =>
-  session.state.principalType === 'access_key' ? session.state.requestBodyRecording : null,
+  accessKeySession.value ? session.state.requestBodyRecording : null,
 )
+// 管理员可能在登录后切换记录开关：标签页重新可见、切换页面和手动刷新时都重读会话。
+const recordingRefresh = useQuery({
+  queryKey: ['modern', 'auth', 'request-body-recording'],
+  queryFn: ({ signal }) => session.refreshRequestBodyRecording(signal),
+  enabled: accessKeySession,
+})
+function refreshRecordingNotice(): void {
+  if (accessKeySession.value) void recordingRefresh.refetch()
+}
+watch(() => route.path, refreshRecordingNotice)
+function refreshPage(): void {
+  refreshRecordingNotice()
+  void pageRefresh.run()
+}
 provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
@@ -202,7 +217,7 @@ useMessageSource(() =>
             :label="t('shell.refresh')"
             :loading="pageRefresh.pending.value"
             :disabled="pageRefresh.busy.value"
-            @click="pageRefresh.run()"
+            @click="refreshPage"
           />
         </div>
         <span

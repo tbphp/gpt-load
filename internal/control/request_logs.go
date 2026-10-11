@@ -247,14 +247,64 @@ func mapRequestLogBody(body *requestlog.RequestBody) *requestLogBodyResponse {
 	}
 	response := &requestLogBodyResponse{State: body.State, OriginalBytes: body.OriginalBytes}
 	if body.Body != nil {
-		text := *body.Body
-		var indented bytes.Buffer
-		if err := json.Indent(&indented, []byte(text), "", "  "); err == nil {
-			text = indented.String()
-		}
+		text := formatRequestLogBody(*body.Body)
 		response.Body = &text
 	}
 	return response
+}
+
+// maxFormattedRequestBodyBytes 限制详情里格式化后的正文大小。缩进量随嵌套层数增长，
+// 深层嵌套的小请求会按层数平方膨胀，超出预算时直接返回存储原文。
+const maxFormattedRequestBodyBytes = 1 << 20
+
+func formatRequestLogBody(text string) string {
+	if !indentedJSONFits(text, maxFormattedRequestBodyBytes) {
+		return text
+	}
+	var indented bytes.Buffer
+	if err := json.Indent(&indented, []byte(text), "", "  "); err != nil {
+		return text
+	}
+	return indented.String()
+}
+
+// indentedJSONFits 估算两空格缩进后的大小上限：每个括号和逗号最多带来一次换行加当前层级的缩进，
+// 冒号后多一个空格；超过 limit 立即返回，不会生成完整输出。
+func indentedJSONFits(text string, limit int) bool {
+	size, depth := len(text), 0
+	inString, escaped := false, false
+	for index := 0; index < len(text); index++ {
+		char := text[index]
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case char == '\\':
+				escaped = true
+			case char == '"':
+				inString = false
+			}
+			continue
+		}
+		switch char {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			size += 1 + 2*depth
+		case '}', ']':
+			depth--
+			size += 1 + 2*depth
+		case ',':
+			size += 1 + 2*depth
+		case ':':
+			size++
+		}
+		if size > limit {
+			return false
+		}
+	}
+	return true
 }
 
 type requestLogPaginationResponse struct {

@@ -37,6 +37,7 @@ export interface AuthSession {
   getPrincipalType(): AuthPrincipalType | null
   hasCredential(): boolean
   ensureValidated(): Promise<void>
+  refreshRequestBodyRecording(signal?: AbortSignal): Promise<AuthState['requestBodyRecording']>
   login(candidate: string): Promise<void>
   retryValidation(): Promise<void>
   clear(): void
@@ -194,6 +195,23 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     return ensureValidated()
   }
 
+  // 管理员可能在用户登录后切换记录开关；静默重读会话，只更新记录提示。
+  async function refreshRequestBodyRecording(
+    signal?: AbortSignal,
+  ): Promise<AuthState['requestBodyRecording']> {
+    if (!credential || state.phase !== 'validated' || state.principalType !== 'access_key') {
+      return state.requestBodyRecording
+    }
+    const key = credential
+    const revision = credentialRevision
+    const payload = await deps.validate(key, true, signal)
+    if (!isValidAuthSessionPayload(payload)) throw new InvalidResponseError()
+    if (revision === credentialRevision && key === credential && state.phase === 'validated') {
+      state.requestBodyRecording = requestBodyRecording(payload)
+    }
+    return state.requestBodyRecording
+  }
+
   async function login(candidate: string): Promise<void> {
     const payload = await deps.validate(candidate, false)
     if (!isValidAuthSessionPayload(payload)) {
@@ -223,6 +241,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
       return credential.length > 0
     },
     ensureValidated,
+    refreshRequestBodyRecording,
     login,
     retryValidation,
     clear,

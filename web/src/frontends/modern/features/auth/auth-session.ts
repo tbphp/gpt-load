@@ -130,6 +130,21 @@ export function createAuthSession(deps: {
     return promise
   }
 
+  // 管理员可能在用户登录后切换记录开关；静默重读会话，只更新记录提示。
+  async function refreshRequestBodyRecording(
+    signal: AbortSignal,
+  ): Promise<RequestBodyRecording | null> {
+    if (!credential || state.phase !== 'validated' || state.principalType !== 'access_key') {
+      return state.requestBodyRecording
+    }
+    const currentRevision = revision
+    const session = await getAuthSession(deps.client, credential, signal, true)
+    if (currentRevision === revision && state.phase === 'validated') {
+      state.requestBodyRecording = requestBodyRecording(session)
+    }
+    return state.requestBodyRecording
+  }
+
   async function login(candidate: string, remember: boolean, signal: AbortSignal): Promise<void> {
     cancelValidation()
     if (state.phase === 'validating') state.phase = 'unvalidated'
@@ -169,6 +184,7 @@ export function createAuthSession(deps: {
     hasCredential: () => credential.length > 0,
     getPrincipalType: () => state.principalType,
     ensureValidated,
+    refreshRequestBodyRecording,
     login,
     clear,
   }
