@@ -55,3 +55,24 @@ func TestHandlerParameterOverrideBodyLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestHandlerRejectsOversizedArrayParameterOverridesBeforeDispatch(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	engine, _ := newDialectGatewayEngineWithForwarder(t, protocol.OpenAICompletions, "public",
+		dialect.NewSet(dialect.NewOpenAI()), forwarder,
+		dialectGatewayGroup{
+			id: 1, name: "override", upstreamURL: "https://upstream.example", apiKeys: []string{"synthetic-key"},
+			settings: config.Settings{state.SettingParameterOverrides: []any{map[string]any{"set": map[string]any{
+				"messages": map[string]any{"*": map[string]any{"payload": strings.Repeat("x", 128<<10)}},
+			}}}},
+		})
+	// 很小的输入经批量设置会超过现有的 128 MiB 请求限制。
+	body := `{"model":"public","messages":[` + strings.Repeat(`{},`, 1023) + `{}]}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge || len(forwarder.inputs) != 0 {
+		t.Fatalf("response=%d %s, attempts=%d", response.Code, response.Body.String(), len(forwarder.inputs))
+	}
+}
