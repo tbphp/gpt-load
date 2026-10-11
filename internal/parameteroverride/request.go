@@ -3,6 +3,7 @@ package parameteroverride
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"unicode/utf8"
 
 	"github.com/buger/jsonparser"
@@ -11,10 +12,11 @@ import (
 // 只为规则涉及的路径建立节点；其他值始终引用原始 JSON，不展开数组或对象。
 // raw 为 nil 表示字段不存在，JSON null 则保留为四个字节。
 type requestValue struct {
-	raw    []byte
-	fields map[string]*requestValue
-	loaded bool
-	dirty  bool
+	raw      []byte
+	fields   map[string]*requestValue
+	elements []requestValue
+	loaded   bool
+	dirty    bool
 	// 当前字段在父对象原始 JSON 中最后一次出现的位置，不随覆盖值改变。
 	start int
 	end   int
@@ -50,10 +52,28 @@ func (value *requestValue) planPath(path []string) {
 
 func (value *requestValue) reset(raw []byte) {
 	value.raw, value.loaded, value.dirty = raw, false, false
+	value.elements = nil
 }
 
 func (value *requestValue) isObject() bool {
 	return len(value.raw) > 0 && value.raw[0] == '{'
+}
+
+func (value *requestValue) isArray() bool {
+	return len(value.raw) > 0 && value.raw[0] == '['
+}
+
+// 数组元素只复制规则涉及的节点，不展开消息内容和其他未修改字段。
+func (value *requestValue) clonePlan() requestValue {
+	result := requestValue{}
+	if len(value.fields) > 0 {
+		result.fields = make(map[string]*requestValue, len(value.fields))
+		for key, child := range value.fields {
+			cloned := child.clonePlan()
+			result.fields[key] = &cloned
+		}
+	}
+	return result
 }
 
 func (value *requestValue) load() error {
@@ -67,12 +87,45 @@ func (value *requestValue) load() error {
 // 按规则路径直接下行，返回对象终点；父层不先扫描整个子树再递归。
 func (value *requestValue) scan(body []byte) (int, error) {
 	value.generation++
-	end, err := value.eachField(body, true, nil)
+	var end int
+	var err error
+	if body[0] == '[' {
+		end, err = value.scanArray(body)
+	} else {
+		end, err = value.eachField(body, true, nil)
+	}
 	if err != nil {
 		return 0, err
 	}
 	value.raw, value.loaded = body[:end], true
 	return end, nil
+}
+
+func (value *requestValue) scanArray(body []byte) (int, error) {
+	value.elements = nil
+	plan := value.fields["*"]
+	remaining := bytes.TrimLeft(body[1:], " \t\r\n")
+	for remaining[0] != ']' {
+		child := requestValue{}
+		var end int
+		var err error
+		if plan != nil && (remaining[0] == '{' || remaining[0] == '[' && plan.fields["*"] != nil) {
+			child = plan.clonePlan()
+			end, err = child.scan(remaining)
+		} else {
+			_, _, end, err = jsonparser.Get(remaining)
+		}
+		if err != nil {
+			return 0, err
+		}
+		child.raw = remaining[:end]
+		value.elements = append(value.elements, child)
+		remaining = bytes.TrimLeft(remaining[end:], " \t\r\n")
+		if remaining[0] == ',' {
+			remaining = bytes.TrimLeft(remaining[1:], " \t\r\n")
+		}
+	}
+	return len(body) - len(remaining) + 1, nil
 }
 
 func (value *requestValue) currentField(key string) *requestValue {
@@ -86,6 +139,19 @@ func (value *requestValue) currentField(key string) *requestValue {
 }
 
 func (value *requestValue) remove(path []string) error {
+	if value.isArray() && path[0] == "*" && len(path) > 1 {
+		if err := value.load(); err != nil {
+			return err
+		}
+		for index := range value.elements {
+			child := &value.elements[index]
+			if err := child.remove(path[1:]); err != nil {
+				return err
+			}
+			value.dirty = value.dirty || child.dirty
+		}
+		return nil
+	}
 	if !value.isObject() {
 		return nil
 	}
@@ -103,15 +169,64 @@ func (value *requestValue) remove(path []string) error {
 	return nil
 }
 
-func (value *requestValue) merge(source any) error {
-	if object, ok := source.(map[string]any); ok && value.isObject() {
-		if len(object) == 0 {
+// 同一条规则的设置值只编码一次，数组各元素共享只读字节，避免批量设置放大中间内存。
+type requestSet struct {
+	value      any
+	fields     map[string]*requestSet
+	raw        []byte
+	canReplace bool
+}
+
+func newRequestSet(source any) *requestSet {
+	result := &requestSet{value: source, canReplace: true}
+	if object, ok := source.(map[string]any); ok {
+		result.fields = make(map[string]*requestSet, len(object))
+		// 缺少可遍历的容器时，只创建普通字段，不能把通配规则作为值写入请求。
+		replacement := make(map[string]any, len(object))
+		for key, child := range object {
+			setting := newRequestSet(child)
+			result.fields[key] = setting
+			if key != "*" && setting.canReplace {
+				replacement[key] = setting.value
+			}
+		}
+		result.value = replacement
+		result.canReplace = len(object) == 0 || len(replacement) > 0
+	}
+	return result
+}
+
+func (value *requestValue) merge(source *requestSet) error {
+	if value.isArray() {
+		if wildcard, exists := source.fields["*"]; exists {
+			if wildcard.fields == nil || len(source.fields) != 1 {
+				return fmt.Errorf("array wildcard must contain only element field settings")
+			}
+			if err := value.load(); err != nil {
+				return err
+			}
+			_, nestedWildcard := wildcard.fields["*"]
+			for index := range value.elements {
+				child := &value.elements[index]
+				if !child.isObject() && !(child.isArray() && nestedWildcard) {
+					continue
+				}
+				if err := child.merge(wildcard); err != nil {
+					return err
+				}
+				value.dirty = value.dirty || child.dirty
+			}
+			return nil
+		}
+	}
+	if source.fields != nil && value.isObject() {
+		if len(source.fields) == 0 {
 			return nil
 		}
 		if err := value.load(); err != nil {
 			return err
 		}
-		for key, item := range object {
+		for key, item := range source.fields {
 			if err := value.currentField(key).merge(item); err != nil {
 				return err
 			}
@@ -120,13 +235,19 @@ func (value *requestValue) merge(source any) error {
 		return nil
 	}
 	// 仅序列化受配置大小限制的替换值，客户端的大值不会进入通用 JSON 树。
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(source); err != nil {
-		return err
+	if !source.canReplace {
+		return nil
 	}
-	value.reset(bytes.TrimSuffix(encoded.Bytes(), []byte("\n")))
+	if source.raw == nil {
+		var encoded bytes.Buffer
+		encoder := json.NewEncoder(&encoded)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(source.value); err != nil {
+			return err
+		}
+		source.raw = bytes.TrimSuffix(encoded.Bytes(), []byte("\n"))
+	}
+	value.reset(source.raw)
 	value.dirty = true
 	return nil
 }
@@ -146,6 +267,19 @@ func (output *requestOutput) append(raw []byte) {
 func (value *requestValue) write(output *requestOutput) error {
 	if !value.dirty || !value.loaded {
 		output.append(value.raw)
+		return nil
+	}
+	if value.isArray() {
+		output.append([]byte{'['})
+		for index := range value.elements {
+			if index > 0 {
+				output.append([]byte{','})
+			}
+			if err := value.elements[index].write(output); err != nil {
+				return err
+			}
+		}
+		output.append([]byte{']'})
 		return nil
 	}
 	output.append([]byte{'{'})
@@ -206,7 +340,7 @@ func (value *requestValue) eachField(body []byte, discover bool, visit func(key,
 		start := len(body) - len(remaining)
 		child := value.fields[string(key)]
 		switch {
-		case discover && child != nil && remaining[0] == '{' && len(child.fields) > 0:
+		case discover && child != nil && (remaining[0] == '{' && len(child.fields) > 0 || remaining[0] == '[' && child.fields["*"] != nil):
 			child.reset(nil)
 			end, err = child.scan(remaining)
 		case !discover && child != nil && child.parentGeneration == value.generation && child.start == start && child.end > start:

@@ -246,7 +246,7 @@ type AttemptTimeouts struct {
 
 // AttemptSpec is a fully selected, provider-neutral upstream attempt.
 // NewAttemptSpec or Clone must be used at ownership boundaries because Query,
-// Header, ConfiguredHeaders, ConfiguredParameters, Body, TargetConfig, and Credential contain reference-backed values.
+// Header, ConfiguredHeaders, ConfiguredParameters, RemovedParameterPaths, Body, TargetConfig, and Credential contain reference-backed values.
 type AttemptSpec struct {
 	RequestID                string                   `json:"request_id"`
 	AttemptID                string                   `json:"attempt_id"`
@@ -272,6 +272,8 @@ type AttemptSpec struct {
 	ConfiguredHeaders []string `json:"-"`
 	// ConfiguredParameters 仅记录本次分组覆盖设置的字段，值从最终 Body 读取。
 	ConfiguredParameters []string `json:"-"`
+	// RemovedParameterPaths 记录显式删除的字段路径；兼容默认值不能补回这些字段。
+	RemovedParameterPaths [][]string `json:"-"`
 	// IncludeUsage asks the executor to request provider usage details when the
 	// selected operation supports an explicit wire option.
 	IncludeUsage bool `json:"include_usage,omitempty"`
@@ -302,6 +304,12 @@ func (s AttemptSpec) Clone() AttemptSpec {
 	clone.Header = cloneHeader(s.Header)
 	clone.ConfiguredHeaders = append([]string(nil), s.ConfiguredHeaders...)
 	clone.ConfiguredParameters = append([]string(nil), s.ConfiguredParameters...)
+	if s.RemovedParameterPaths != nil {
+		clone.RemovedParameterPaths = make([][]string, len(s.RemovedParameterPaths))
+		for index, path := range s.RemovedParameterPaths {
+			clone.RemovedParameterPaths[index] = append([]string(nil), path...)
+		}
+	}
 	clone.Body = cloneBytes(s.Body)
 	clone.TargetConfig = cloneRawMessage(s.TargetConfig)
 	clone.Credential = s.Credential.Clone()
