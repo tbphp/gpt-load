@@ -72,15 +72,28 @@ export function useCredentialTestBatch() {
     report.value = undefined
   }
 
-  async function run(ids: number[], options: CredentialTestOptions, probe: Probe): Promise<void> {
+  async function run(
+    ids: number[],
+    options: CredentialTestOptions,
+    probe: Probe,
+    retry = false,
+  ): Promise<void> {
     if (pending.value || !ids.length) return
     const current = new AbortController()
     controller = current
     pending.value = true
+    const targets = new Set(ids)
     const batch = {
       options: { ...options },
-      items: [...new Set(ids)].map((id): CredentialBatchTestItem => ({ id, state: 'queued' })),
+      items:
+        retry && report.value
+          ? report.value.items.map((item): CredentialBatchTestItem =>
+              targets.has(item.id) ? { id: item.id, state: 'queued' } : item,
+            )
+          : [...targets].map((id): CredentialBatchTestItem => ({ id, state: 'queued' })),
     }
+    // 重测只重新调度目标项，其他已返回结果继续属于同一份报告。
+    const queue = batch.items.flatMap((item, index) => (item.state === 'queued' ? [index] : []))
     report.value = { ...batch, items: [...batch.items] }
     let cursor = 0
     function update(index: number, item: CredentialBatchTestItem): void {
@@ -89,8 +102,8 @@ export function useCredentialTestBatch() {
       report.value = { ...batch, items: [...batch.items] }
     }
     async function worker(): Promise<void> {
-      while (cursor < batch.items.length && controller === current) {
-        const index = cursor++
+      while (cursor < queue.length && controller === current) {
+        const index = queue[cursor++]!
         const { id } = batch.items[index]!
         update(index, { id, state: 'running' })
         try {
@@ -108,7 +121,7 @@ export function useCredentialTestBatch() {
       }
     }
     try {
-      await Promise.all(Array.from({ length: Math.min(10, batch.items.length) }, worker))
+      await Promise.all(Array.from({ length: Math.min(10, queue.length) }, worker))
     } finally {
       if (controller === current) {
         controller = undefined

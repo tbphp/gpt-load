@@ -230,15 +230,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             type="submit"
             variant="primary"
             :loading="pending"
-            :disabled="
-              !model.trim() ||
-              !protocol ||
-              pending ||
-              settings.isPending.value ||
-              settings.isError.value ||
-              models.isPending.value ||
-              models.isError.value
-            "
+            :disabled="!model.trim() || !protocol || pending"
             >{{ t(batchCount ? 'credentialBatchTest.start' : 'credentialCards.test') }}</AppButton
           >
         </div>

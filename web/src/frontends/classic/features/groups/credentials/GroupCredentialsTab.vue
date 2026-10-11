@@ -1582,21 +1582,30 @@ async function runCredentialTest(): Promise<void> {
   }
 }
 
-async function startBatchTest(options: CredentialTestOptions, ids: number[]): Promise<void> {
+async function startBatchTest(
+  options: CredentialTestOptions,
+  ids: number[],
+  retry = false,
+): Promise<void> {
   if (bulkActionsBusy.value || props.connectionType !== 'api_key' || !ids.length) return
   const groupID = props.groupId
   resetCredentialTestState()
-  await runTestBatch(ids, options, async (id, selected, signal) => {
-    const result = await testCredentialConnection(
-      client,
-      groupID,
-      id,
-      selected.protocol as AccessProtocol,
-      selected.model,
-      signal,
-    )
-    return { outcome: result.outcome, latency: result.latency_ms, reason: result.reason }
-  })
+  await runTestBatch(
+    ids,
+    options,
+    async (id, selected, signal) => {
+      const result = await testCredentialConnection(
+        client,
+        groupID,
+        id,
+        selected.protocol as AccessProtocol,
+        selected.model,
+        signal,
+      )
+      return { outcome: result.outcome, latency: result.latency_ms, reason: result.reason }
+    },
+    retry,
+  )
 }
 
 async function confirmTestedCredentialRestore(): Promise<void> {
@@ -2032,7 +2041,7 @@ async function runBatch(
             variant="secondary"
             size="compact"
             :disabled="bulkActionsBusy"
-            @click="startBatchTest(testBatch.options, testBatchRetryIDs)"
+            @click="startBatchTest(testBatch.options, testBatchRetryIDs, true)"
             >{{ t('credentialBatchTest.retry') }}</AppButton
           >
         </template>

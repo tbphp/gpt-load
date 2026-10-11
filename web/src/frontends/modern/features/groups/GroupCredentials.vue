@@ -507,12 +507,17 @@ function openBatchTest(): void {
 async function startBatchTest(
   options: CredentialTestOptions,
   ids = testBatchTargets.value,
+  retry = false,
 ): Promise<void> {
   if (bulkBusy.value || props.group.connectionType !== 'api_key' || !ids.length) return
   const groupID = props.group.id
   testBatchTargets.value = []
-  await runTestBatch(ids, options, (id, selected, signal) =>
-    testCredential(client, groupID, id, selected.protocol, selected.model, signal),
+  await runTestBatch(
+    ids,
+    options,
+    (id, selected, signal) =>
+      testCredential(client, groupID, id, selected.protocol, selected.model, signal),
+    retry,
   )
 }
 async function syncQuota(row: CredentialRow): Promise<void> {
@@ -1144,7 +1149,7 @@ defineExpose({ refresh })
               v-else-if="testBatchRetryIDs.length"
               size="sm"
               :disabled="bulkBusy"
-              @click="startBatchTest(testBatch.options, testBatchRetryIDs)"
+              @click="startBatchTest(testBatch.options, testBatchRetryIDs, true)"
               >{{ t('credentialBatchTest.retry') }}</AppButton
             >
           </template>
