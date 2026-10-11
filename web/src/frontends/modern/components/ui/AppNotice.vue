@@ -7,8 +7,9 @@ withDefaults(
   defineProps<{
     tone?: Exclude<SemanticTone, 'neutral'>
     bordered?: boolean
+    inline?: boolean
   }>(),
-  { tone: 'info' },
+  { tone: 'info', inline: false },
 )
 const icons = { info: Info, success: CircleCheck, warning: TriangleAlert, danger: CircleX }
 </script>
@@ -16,7 +17,10 @@ const icons = { info: Info, success: CircleCheck, warning: TriangleAlert, danger
 <template>
   <div
     class="modern-notice"
-    :class="[`modern-notice--${tone}`, { 'modern-notice--bordered': bordered }]"
+    :class="[
+      `modern-notice--${tone}`,
+      { 'modern-notice--bordered': bordered, 'modern-notice--inline': inline },
+    ]"
     :role="tone === 'danger' ? 'alert' : 'status'"
   >
     <AppIcon :icon="icons[tone]" class="modern-notice-icon" />
@@ -70,5 +74,13 @@ const icons = { info: Info, success: CircleCheck, warning: TriangleAlert, danger
   flex-shrink: 0;
   align-items: center;
   gap: var(--modern-space-2);
+}
+.modern-notice--inline {
+  flex-wrap: nowrap;
+  padding-block: var(--modern-space-2);
+}
+.modern-notice--inline .modern-notice-icon {
+  align-self: center;
+  margin-top: 0;
 }
 </style>

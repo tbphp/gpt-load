@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  Activity,
   ChevronDown,
   Download,
   Layers,
@@ -10,8 +9,10 @@ import {
   RotateCcw,
   RefreshCw,
   Search,
+  Stethoscope,
   Trash2,
   Upload,
+  X,
 } from '@lucide/vue'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -67,6 +68,7 @@ import {
   AppIconButton,
   AppListFrame,
   AppNotice,
+  AppOverflowText,
   AppPagination,
   AppSegmentedControl,
   AppSortMenu,
@@ -198,6 +200,7 @@ const {
   reset: resetTestBatch,
 } = useCredentialTestBatch()
 const testBatchTargets = ref<number[]>([])
+const testBatchDismissed = ref(false)
 const syncSuccessTimers = new Map<number, ReturnType<typeof setTimeout>>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const query = useQuery(
@@ -334,6 +337,7 @@ watch(
   () => {
     resetTestBatch()
     testBatchTargets.value = []
+    testBatchDismissed.value = false
   },
 )
 watch(query.dataUpdatedAt, (value) => emit('updatedAt', value), { immediate: true })
@@ -512,6 +516,7 @@ async function startBatchTest(
   if (bulkBusy.value || props.group.connectionType !== 'api_key' || !ids.length) return
   const groupID = props.group.id
   testBatchTargets.value = []
+  testBatchDismissed.value = false
   await runTestBatch(
     ids,
     options,
@@ -1072,7 +1077,7 @@ defineExpose({ refresh })
               />
               <AppIconButton
                 v-if="group.connectionType === 'api_key'"
-                :icon="Activity"
+                :icon="Stethoscope"
                 :label="t('credentialBatchTest.selected')"
                 size="sm"
                 :disabled="bulkBusy"
@@ -1126,7 +1131,8 @@ defineExpose({ refresh })
           </AppFileButton>
         </div>
         <AppNotice
-          v-if="testBatch"
+          v-if="testBatch && !testBatchDismissed"
+          inline
           :tone="
             testBatchPending
               ? 'info'
@@ -1135,12 +1141,21 @@ defineExpose({ refresh })
                 : 'warning'
           "
         >
-          {{ testBatch.options.protocol }} · {{ testBatch.options.model }}<br />
-          {{ t('credentialBatchTest.progress', testBatchCounts) }}
-          <template v-if="testBatchCounts.cancelled">
-            ·
-            {{ t('credentialBatchTest.cancelled', { count: testBatchCounts.cancelled }) }}</template
-          >
+          <div class="modern-credential-test-summary">
+            <AppOverflowText
+              class="modern-credential-test-target"
+              :text="`${testBatch.options.protocol} · ${testBatch.options.model}`"
+            />
+            <AppOverflowText
+              class="modern-credential-test-counts"
+              :text="
+                t('credentialBatchTest.progress', testBatchCounts) +
+                (testBatchCounts.cancelled
+                  ? ' · ' + t('credentialBatchTest.cancelled', { count: testBatchCounts.cancelled })
+                  : '')
+              "
+            />
+          </div>
           <template #actions>
             <AppButton v-if="testBatchPending" size="sm" @click="stopTestBatch">{{
               t('credentialBatchTest.stop')
@@ -1152,6 +1167,13 @@ defineExpose({ refresh })
               @click="startBatchTest(testBatch.options, testBatchRetryIDs, true)"
               >{{ t('credentialBatchTest.retry') }}</AppButton
             >
+            <AppIconButton
+              v-if="!testBatchPending"
+              :icon="X"
+              :label="t('shell.close')"
+              size="sm"
+              @click="testBatchDismissed = true"
+            />
           </template>
         </AppNotice>
       </template>
@@ -1371,6 +1393,20 @@ defineExpose({ refresh })
 }
 .modern-credentials-selected-actions > :first-child {
   margin-right: var(--modern-space-1);
+}
+.modern-credential-test-summary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--modern-space-3);
+}
+.modern-credential-test-target {
+  flex: 0 1 auto;
+  max-width: 40%;
+}
+.modern-credential-test-counts {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
 }
 .modern-credential-cards {
   display: grid;
