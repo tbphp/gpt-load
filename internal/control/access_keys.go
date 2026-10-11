@@ -146,6 +146,8 @@ type AccessKeyCreateRequest struct {
 	RPMLimit         OptionalRPMLimit                `json:"rpm_limit"`
 	CostLimitRules   OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
 	ExpiresAtMS      *int64                          `json:"expires_at_ms"`
+	// RecordRequestBody 开启后记录该密钥请求的客户端原始请求体，默认关闭。
+	RecordRequestBody bool `json:"record_request_body"`
 }
 
 type AccessKeyUpdateRequest struct {
@@ -158,6 +160,8 @@ type AccessKeyUpdateRequest struct {
 	RPMLimit         OptionalRPMLimit                `json:"rpm_limit"`
 	CostLimitRules   OptionalAccessKeyCostLimitRules `json:"cost_limit_rules"`
 	ExpiresAtMS      OptionalNullableEpochMS         `json:"expires_at_ms"`
+	// RecordRequestBody 为 nil 时不修改记录开关。
+	RecordRequestBody *bool `json:"record_request_body,omitempty"`
 }
 
 type AccessKeyCostLimitResetRequest struct {
@@ -165,20 +169,21 @@ type AccessKeyCostLimitResetRequest struct {
 }
 
 type AccessKeyMetadata struct {
-	ConcurrencyLimit *int64                    `json:"concurrency_limit"`
-	Concurrency      ConcurrencyView           `json:"concurrency"`
-	PriceMultiplier  string                    `json:"price_multiplier"`
-	ID               uint                      `json:"id"`
-	Name             string                    `json:"name"`
-	MaskedKey        string                    `json:"masked_key"`
-	Status           state.AccessKeyStatus     `json:"status"`
-	Filters          AccessKeyFilters          `json:"filters"`
-	RPMLimit         int64                     `json:"rpm_limit"`
-	CostLimitRules   []AccessKeyCostLimitRule  `json:"cost_limit_rules"`
-	CostLimitStatus  *AccessKeyCostLimitStatus `json:"cost_limit_status,omitempty"`
-	ExpiresAtMS      *int64                    `json:"expires_at_ms"`
-	CreatedAtMS      int64                     `json:"created_at_ms"`
-	UpdatedAtMS      int64                     `json:"updated_at_ms"`
+	ConcurrencyLimit  *int64                    `json:"concurrency_limit"`
+	Concurrency       ConcurrencyView           `json:"concurrency"`
+	PriceMultiplier   string                    `json:"price_multiplier"`
+	ID                uint                      `json:"id"`
+	Name              string                    `json:"name"`
+	MaskedKey         string                    `json:"masked_key"`
+	Status            state.AccessKeyStatus     `json:"status"`
+	Filters           AccessKeyFilters          `json:"filters"`
+	RPMLimit          int64                     `json:"rpm_limit"`
+	CostLimitRules    []AccessKeyCostLimitRule  `json:"cost_limit_rules"`
+	CostLimitStatus   *AccessKeyCostLimitStatus `json:"cost_limit_status,omitempty"`
+	ExpiresAtMS       *int64                    `json:"expires_at_ms"`
+	CreatedAtMS       int64                     `json:"created_at_ms"`
+	UpdatedAtMS       int64                     `json:"updated_at_ms"`
+	RecordRequestBody bool                      `json:"record_request_body"`
 }
 
 type AccessKeyCreateResult struct {
@@ -213,6 +218,7 @@ type accessKeyMetadataRow struct {
 	ExpiresAtMS           *int64
 	CreatedAtMS           int64
 	UpdatedAtMS           int64
+	RecordRequestBody     bool
 }
 
 type generatedAccessKeyCredential struct {
@@ -343,6 +349,7 @@ func (s *Service) CreateAccessKey(
 		row.ConcurrencyLimit = concurrencyLimit
 		row.Status = string(status)
 		row.ExpiresAtMS = cloneOptionalInt64(request.ExpiresAtMS)
+		row.RecordRequestBody = request.RecordRequestBody
 		if err := tx.Create(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
@@ -356,6 +363,7 @@ func (s *Service) CreateAccessKey(
 			Status:                row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit, ConcurrencyLimit: row.ConcurrencyLimit,
 			ExpiresAtMS: row.ExpiresAtMS,
 			CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
+			RecordRequestBody: row.RecordRequestBody,
 		})
 		if err != nil {
 			return err
@@ -401,7 +409,8 @@ func (s *Service) accessKeyUpdateMutation(
 	request AccessKeyUpdateRequest,
 ) (func(*gorm.DB) (AccessKeyMetadata, error), error) {
 	if id == 0 || (request.Key == "" && request.Name == nil && request.Status == nil && request.Filters == nil &&
-		!request.ConcurrencyLimit.Set && !request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set && !request.PriceMultiplier.Set) {
+		!request.ConcurrencyLimit.Set && !request.RPMLimit.Set && !request.CostLimitRules.Set && !request.ExpiresAtMS.Set && !request.PriceMultiplier.Set &&
+		request.RecordRequestBody == nil) {
 		return nil, app_errors.ErrBadRequest
 	}
 	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
@@ -472,7 +481,7 @@ func (s *Service) accessKeyUpdateMutation(
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
 				"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit", "concurrency_limit", "expires_at_ms", "price_multiplier_micros",
-				"created_at_ms", "updated_at_ms",
+				"created_at_ms", "updated_at_ms", "record_request_body",
 			).
 			Where("id = ?", id).
 			Take(&row).Error; err != nil {
@@ -542,6 +551,10 @@ func (s *Service) accessKeyUpdateMutation(
 			row.ExpiresAtMS = cloneOptionalInt64(request.ExpiresAtMS.Value)
 			updates["expires_at_ms"] = row.ExpiresAtMS
 		}
+		if request.RecordRequestBody != nil {
+			row.RecordRequestBody = *request.RecordRequestBody
+			updates["record_request_body"] = row.RecordRequestBody
+		}
 		if len(updates) > 0 {
 			if err := tx.Model(&models.AccessKey{}).
 				Where("id = ?", row.ID).
@@ -561,7 +574,7 @@ func (s *Service) accessKeyUpdateMutation(
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
 				"id", "name", "key_prefix", "key_suffix", "status", "filters", "rpm_limit", "concurrency_limit", "expires_at_ms", "price_multiplier_micros",
-				"created_at_ms", "updated_at_ms",
+				"created_at_ms", "updated_at_ms", "record_request_body",
 			).
 			Where("id = ?", row.ID).
 			Take(&row).Error; err != nil {
@@ -688,6 +701,7 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 		ExpiresAtMS:    cloneOptionalInt64(row.ExpiresAtMS),
 		CostLimitRules: []AccessKeyCostLimitRule{},
 		CreatedAtMS:    row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
+		RecordRequestBody: row.RecordRequestBody,
 	}, nil
 }
 

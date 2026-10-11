@@ -220,6 +220,20 @@ export function formatTokens(value: number, locale: string): string {
   )}${unit.suffix}`
 }
 
+export function formatByteSize(bytes: number, locale: string): string {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) return '—'
+  const units = ['B', 'KiB', 'MiB', 'GiB'] as const
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(
+    value,
+  )} ${units[unit]}`
+}
+
 export function formatEstimatedCost(nanoUSD: string, locale: string): string {
   if (!/^(?:0|[1-9]\d*)$/u.test(nanoUSD)) return '—'
   const value = BigInt(nanoUSD)

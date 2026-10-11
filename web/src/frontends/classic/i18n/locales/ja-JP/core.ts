@@ -228,6 +228,8 @@ export default {
     accessKeyReadOnly: 'アクセスキー · 読み取り専用',
     accessKeyReadOnlyDescription:
       'アクセスキーでログイン中です。ページとデータはこのキーに限定され、システム設定は変更できません。',
+    requestBodyRecordingNotice:
+      '管理者がこのアクセスキーのリクエスト内容の記録を有効にしました。このキーで送信した内容は {days} 日間保存され、管理者とこのキーを持つ人が閲覧できます。記録されたくない内容は、このキーで送信しないでください。',
     language: '言語',
     theme: 'テーマ',
     localeZh: '简体中文',

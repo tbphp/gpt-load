@@ -28,6 +28,7 @@ import {
   AppIcon,
   AppIconButton,
   AppLoadingIndicator,
+  AppNotice,
   AppTooltip,
 } from '@modern/components/ui'
 import { useAuthSession } from '@modern/features/auth/auth-session'
@@ -46,6 +47,10 @@ const createGroupLocation = computed(() => ({
   query: { ...(route.name === 'modern-groups' ? route.query : {}), panel: 'create' },
 }))
 const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
+// 常驻提示，不提供关闭入口；会话重新验证后随管理员设置更新。
+const requestBodyRecording = computed(() =>
+  session.state.principalType === 'access_key' ? session.state.requestBodyRecording : null,
+)
 provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
@@ -187,7 +192,7 @@ useMessageSource(() =>
         <AppIcon :icon="sidebarCollapsed ? ChevronRight : ChevronLeft" size="xs" />
       </button>
     </AppTooltip>
-    <div class="modern-main-column">
+    <div class="modern-main-column" :class="{ 'has-session-notice': requestBodyRecording }">
       <header class="modern-topbar">
         <h1>{{ pageTitle }}</h1>
         <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
@@ -246,6 +251,11 @@ useMessageSource(() =>
         </div>
         <AppLoadingIndicator :loading="pageLoading" />
       </header>
+      <div v-if="requestBodyRecording" class="modern-session-notice">
+        <AppNotice tone="warning" bordered>{{
+          t('auth.requestBodyRecordingNotice', { days: requestBodyRecording.retentionDays })
+        }}</AppNotice>
+      </div>
       <main id="modern-content" :key="route.path" class="modern-content" tabindex="-1">
         <slot />
       </main>
@@ -333,6 +343,13 @@ useMessageSource(() =>
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+}
+/* 请求内容记录提示位于顶栏与内容之间，不随页面内容滚动。 */
+.modern-main-column.has-session-notice {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.modern-session-notice {
+  padding: var(--modern-space-3) var(--modern-content-inset) 0;
 }
 /* 顶栏是所有页面共用的固定结构：标题 | 刷新与时间 | 竖线 | 全局控件。 */
 .modern-topbar {

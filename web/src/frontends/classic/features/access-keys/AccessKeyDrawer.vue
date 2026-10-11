@@ -2,7 +2,7 @@
 import { Save } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 
 import { useApiClient } from '@shared/http/client-context'
 import {
@@ -10,6 +10,7 @@ import {
   updateAccessKey,
   type CreateAccessKeyRequest,
 } from '@/app/resources/access-keys'
+import { settingsQueryOptions } from '@/app/resources/settings'
 import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import type { ChannelDto } from '@/app/resources/channels'
 import { ApiError, RequestCancelledError } from '@shared/http/errors'
@@ -92,7 +93,7 @@ const emit = defineEmits<{
 }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const formFields = ref<InstanceType<typeof AccessKeyFormFields>>()
 const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
@@ -100,6 +101,21 @@ const operationID = ref('')
 const createPayload = ref<CreateAccessKeyRequest | null>(null)
 const credentialField = ref<InstanceType<typeof AccessKeyCredentialField>>()
 const keyConfirmationOpen = ref(false)
+const recordConfirmationOpen = ref(false)
+// 抽屉打开时预取保留天数，开启记录的确认框才能直接给出具体天数；读取失败时使用通用说明。
+const settingsQuery = useQuery({
+  ...settingsQueryOptions(client, locale),
+  enabled: computed(() => props.open),
+})
+const recordConfirmationDescription = computed(() => {
+  const days = settingsQuery.data.value?.settings.values.request_log_retention_days
+  return t('accessKeys.recordRequestBody.confirmDescription', {
+    retention:
+      days === undefined
+        ? t('accessKeys.recordRequestBody.retentionDefault')
+        : t('accessKeys.recordRequestBody.retentionDays', { days }),
+  })
+})
 const customKeyError = ref('')
 const createOperationRetained = ref(false)
 const editOperationRetained = ref(false)
@@ -298,6 +314,7 @@ function clearLocalState(): void {
   operationID.value = ''
   createPayload.value = null
   keyConfirmationOpen.value = false
+  recordConfirmationOpen.value = false
   customKeyError.value = ''
   createOperationRetained.value = false
   editOperationRetained.value = false
@@ -311,6 +328,7 @@ function clearLocalState(): void {
 
 async function resetForOpen(): Promise<void> {
   keyConfirmationOpen.value = false
+  recordConfirmationOpen.value = false
   customKeyError.value = ''
   const carriedCreateOperation = props.accessKey ? null : props.createOperation
   const carriedEditOperation =
@@ -328,6 +346,8 @@ async function resetForOpen(): Promise<void> {
       ...props.copyFrom,
       name: t('accessKeys.distribution.copyName', { name: props.copyFrom.name }),
       cost_limit_rules: [],
+      // 复制配置不继承请求内容记录，新密钥需要单独确认后才能开启。
+      record_request_body: false,
     })
     draft.value.costLimitRules = props.copyFrom.cost_limit_rules.map((rule) => ({
       clientKey: createUUID(),
@@ -458,6 +478,21 @@ function setScopeMode(dimension: AccessKeyScopeDimension, nextMode: AccessKeySco
 function updateCustomKey(value: string): void {
   draft.value.key = value
   customKeyError.value = ''
+}
+
+function requestRecordRequestBody(enabled: boolean): void {
+  if (formLocked.value) return
+  // 关闭立即生效；开启必须先在确认框中确认。
+  if (enabled && !draft.value.record_request_body) {
+    recordConfirmationOpen.value = true
+    return
+  }
+  draft.value.record_request_body = enabled
+}
+
+function confirmRecordRequestBody(): void {
+  recordConfirmationOpen.value = false
+  if (!formLocked.value) draft.value.record_request_body = true
 }
 
 function reportCustomKeyError(error: unknown): void {
@@ -818,12 +853,14 @@ onBeforeUnmount(clearLocalState)
           :concurrency-limit="draft.concurrency_limit"
           :rpm-limit="draft.rpm_limit"
           :price-multiplier="draft.price_multiplier"
+          :record-request-body="draft.record_request_body"
           :disabled="formLocked"
           @update:name="draft.name = $event"
           @update:status="draft.status = $event"
           @update:concurrency-limit="draft.concurrency_limit = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
           @update:price-multiplier="draft.price_multiplier = $event"
+          @update:record-request-body="requestRecordRequestBody"
         >
           <template #credential>
             <AccessKeyCredentialField
@@ -958,6 +995,19 @@ onBeforeUnmount(clearLocalState)
     prevent-close-auto-focus
     @update:open="setKeyConfirmationOpen"
     @confirm="confirmKeyChange"
+  />
+  <AppConfirmDialog
+    :open="recordConfirmationOpen"
+    :title="t('accessKeys.recordRequestBody.confirmTitle')"
+    :description="recordConfirmationDescription"
+    :close-label="t('common.close')"
+    :cancel-label="t('common.cancel')"
+    :confirm-label="t('accessKeys.recordRequestBody.confirm')"
+    tone="danger"
+    description-tone="warning"
+    focus-cancel
+    @update:open="recordConfirmationOpen = $event"
+    @confirm="confirmRecordRequestBody"
   />
 </template>
 

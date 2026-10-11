@@ -45,6 +45,7 @@ var requestLogChannelRegistry = channel.NewRegistry()
 type RequestLogReader interface {
 	List(context.Context, requestlog.ListQuery) (requestlog.Page, error)
 	Get(context.Context, string) (requestlog.Record, error)
+	GetRequestBody(context.Context, string) (*requestlog.RequestBody, error)
 }
 
 type requestLogCursorPayload struct {
@@ -229,7 +230,31 @@ func nullableInt64String(value *int64) *string {
 
 type requestLogDetailResponse struct {
 	requestLogItemResponse
-	Attempts []requestLogAttemptResponse `json:"attempts"`
+	Attempts    []requestLogAttemptResponse `json:"attempts"`
+	RequestBody *requestLogBodyResponse     `json:"request_body"`
+}
+
+// requestLogBodyResponse 返回记录下来的客户端原始请求体；正文缩进后便于查看，内容与存储一致。
+type requestLogBodyResponse struct {
+	State         requestlog.RequestBodyState `json:"state"`
+	OriginalBytes int64                       `json:"original_bytes"`
+	Body          *string                     `json:"body"`
+}
+
+func mapRequestLogBody(body *requestlog.RequestBody) *requestLogBodyResponse {
+	if body == nil {
+		return nil
+	}
+	response := &requestLogBodyResponse{State: body.State, OriginalBytes: body.OriginalBytes}
+	if body.Body != nil {
+		text := *body.Body
+		var indented bytes.Buffer
+		if err := json.Indent(&indented, []byte(text), "", "  "); err == nil {
+			text = indented.String()
+		}
+		response.Body = &text
+	}
+	return response
 }
 
 type requestLogPaginationResponse struct {
@@ -274,6 +299,21 @@ func (service *Service) GetRequestLog(ctx context.Context, requestID string) (re
 		return requestlog.Record{}, app_errors.ParseDBError(err)
 	}
 	return record, nil
+}
+
+// GetRequestLogBody 读取请求日志的原始请求体记录；调用方负责先确认可见范围。
+func (service *Service) GetRequestLogBody(ctx context.Context, requestID string) (*requestlog.RequestBody, error) {
+	if service.requestLogs == nil {
+		return nil, app_errors.ErrInternalServer
+	}
+	body, err := service.requestLogs.GetRequestBody(ctx, requestID)
+	if err != nil {
+		if requestWasCanceled(ctx, err) {
+			return nil, err
+		}
+		return nil, app_errors.ParseDBError(err)
+	}
+	return body, nil
 }
 
 func (service *Service) GetAccessKeyRequestLog(
@@ -369,6 +409,13 @@ func (s *Server) handleGetRequestLog(c *gin.Context) {
 		writeServiceError(c, "get_request_log", err)
 		return
 	}
+	// 记录的是客户端自己发出的原始请求，管理员和该访问密钥本人都可查看。
+	body, err := s.service.GetRequestLogBody(c.Request.Context(), record.RequestID)
+	if err != nil {
+		writeServiceError(c, "get_request_log", err)
+		return
+	}
+	result.RequestBody = mapRequestLogBody(body)
 	var autoID uint
 	if record.AutoDecision != nil {
 		autoID = record.AutoDecision.CredentialID

@@ -191,6 +191,7 @@ watch(
       <span role="columnheader">{{ t('accessKeys.columns.name') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.key') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.status') }}</span>
+      <span role="columnheader">{{ t('accessKeys.columns.recordRequestBody') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.scope') }}</span>
       <span role="columnheader">{{ t('accessKeys.distribution.usageQuota') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.lastRequest') }}</span>
@@ -241,6 +242,16 @@ watch(
         <StatusBadge v-if="record.quotaExhausted" tone="danger" size="compact">
           {{ t('accessKeys.costLimits.exhausted') }}
         </StatusBadge>
+      </div>
+
+      <div class="ledger-record-list__cell access-key-recording" role="cell">
+        <span class="mobile-label">{{ t('accessKeys.columns.recordRequestBody') }}</span>
+        <StatusBadge v-if="record.recordRequestBody" tone="warning" size="compact">
+          {{ t('accessKeys.recordRequestBody.enabled') }}
+        </StatusBadge>
+        <span v-else class="access-key-recording__off">
+          {{ t('accessKeys.recordRequestBody.disabled') }}
+        </span>
       </div>
 
       <div class="ledger-record-list__cell access-key-scope" role="cell">
@@ -426,8 +437,8 @@ watch(
 }
 
 .access-keys-record-grid {
-  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 136px minmax(148px, 1fr)
-    minmax(145px, 1fr) minmax(120px, 0.9fr) 64px;
+  --ledger-record-list-grid: minmax(100px, 0.8fr) minmax(145px, 1fr) 136px minmax(84px, 0.6fr)
+    minmax(148px, 1fr) minmax(145px, 1fr) minmax(120px, 0.9fr) 64px;
   --ledger-record-list-column-gap: 14px;
 }
 
@@ -440,10 +451,23 @@ watch(
 
 .access-key-secret-cell,
 .access-key-status,
+.access-key-recording,
 .access-key-scope,
 .access-key-rpm,
 .access-key-last-request {
   min-width: 0;
+}
+
+.access-key-recording {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.access-key-recording__off {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
 }
 
 .access-key-rpm {
@@ -508,8 +532,8 @@ watch(
 
 @media (max-width: 1120px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 136px minmax(130px, 1fr)
-      minmax(130px, 1fr) minmax(115px, 1fr) 64px;
+    --ledger-record-list-grid: minmax(95px, 1fr) minmax(125px, 1fr) 136px minmax(84px, 0.6fr)
+      minmax(130px, 1fr) minmax(130px, 1fr) minmax(115px, 1fr) 64px;
     --ledger-record-list-column-gap: 10px;
   }
 
@@ -522,11 +546,12 @@ watch(
 
 @media (max-width: 1023px) and (min-width: 861px) {
   .access-keys-record-grid {
-    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 136px minmax(130px, 1fr) 64px;
+    --ledger-record-list-grid: minmax(90px, 0.8fr) minmax(125px, 1fr) 136px minmax(84px, 0.6fr)
+      minmax(130px, 1fr) 64px;
   }
 
-  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(4)),
-  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(6)),
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(7)),
   .access-key-scope,
   .access-key-last-request {
     display: none;
@@ -577,7 +602,8 @@ watch(
     display: inline;
   }
 
-  .access-key-status .mobile-label {
+  .access-key-status .mobile-label,
+  .access-key-recording .mobile-label {
     flex-basis: 100%;
   }
 }

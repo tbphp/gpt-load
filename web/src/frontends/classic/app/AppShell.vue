@@ -17,6 +17,7 @@ import {
 } from '@/app/route-locations'
 import { useUnsavedChangesController } from '@/app/unsaved-changes'
 import BrandMark from '@/components/brand/BrandMark.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useImportRecovery } from '@/features/import/import-recovery'
 import PreferencesControl from '@/features/preferences/PreferencesControl.vue'
@@ -34,6 +35,10 @@ const router = useRouter()
 const { locale, t } = useI18n()
 
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
+// 常驻提示，不提供关闭入口；会话重新验证后随管理员设置更新。
+const requestBodyRecording = computed(() =>
+  isAccessKey.value ? session.state.requestBodyRecording : null,
+)
 const navigation = computed(() => {
   const shared = [
     { key: 'home', to: homeLocation(), label: t('shell.home') },
@@ -175,6 +180,12 @@ watch(
       </div>
     </header>
 
+    <div v-if="requestBodyRecording" class="app-recording-notice">
+      <InlineFeedback class="app-recording-notice__message" tone="warning">
+        {{ t('shell.requestBodyRecordingNotice', { days: requestBodyRecording.retentionDays }) }}
+      </InlineFeedback>
+    </div>
+
     <main id="main-content" class="app-content" tabindex="-1">
       <slot />
     </main>
@@ -283,6 +294,13 @@ watch(
 .app-content {
   min-height: calc(100vh - var(--topbar-height));
 }
+.app-recording-notice {
+  padding: var(--space-4) var(--stage-padding-inline) 0;
+}
+.app-recording-notice__message {
+  width: min(100%, var(--page-max));
+  margin: 0 auto;
+}
 .mobile-nav {
   display: grid;
   gap: var(--space-1);
@@ -351,6 +369,9 @@ watch(
   }
   .desktop-nav {
     display: none;
+  }
+  .app-recording-notice {
+    padding: var(--space-3) var(--stage-padding-inline-compact) 0;
   }
   .import-action {
     width: var(--touch-target);

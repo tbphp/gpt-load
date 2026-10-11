@@ -455,6 +455,7 @@ onScopeDispose(() => {
           ><span>{{ t('accessKeys.restrictions') }}</span
           ><span>{{ t('rpm.hourPeakShort') }}</span
           ><span>{{ t('accessKeys.state') }}</span
+          ><span>{{ t('accessKeys.recordRequestBody.column') }}</span
           ><span>{{ t('accessKeys.expires') }}</span
           ><span>{{ t('accessKeys.lastRequest') }}</span
           ><span>{{ t('accessKeys.actions') }}</span>
@@ -501,6 +502,15 @@ onScopeDispose(() => {
         <div>
           <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
             t('accessKeys.' + accessState(row).key)
+          }}</AppBadge>
+        </div>
+        <div>
+          <span class="modern-sr-only">{{ t('accessKeys.recordRequestBody.column') }}</span>
+          <AppBadge v-if="row.record_request_body" tone="warning" size="xs" dot>{{
+            t('accessKeys.recordRequestBody.enabled')
+          }}</AppBadge>
+          <AppBadge v-else variant="plain" size="xs">{{
+            t('accessKeys.recordRequestBody.disabled')
           }}</AppBadge>
         </div>
         <div class="modern-access-expiry">
@@ -644,10 +654,10 @@ onScopeDispose(() => {
   display: grid;
   grid-template-columns:
     minmax(150px, 1.5fr) minmax(150px, 1.1fr) minmax(380px, 2.4fr)
-    112px 96px 110px minmax(148px, 1fr) 116px;
+    112px 96px 96px 110px minmax(148px, 1fr) 116px;
   align-items: center;
   gap: var(--modern-space-3);
-  min-width: 1364px;
+  min-width: 1472px;
   padding-inline: var(--modern-space-2);
   text-align: left;
 }
@@ -702,8 +712,8 @@ onScopeDispose(() => {
   .modern-access-row {
     grid-template-columns:
       minmax(140px, 1.4fr) minmax(140px, 1.2fr) minmax(320px, 2.4fr)
-      112px 96px 104px 148px 148px;
-    min-width: 1272px;
+      112px 96px 96px 104px 148px 148px;
+    min-width: 1376px;
     gap: var(--modern-space-2);
   }
   .modern-access-row-actions {
