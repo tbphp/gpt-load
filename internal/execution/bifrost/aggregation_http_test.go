@@ -290,7 +290,8 @@ func TestAggregationCountTokensUsesNativeGatewayWire(t *testing.T) {
 					body, _ := io.ReadAll(request.Body)
 					var payload map[string]any
 					if err := json.Unmarshal(body, &payload); err != nil {
-						t.Fatalf("decode upstream request: %v", err)
+						t.Errorf("decode upstream request: %v", err)
+						return
 					}
 					if payload["provider"] != nil || payload["api_key"] != nil {
 						t.Errorf("control fields reached upstream: %#v", payload)
@@ -393,7 +394,8 @@ func TestAggregationResponsesResourcesUseGatewayRoot(t *testing.T) {
 						body, _ := io.ReadAll(request.Body)
 						var payload map[string]any
 						if err := json.Unmarshal(body, &payload); err != nil {
-							t.Fatalf("decode upstream request: %v", err)
+							t.Errorf("decode upstream request: %v", err)
+							return
 						}
 						if payload["provider"] != nil || payload["api_key"] != nil {
 							t.Errorf("control fields reached upstream: %#v", payload)
