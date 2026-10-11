@@ -154,7 +154,7 @@ func (sm *SystemSettingsManager) EnsureSettingsInitialized(authConfig types.Auth
 				logrus.Errorf("Failed to initialize setting %s: %v", setting.SettingKey, err)
 				return err
 			}
-			logrus.Infof("Initialized system setting: %s = %s", setting.SettingKey, setting.SettingValue)
+			logrus.Infof("Initialized system setting: %s", setting.SettingKey)
 		}
 	}
 
