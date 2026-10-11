@@ -1046,6 +1046,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 			spec.Method == http.MethodPost && spec.Path == openAIChatPath
 	case protocol.OpenAIResponses:
 		switch spec.Operation {
+		case execution.OperationWebSearch:
+			return !stream && spec.RouteMode == execution.RouteNative && spec.Method == http.MethodPost && spec.Path == "/v1/alpha/search"
 		case execution.OperationResponsesCreate:
 			return spec.Method == http.MethodPost && spec.Path == "/v1/responses"
 		case execution.OperationResponsesRetrieve:

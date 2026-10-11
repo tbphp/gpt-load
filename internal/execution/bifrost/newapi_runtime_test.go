@@ -369,13 +369,20 @@ func TestNewAPIUtilityOperationsUseGatewayRoot(t *testing.T) {
 	}
 }
 
-func TestNewAPIResponsesResourceSemanticsFailBeforeDispatch(t *testing.T) {
+func TestNewAPIStatefulResponsesReachesUpstream(t *testing.T) {
 	t.Parallel()
 
 	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls++
-		writer.WriteHeader(http.StatusInternalServerError)
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil ||
+			payload["model"] != "upstream-model" || payload["previous_response_id"] != "resp_123" || payload["store"] != true {
+			t.Errorf("stateful request = %#v, error = %v", payload, err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusNotImplemented)
+		_, _ = io.WriteString(writer, `{"error":{"message":"upstream does not support stored responses"}}`)
 	}))
 	defer server.Close()
 
@@ -387,18 +394,18 @@ func TestNewAPIResponsesResourceSemanticsFailBeforeDispatch(t *testing.T) {
 		ClientModel: "client-model", UpstreamModel: "upstream-model",
 		Method: http.MethodPost, Path: "/v1/responses",
 		Header:       http.Header{"Content-Type": {"application/json"}},
-		Body:         []byte(`{"model":"client-model","input":"hello"}`),
+		Body:         []byte(`{"model":"client-model","input":"hello","previous_response_id":"resp_123","store":true}`),
 		TargetConfig: resolved.TargetConfig,
 		Credential: execution.NewCredentialSnapshot(
 			17, 1, 1, []byte(`{"api_key":"`+testAPIKey+`"}`),
 		),
 	})
 	result := manager.Execute(context.Background(), spec)
-	if err := result.Validate(); err != nil || result.DispatchState != execution.DispatchNotSent || result.Error == nil {
+	if err := result.Validate(); err != nil || result.DispatchState != execution.DispatchMaybeSent || result.StatusCode != http.StatusNotImplemented || result.Error == nil {
 		t.Fatalf("resource result = %+v err=%v", result, err)
 	}
-	if calls != 0 {
-		t.Fatalf("upstream calls = %d, want 0", calls)
+	if calls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", calls)
 	}
 }
 

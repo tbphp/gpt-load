@@ -103,6 +103,7 @@ func nativeRouteImplemented(
 		case protocol.OpenAIResponses:
 			return operation == execution.OperationResponsesCreate ||
 				operation == execution.OperationProbe ||
+				operation == execution.OperationWebSearch ||
 				nativeResponsesLifecycleOperation(operation)
 		case protocol.OpenAIImages:
 			return operation == execution.OperationImagesGenerate ||

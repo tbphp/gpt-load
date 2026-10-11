@@ -100,7 +100,7 @@ func nativeSSEEventHasData(event []byte) bool {
 }
 
 func needsClientModelAlias(spec execution.AttemptSpec) bool {
-	return responsealias.Needs(spec.ClientModel, spec.UpstreamModel)
+	return spec.Operation != execution.OperationWebSearch && responsealias.Needs(spec.ClientModel, spec.UpstreamModel)
 }
 
 func rewriteClientResponseModel(clientProtocol protocol.Protocol, body []byte, clientModel string) ([]byte, error) {

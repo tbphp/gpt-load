@@ -134,7 +134,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		}
 		return encodeNativeJSONObject(object)
 	case spec.ClientProtocol == protocol.OpenAIResponses &&
-		(spec.Operation == execution.OperationResponsesCompact || spec.Operation == execution.OperationResponsesInputTokens):
+		(spec.Operation == execution.OperationResponsesCompact || spec.Operation == execution.OperationResponsesInputTokens || spec.Operation == execution.OperationWebSearch):
 		object, err := decodeNativeJSONObject(spec.Body)
 		if err != nil {
 			return nil, err
@@ -737,8 +737,8 @@ func usageEvidenceFromPassthroughForSpec(
 	spec execution.AttemptSpec,
 	source *schemas.BifrostPassthroughUsage,
 ) (*execution.UsageEvidence, error) {
-	// 转换路由由转换器提供用量证据；原生 OpenAI Embeddings 不经过透传。
-	if spec.ClientProtocol == protocol.OpenAIImages || spec.ClientProtocol == protocol.OpenAIEmbeddings ||
+	// 搜索不计模型用量；转换路由由转换器提供证据，原生 OpenAI Embeddings 不经过透传。
+	if spec.Operation == execution.OperationWebSearch || spec.ClientProtocol == protocol.OpenAIImages || spec.ClientProtocol == protocol.OpenAIEmbeddings ||
 		spec.ClientProtocol == protocol.Rerank || spec.ClientProtocol == protocol.Decisions {
 		return nil, nil
 	}
