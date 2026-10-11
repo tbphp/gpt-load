@@ -35,7 +35,7 @@ func TestClaudeResetCreditUsesSelectedGrantAndStableRequest(t *testing.T) {
 		case "/team/api/organizations/organization-one/reset_rate_limits":
 			call := consumeCalls.Add(1)
 			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" ||
-				r.Header.Get("User-Agent") != claudeUsageUserAgent || r.Header.Get("Anthropic-Beta") != claudeBootstrapBeta {
+				r.Header.Get("User-Agent") != claudeUserAgent || r.Header.Get("Anthropic-Beta") != claudeBootstrapBeta {
 				t.Error("reset request has incorrect method or headers")
 			}
 			var payload map[string]string

@@ -124,7 +124,7 @@ func ConsumeClaudeResetCredit(ctx context.Context, credential ClaudeCredential, 
 	applyClaudeOAuthHeaders(request)
 	request.Header.Set("Authorization", "Bearer "+credential.AccessToken)
 	request.Header.Set("Anthropic-Beta", claudeBootstrapBeta)
-	request.Header.Set("User-Agent", claudeUsageUserAgent)
+	request.Header.Set("User-Agent", claudeUserAgent)
 	response, err := claudeOAuthClient(options).Do(request)
 	if err != nil {
 		return ClaudeResetCreditResult{}, err

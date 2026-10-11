@@ -14,10 +14,10 @@ func TestObserveGrokAccountCombinesWeeklyAndMonthlyBilling(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer access-secret" ||
 			r.Header.Get("X-XAI-Token-Auth") != "xai-grok-cli" ||
 			r.Header.Get("x-userid") != "account-1" ||
-			r.Header.Get("x-grok-client-version") != grokClientVersion ||
+			r.Header.Get("x-grok-client-version") != GrokClientVersion ||
 			r.Header.Get("x-grok-client-identifier") != "grok-shell" ||
 			r.Header.Get("x-authenticateresponse") != "authenticate-response" ||
-			r.Header.Get("User-Agent") != "grok-pager/"+grokClientVersion+" grok-shell/"+grokClientVersion {
+			r.Header.Get("User-Agent") != "grok-pager/"+GrokClientVersion+" grok-shell/"+GrokClientVersion {
 			t.Fatalf("billing headers = %#v", r.Header)
 		}
 		switch r.URL.Path {

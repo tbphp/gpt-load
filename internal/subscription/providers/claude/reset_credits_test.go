@@ -81,7 +81,7 @@ func TestClaudeResetCreditObservation(t *testing.T) {
 				}
 				if r.Header.Get("Authorization") != "Bearer test-access" ||
 					r.Header.Get("Anthropic-Beta") != "oauth-2025-04-20" ||
-					r.Header.Get("User-Agent") != "claude-cli/2.1.296 (external, cli)" {
+					r.Header.Get("User-Agent") != "claude-cli/"+cpaembedded.ClaudeClientVersion+" (external, cli)" {
 					t.Error("usage request is missing the OAuth/reset client headers")
 				}
 				_, _ = w.Write([]byte(`{"five_hour":{"utilization":25}` + test.block + `}`))
