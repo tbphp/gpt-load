@@ -45,6 +45,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		Cohere,
 		OpenCodeGo,
 		OpenCodeZen,
+		Modelflare,
 		GPTLoad,
 		NewAPI,
 		CLIProxyAPI,

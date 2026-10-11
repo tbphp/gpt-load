@@ -14,6 +14,9 @@ export default {
       loadFailed: 'チャネルを読み込めません',
       channelRequired: 'チャネルを選択してください',
       connectionType: '認証情報の種類',
+      partners: 'パートナー推奨',
+      principalPartner: 'プリンシパルパートナー',
+      featuredPartner: '注目パートナー',
     },
     mode: {
       label: 'インポート先',
@@ -280,6 +283,8 @@ export default {
       required: '先に認証情報を 1 件以上入力してください',
       channelCredentialNotice:
         'ここにはチャネルの API キーを入力します — クライアント認証情報はアクセスキーページで作成してください',
+      partnerSignup: '{name} は GPT-Load のパートナーチャネルです。API キーをお持ちでない場合は',
+      partnerSignupLink: '{name} で登録',
       result: '認証情報を {added} 件追加し、重複 {duplicated} 件をスキップしました',
       validation: '認証情報 {entry} のフィールド {field} が無効です: {reason}',
       validationReasons: {
