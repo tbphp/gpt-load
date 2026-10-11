@@ -21,6 +21,7 @@ func TestClaudeResetCreditObservation(t *testing.T) {
 		name        string
 		block       string
 		known       bool
+		incomplete  bool
 		expirations []string
 	}{
 		{
@@ -46,6 +47,26 @@ func TestClaudeResetCreditObservation(t *testing.T) {
 		{name: "null block", block: `,"cedar_ember":null`},
 		{name: "no grants", block: `,"cedar_ember":{"eligible":true,"grants":[]}`, known: true},
 		{name: "ineligible", block: `,"cedar_ember":{"eligible":false,"grants":[{"resets_left":1,"usable_now":true}]}`, known: true},
+		{
+			name: "expired grants do not count at the observation clock",
+			block: `,"cedar_ember":{"eligible":true,"grants":[
+				{"resets_left":1,"usable_now":true,"ends_at":"2030-10-11T11:59:59Z"},
+				{"resets_left":1,"usable_now":true,"ends_at":"2030-10-11T12:00:00Z"},
+				{"resets_left":1,"usable_now":true,"ends_at":"2030-10-11T12:00:01Z"}
+			]}`,
+			known: true, expirations: []string{"2030-10-11T12:00:01Z"},
+		},
+		{
+			name:  "only expired grants reports zero available",
+			block: `,"cedar_ember":{"eligible":true,"grants":[{"resets_left":1,"usable_now":true,"ends_at":"2030-10-11T12:00:00Z"}]}`,
+			known: true,
+		},
+		{name: "invalid reset block type preserves quota", block: `,"cedar_ember":[]`, incomplete: true},
+		{name: "invalid credit count type preserves quota", block: `,"cedar_ember":{"eligible":true,"grants":[{"resets_left":"1","usable_now":true}]}`, incomplete: true},
+		{name: "negative credit count preserves quota", block: `,"cedar_ember":{"eligible":true,"grants":[{"resets_left":-1,"usable_now":true}]}`, incomplete: true},
+		{name: "excessive credit count preserves quota", block: `,"cedar_ember":{"eligible":true,"grants":[{"resets_left":257,"usable_now":true}]}`, incomplete: true},
+		{name: "invalid expiry type preserves quota", block: `,"cedar_ember":{"eligible":true,"grants":[{"resets_left":1,"usable_now":true,"ends_at":123}]}`, incomplete: true},
+		{name: "invalid expiry format preserves quota", block: `,"cedar_ember":{"eligible":true,"grants":[{"resets_left":1,"usable_now":true,"ends_at":"not-a-time"}]}`, incomplete: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -72,12 +93,16 @@ func TestClaudeResetCreditObservation(t *testing.T) {
 			}, cpaembedded.ClaudeOptions{
 				ProfileURL: server.URL + "/profile", RolesURL: server.URL + "/roles", BootstrapURL: server.URL + "/bootstrap",
 				UsageURL: server.URL + "/usage?existing=value", HTTPClient: server.Client(),
+				Now: func() time.Time { return time.Date(2030, time.October, 11, 12, 0, 0, 0, time.UTC) },
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !observed.UsageObserved || calls.Load() != 1 {
 				t.Fatalf("usage observed = %t, requests = %d", observed.UsageObserved, calls.Load())
+			}
+			if strings.Contains(strings.Join(observed.IncompleteSources, ","), "reset_credits") != test.incomplete {
+				t.Fatalf("reset credits incomplete = %v, want %t", observed.IncompleteSources, test.incomplete)
 			}
 			raw, err := NormalizeObservation(accountObservationFromBridge(observed))
 			if err != nil {

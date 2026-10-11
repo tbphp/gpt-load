@@ -13,6 +13,19 @@ import (
 
 var ErrClaudeResetCreditUnavailable = errors.New("Claude reset credit is unavailable")
 
+type claudeResetCreditsPayload struct {
+	Eligible      bool    `json:"eligible"`
+	NextGrantID   string  `json:"next_grant_id"`
+	CooldownUntil *string `json:"cooldown_until"`
+	Grants        []struct {
+		ID        string  `json:"id"`
+		Remaining int64   `json:"resets_left"`
+		ExpiresAt *string `json:"ends_at"`
+		UsableNow bool    `json:"usable_now"`
+		Paused    bool    `json:"paused"`
+	} `json:"grants"`
+}
+
 type claudeResetCreditRequest struct {
 	OrganizationID string `json:"organization_id"`
 	GrantID        string `json:"grant_id"`
@@ -44,7 +57,10 @@ func PrepareClaudeResetCredit(ctx context.Context, credential ClaudeCredential, 
 	if err != nil {
 		return nil, err
 	}
-	resets := payload.CedarEmber
+	resets, err := decodeClaudeResetCredits(payload.CedarEmber)
+	if err != nil {
+		return nil, err
+	}
 	if resets == nil || !resets.Eligible || !validClaudeResetIdentifier(resets.NextGrantID, 40, true) {
 		return nil, ErrClaudeResetCreditUnavailable
 	}
@@ -127,6 +143,18 @@ func ConsumeClaudeResetCredit(ctx context.Context, credential ClaudeCredential, 
 		return ClaudeResetCreditResult{}, fmt.Errorf("Claude reset response is invalid")
 	}
 	return result, nil
+}
+
+func decodeClaudeResetCredits(raw json.RawMessage) (*claudeResetCreditsPayload, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	var result claudeResetCreditsPayload
+	if err := decodeClaudeJSONObject(trimmed, &result); err != nil {
+		return nil, fmt.Errorf("Claude reset credit payload is invalid")
+	}
+	return &result, nil
 }
 
 func validClaudeResetIdentifier(value string, limit int, lowercase bool) bool {

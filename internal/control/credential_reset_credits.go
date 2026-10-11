@@ -109,25 +109,34 @@ func (s *Service) ConsumeCredentialResetCredit(
 	}
 
 	if s.consumeSubscriptionResetCredit == nil {
-		_ = s.finishResetCreditOperation(operation.IdempotencyKey, models.CredentialResetOperationOutcomeUnknown, nil, app_errors.ErrResetCreditOutcomeUnknown.Code)
+		_ = s.finishResetCreditOperation(operation, models.CredentialResetOperationOutcomeUnknown, nil, app_errors.ErrResetCreditOutcomeUnknown.Code)
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	callContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
-	request, consumeErr := s.prepareResetCreditRequest(callContext, operation, channelID, preparedCredential, target)
-	var upstream subscriptionruntime.ResetCreditResult
-	if consumeErr == nil {
-		upstream, consumeErr = s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, target, request)
+	request, prepareErr := s.prepareResetCreditRequest(callContext, operation, channelID, preparedCredential, target)
+	if prepareErr != nil {
+		cancel()
+		state, apiErr := models.CredentialResetOperationRejected, classifyResetCreditPreparationError(prepareErr)
+		// 已持久化选卡的操作可能发送过兑换，不能因恢复参数失败而解除保护。
+		if len(operation.ResultJSON) > 0 {
+			state, apiErr = models.CredentialResetOperationOutcomeUnknown, app_errors.ErrResetCreditOutcomeUnknown
+		}
+		if err := s.finishResetCreditOperation(operation, state, nil, apiErr.Code); err != nil {
+			return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
+		}
+		return ResetCreditConsumeResponse{}, apiErr
 	}
+	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, target, request)
 	cancel()
 	if consumeErr != nil {
 		state, apiErr := classifyResetCreditConsumeError(consumeErr)
-		if persistErr := s.finishResetCreditOperation(operation.IdempotencyKey, state, nil, apiErr.Code); persistErr != nil {
+		if persistErr := s.finishResetCreditOperation(operation, state, nil, apiErr.Code); persistErr != nil {
 			return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 		}
 		return ResetCreditConsumeResponse{}, apiErr
 	}
 	if upstream.Status != "succeeded" || upstream.WindowsReset < 0 {
-		_ = s.finishResetCreditOperation(operation.IdempotencyKey, models.CredentialResetOperationOutcomeUnknown, nil, app_errors.ErrResetCreditOutcomeUnknown.Code)
+		_ = s.finishResetCreditOperation(operation, models.CredentialResetOperationOutcomeUnknown, nil, app_errors.ErrResetCreditOutcomeUnknown.Code)
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	result := storedResetCreditResult{
@@ -136,7 +145,7 @@ func (s *Service) ConsumeCredentialResetCredit(
 	runtimeRestored, targetCurrent, targetErr := s.restoreCredentialRuntimeForTarget(ctx, group, credentialID)
 	canonicalResult, err := canonicaljson.Marshal(result)
 	if err != nil || s.finishResetCreditOperation(
-		operation.IdempotencyKey,
+		operation,
 		models.CredentialResetOperationSucceeded,
 		canonicalResult,
 		"",
@@ -257,6 +266,10 @@ func (s *Service) beginResetCreditOperation(
 			return models.CredentialResetOperation{}, false, app_errors.ErrIdempotencyKeyReused
 		}
 		if resetCreditOperationCanRetry(existing, nowMS) {
+			// 准备失败后的重试与新操作一样，必须避让其他正在兑换的请求。
+			if existing.State == models.CredentialResetOperationRejected && !s.resetCreditOperationAllowsNewKey(ctx, credentialID) {
+				return models.CredentialResetOperation{}, false, app_errors.ErrResetCreditOutcomeUnknown
+			}
 			result := s.db.WithContext(ctx).Model(&models.CredentialResetOperation{}).
 				Where("idempotency_key = ? AND state = ? AND updated_at_ms = ?", existing.IdempotencyKey, existing.State, existing.UpdatedAtMS).
 				Updates(map[string]any{
@@ -377,6 +390,9 @@ func resetCreditRequestDigest(groupID, credentialID uint, identityFingerprint, b
 }
 
 func resetCreditOperationCanRetry(operation models.CredentialResetOperation, nowMS int64) bool {
+	if operation.State == models.CredentialResetOperationRejected && operation.ErrorCode == app_errors.ErrResetCreditPreparationFailed.Code {
+		return true
+	}
 	if operation.State == models.CredentialResetOperationOutcomeUnknown {
 		return true
 	}
@@ -428,7 +444,7 @@ func (s *Service) resetCreditOperationAllowsNewKey(
 }
 
 func (s *Service) finishResetCreditOperation(
-	idempotencyKey string,
+	operation models.CredentialResetOperation,
 	state models.CredentialResetOperationState,
 	result []byte,
 	errorCode string,
@@ -447,7 +463,7 @@ func (s *Service) finishResetCreditOperation(
 		updates["result_json"] = models.JSON(result)
 	}
 	resultUpdate := s.db.WithContext(cleanupContext).Model(&models.CredentialResetOperation{}).
-		Where("idempotency_key = ? AND state = ?", idempotencyKey, models.CredentialResetOperationPrepared).
+		Where("idempotency_key = ? AND state = ? AND updated_at_ms = ?", operation.IdempotencyKey, models.CredentialResetOperationPrepared, operation.UpdatedAtMS).
 		Updates(updates)
 	if resultUpdate.Error != nil {
 		return resultUpdate.Error
@@ -503,6 +519,19 @@ func (s *Service) prepareResetCreditRequest(
 	return request, nil
 }
 
+func classifyResetCreditPreparationError(err error) *app_errors.APIError {
+	var upstream *subscriptionruntime.UpstreamHTTPError
+	if errors.As(err, &upstream) {
+		switch upstream.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return app_errors.ErrCredentialReauthorizationRequired
+		case http.StatusConflict:
+			return app_errors.ErrResetCreditUnavailable
+		}
+	}
+	return app_errors.ErrResetCreditPreparationFailed
+}
+
 func classifyResetCreditConsumeError(err error) (models.CredentialResetOperationState, *app_errors.APIError) {
 	var upstream *subscriptionruntime.UpstreamHTTPError
 	if !errors.As(err, &upstream) || upstream.StatusCode >= http.StatusInternalServerError {
@@ -520,6 +549,8 @@ func classifyResetCreditConsumeError(err error) (models.CredentialResetOperation
 
 func resetCreditErrorByCode(code string) *app_errors.APIError {
 	switch code {
+	case app_errors.ErrResetCreditPreparationFailed.Code:
+		return app_errors.ErrResetCreditPreparationFailed
 	case app_errors.ErrCredentialReauthorizationRequired.Code:
 		return app_errors.ErrCredentialReauthorizationRequired
 	case app_errors.ErrResetCreditUnavailable.Code:
