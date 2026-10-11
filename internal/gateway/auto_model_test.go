@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -611,6 +612,60 @@ func TestAutoModelResponsesFullHistoryToolContinuationReclassifiesDifferentTask(
 	engine.ServeHTTP(response, request)
 	if response.Code != 200 || calls != 1 || len(forwarder.inputs) != 1 || forwarder.inputs[0].UpstreamModelID != "gpt-4.1" {
 		t.Fatalf("status=%d calls=%d inputs=%#v body=%s", response.Code, calls, forwarder.inputs, response.Body)
+	}
+}
+
+func TestAutoModelArrayOverrideUsesTransportLimit(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		websocket bool
+		count     int
+		reject    bool
+	}{
+		{"websocket below limit", true, 50, false},
+		{"websocket above limit", true, 56, true},
+		{"http above websocket limit", false, 56, false},
+		{"http above request limit", false, 700, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			handler, _, input := websocketTestHandler(t, "https://unused.test", channel.OpenAI)
+			rules, err := json.Marshal([]any{map[string]any{"set": map[string]any{
+				"probe": map[string]any{"*": map[string]any{"label": strings.Repeat("x", 200_000)}},
+			}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := automodel.DefaultConfig()
+			cfg.Enabled, cfg.Model = true, "jev-router"
+			cfg.Models = []automodel.Entry{{ID: "auto-limit", Name: "auto-limit", Fallback: "only", Presets: []automodel.Preset{
+				{ID: "only", Name: "only", Description: "All work", Model: "public", ParameterOverrides: rules},
+			}}}
+			input.AutoModel = &cfg
+			input.Groups = append(input.Groups, state.GroupConfig{ID: 99, Name: "jev", ChannelID: channel.Jev, ConnectionType: "api_key", Params: json.RawMessage(`{}`), Models: []state.ModelConfig{{ID: "jev-latest", Alias: "jev-router"}}, Enabled: true})
+			if _, err := handler.manager.Publish(input); err != nil {
+				t.Fatal(err)
+			}
+			body := []byte(`{"model":"auto-limit","input":"task","store":false,"probe":[` + strings.Repeat(`{},`, test.count-1) + `{}]}`)
+			request := &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/responses", Body: body}
+			selectedDialect := dialect.NewOpenAIResponses()
+			metadata, err := selectedDialect.InspectRequest(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := scheduler.Query{}
+			if test.websocket {
+				query.ResponsesWebsocket = &execution.WebsocketCapabilities{}
+			}
+			snapshot := handler.manager.Current()
+			prepared, _, _, failure := handler.prepareAutoModel(context.Background(), snapshot, snapshot.AccessKeysByID[1], selectedDialect, request, metadata, nil, func() *reason { return nil }, query)
+			if test.reject {
+				if failure == nil || failure.Code != reasonParameterOverrideUnavailable.Code || !bytes.Equal(prepared.Body, body) {
+					t.Fatalf("oversized preset: bytes=%d failure=%v", len(prepared.Body), failure)
+				}
+			} else if failure != nil || len(prepared.Body) < test.count*200_000 {
+				t.Fatalf("allowed preset: bytes=%d failure=%v", len(prepared.Body), failure)
+			}
+		})
 	}
 }
 
