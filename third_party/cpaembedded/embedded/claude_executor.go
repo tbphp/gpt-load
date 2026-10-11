@@ -100,7 +100,9 @@ type claudeHTTPExecutor struct {
 
 // NewClaudeHTTPExecutor constructs a stateless executor with no CPA manager.
 func NewClaudeHTTPExecutor() ClaudeHTTPExecutor {
-	cfg := &internalconfig.Config{}
+	cfg := &internalconfig.Config{
+		ClaudeHeaderDefaults: internalconfig.ClaudeHeaderDefaults{UserAgent: claudeUserAgent},
+	}
 	return &claudeHTTPExecutor{cfg: cfg, inner: internalexecutor.NewClaudeExecutor(cfg)}
 }
 

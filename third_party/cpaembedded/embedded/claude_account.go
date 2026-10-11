@@ -20,9 +20,6 @@ import (
 
 const (
 	claudeBootstrapBeta      = "oauth-2025-04-20"
-	claudeBootstrapUserAgent = "claude-code/2.1.220"
-	// 重置卡信息要求识别到支持该能力的 CLI 版本，仅用于用量查询。
-	claudeUsageUserAgent     = "claude-cli/2.1.296 (external, cli)"
 	maxClaudeModels          = 256
 	maxClaudeScopedLimits    = 256
 	maxClaudeResetCredits    = 256
@@ -593,7 +590,7 @@ func fetchClaudeUsagePayload(ctx context.Context, credential ClaudeCredential, o
 		query.Set("cedar_ember", "1")
 		request.URL.RawQuery = query.Encode()
 		request.Header.Set("Anthropic-Beta", claudeBootstrapBeta)
-		request.Header.Set("User-Agent", claudeUsageUserAgent)
+		request.Header.Set("User-Agent", claudeUserAgent)
 	})
 	if err != nil {
 		return claudeUsagePayload{}, nil, err

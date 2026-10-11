@@ -24,8 +24,8 @@ func TestGrokExecutorConvertsFourProtocolsUnaryAndStream(t *testing.T) {
 		if r.URL.Path != "/responses" || r.Header.Get("Authorization") != "Bearer access-secret" {
 			t.Fatalf("request = %s %s, auth %q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
 		}
-		if r.Header.Get("x-grok-client-version") != grokClientVersion ||
-			r.Header.Get("User-Agent") != "xai-grok-workspace/"+grokClientVersion {
+		if r.Header.Get("x-grok-client-version") != GrokClientVersion ||
+			r.Header.Get("User-Agent") != "xai-grok-workspace/"+GrokClientVersion {
 			t.Fatalf("execution identity = %q / %q", r.Header.Get("x-grok-client-version"), r.Header.Get("User-Agent"))
 		}
 		w.Header().Set("Content-Type", "text/event-stream")

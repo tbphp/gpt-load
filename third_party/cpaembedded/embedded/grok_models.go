@@ -12,11 +12,7 @@ import (
 	xaiauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/xai"
 )
 
-const (
-	// Grok 客户端身份由推理、模型发现和额度查询共用；升级 CPA 时一并核对。
-	grokClientVersion = "1.0.44"
-	grokModelsURL     = xaiauth.CLIChatProxyBaseURL + "/models"
-)
+const grokModelsURL = xaiauth.CLIChatProxyBaseURL + "/models"
 
 func DiscoverGrokModels(ctx context.Context, credential GrokCredential, options GrokOptions) ([]string, error) {
 	endpoint := strings.TrimSpace(options.ModelsURL)
@@ -30,8 +26,8 @@ func DiscoverGrokModels(ctx context.Context, credential GrokCredential, options 
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(credential.AccessToken))
 	request.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
-	request.Header.Set("x-grok-client-version", grokClientVersion)
-	request.Header.Set("User-Agent", "xai-grok-workspace/"+grokClientVersion)
+	request.Header.Set("x-grok-client-version", GrokClientVersion)
+	request.Header.Set("User-Agent", "xai-grok-workspace/"+GrokClientVersion)
 	request.Header.Set("x-grok-client-identifier", "grok-shell")
 	request.Header.Set("x-authenticateresponse", "authenticate-response")
 	response, err := grokHTTPClient(options).Do(request)
