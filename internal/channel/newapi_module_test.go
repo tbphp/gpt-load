@@ -50,8 +50,8 @@ func TestNewAPIChannelContract(t *testing.T) {
 	if got := string(target.TargetConfig); got != `{"base_url":"https://relay.example/team-a"}` {
 		t.Fatalf("New API target config = %s", got)
 	}
-	if !target.SupportsResponsesLifecycle() {
-		t.Fatal("New API must advertise native Responses resource forwarding")
+	if target.SupportsResponsesLifecycle() {
+		t.Fatal("New API must not advertise stored Responses lifecycle support")
 	}
 
 	wantRoutes := map[protocol.Protocol]map[execution.Operation]RouteMode{
@@ -64,11 +64,6 @@ func TestNewAPIChannelContract(t *testing.T) {
 			execution.OperationProbe:                RouteNative,
 			execution.OperationResponsesCreate:      RouteNative,
 			execution.OperationResponsesCompact:     RouteNative,
-			execution.OperationResponsesRetrieve:    RouteNative,
-			execution.OperationResponsesDelete:      RouteNative,
-			execution.OperationResponsesCancel:      RouteNative,
-			execution.OperationResponsesInputItems:  RouteNative,
-			execution.OperationResponsesInputTokens: RouteNative,
 			execution.OperationResponsesPassthrough: RouteNative,
 			execution.OperationWebSearch:            RouteNative,
 		},
@@ -88,12 +83,10 @@ func TestNewAPIChannelContract(t *testing.T) {
 		protocol.Anthropic: {
 			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,
-			execution.OperationCountTokens:    RouteNative,
 		},
 		protocol.Gemini: {
 			execution.OperationProbe:          RouteNative,
 			execution.OperationChatCompletion: RouteNative,
-			execution.OperationCountTokens:    RouteNative,
 		},
 	}
 	gotRoutes := make(map[protocol.Protocol]map[execution.Operation]RouteMode)

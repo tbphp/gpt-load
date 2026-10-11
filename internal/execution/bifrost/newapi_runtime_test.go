@@ -369,7 +369,7 @@ func TestNewAPIUtilityOperationsUseGatewayRoot(t *testing.T) {
 	}
 }
 
-func TestNewAPIStatefulResponsesReachesUpstream(t *testing.T) {
+func TestNewAPIContinuationReachesUpstream(t *testing.T) {
 	t.Parallel()
 
 	var calls int
@@ -391,7 +391,8 @@ func TestNewAPIStatefulResponsesReachesUpstream(t *testing.T) {
 		RequestID: "responses-resource", AttemptID: "responses-resource-attempt", Sequence: 1,
 		ChannelID: string(channel.NewAPI), ClientProtocol: protocol.OpenAIResponses,
 		Operation: execution.OperationResponsesCreate, RouteRequirement: execution.RouteRequirementNative,
-		ClientModel: "client-model", UpstreamModel: "upstream-model",
+		ResponsesStorePreference: execution.ResponsesStorePreferenceRequireStored,
+		ClientModel:              "client-model", UpstreamModel: "upstream-model",
 		Method: http.MethodPost, Path: "/v1/responses",
 		Header:       http.Header{"Content-Type": {"application/json"}},
 		Body:         []byte(`{"model":"client-model","input":"hello","previous_response_id":"resp_123","store":true}`),

@@ -340,6 +340,14 @@ func TestResponsesContinuationSeparatesStorageFromOtherResourceRequirements(t *t
 				Params: json.RawMessage(`{}`), Enabled: true,
 				Models: []state.ModelConfig{{ID: "claude", Alias: "gpt"}},
 			},
+			{ConnectionType: "api_key", ID: 12, Name: "cpa", ChannelID: channel.CLIProxyAPI,
+				Params: json.RawMessage(`{"base_url":"https://cpa.example"}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-cpa", Alias: "gpt"}},
+			},
+			{ConnectionType: "api_key", ID: 13, Name: "newapi", ChannelID: channel.NewAPI,
+				Params: json.RawMessage(`{"base_url":"https://newapi.example"}`), Enabled: true,
+				Models: []state.ModelConfig{{ID: "gpt-newapi", Alias: "gpt"}},
+			},
 		},
 	})
 	if err != nil {
@@ -361,8 +369,8 @@ func TestResponsesContinuationSeparatesStorageFromOtherResourceRequirements(t *t
 		fields string
 		want   []uint
 	}{
-		{"continuation", `,"input":"continue"`, []uint{7, 9}},
-		{"unstored next response", `,"store":false`, []uint{7, 9}},
+		{"continuation", `,"input":"continue"`, []uint{7, 9, 12, 13}},
+		{"unstored next response", `,"store":false`, []uint{7, 9, 12, 13}},
 		{"conversation", `,"conversation":"conv_1"`, []uint{7}},
 		{"background", `,"background":true`, []uint{7}},
 		{"stored prompt", `,"prompt":{"id":"pmpt_1"}`, []uint{7}},

@@ -226,7 +226,7 @@ func newAggregationSearchGateway(t *testing.T, id channel.ID, endpoint string) (
 		t.Fatal(err)
 	}
 	sink, stats := &aggregationSearchLogSink{}, health.NewStatsStore()
-	handler := gateway.NewHandler(manager, registry, crypto, gateway.NewExecutionForwarder(runtime), dialect.NewSet(dialect.NewOpenAIResponses()),
+	handler := gateway.NewHandler(manager, registry, crypto, gateway.NewExecutionForwarder(runtime), dialect.NewSet(dialect.NewOpenAIResponses(), dialect.NewAnthropic(), dialect.NewGemini()),
 		stats, health.NewMutationCoordinator(), nil, sink, nil)
 	engine := gin.New()
 	routes, err := httproute.NewRegistry(handler.HTTPModule())
@@ -237,6 +237,51 @@ func newAggregationSearchGateway(t *testing.T, id channel.ID, endpoint string) (
 		t.Fatal(err)
 	}
 	return engine, manager, input, sink, stats
+}
+
+func TestAggregationGatewayRejectsUnsupportedOperations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	type requestCase struct{ method, path, body string }
+	for _, channelID := range []channel.ID{channel.CLIProxyAPI, channel.NewAPI} {
+		t.Run(string(channelID), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"resp_123","object":"response","status":"completed","output":[],"input_tokens":7,"totalTokens":7}`)
+			}))
+			defer server.Close()
+			engine, _, _, _, _ := newAggregationSearchGateway(t, channelID, server.URL)
+			tests := []requestCase{
+				{http.MethodGet, "/v1/responses/resp_123", ""},
+				{http.MethodDelete, "/v1/responses/resp_123", ""},
+				{http.MethodPost, "/v1/responses/resp_123/cancel", ""},
+				{http.MethodGet, "/v1/responses/resp_123/input_items", ""},
+				{http.MethodPost, "/v1/responses/input_tokens", `{"model":"public","input":[]}`},
+				{http.MethodPost, "/v1/responses", `{"model":"public","input":"hello","background":true}`},
+				{http.MethodPost, "/v1/responses", `{"model":"public","input":"hello","conversation":"conv_123"}`},
+			}
+			if channelID == channel.NewAPI {
+				tests = append(tests,
+					requestCase{http.MethodPost, "/v1/messages/count_tokens", `{"model":"public","messages":[{"role":"user","content":"hello"}]}`},
+					requestCase{http.MethodPost, "/v1beta/models/public:countTokens", `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`},
+				)
+			}
+			for _, test := range tests {
+				t.Run(test.method+" "+test.path, func(t *testing.T) {
+					before := calls.Load()
+					request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+					request.Header.Set("Authorization", "Bearer gl-search-client")
+					request.Header.Set("Content-Type", "application/json")
+					response := httptest.NewRecorder()
+					engine.ServeHTTP(response, request)
+					if response.Code != http.StatusServiceUnavailable || calls.Load() != before {
+						t.Fatalf("response=%d %s, upstream calls=%d", response.Code, response.Body.String(), calls.Load()-before)
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestAggregationCountTokensUsesNativeGatewayWire(t *testing.T) {
@@ -269,7 +314,7 @@ func TestAggregationCountTokensUsesNativeGatewayWire(t *testing.T) {
 		},
 	}
 
-	for _, channelID := range aggregationTestChannels {
+	for _, channelID := range []channel.ID{channel.CLIProxyAPI, channel.GPTLoad} {
 		for _, test := range tests {
 			t.Run(string(channelID)+"/"+test.name, func(t *testing.T) {
 				t.Parallel()
@@ -375,6 +420,9 @@ func TestAggregationResponsesResourcesUseGatewayRoot(t *testing.T) {
 
 	for _, channelID := range aggregationTestChannels {
 		for _, test := range tests {
+			if channelID != channel.GPTLoad && test.operation != execution.OperationResponsesPassthrough {
+				continue
+			}
 			t.Run(string(channelID)+"/"+test.name, func(t *testing.T) {
 				t.Parallel()
 

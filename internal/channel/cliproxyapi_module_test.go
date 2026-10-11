@@ -53,8 +53,8 @@ func TestCLIProxyAPIChannelContract(t *testing.T) {
 	if got := string(target.TargetConfig); got != `{"base_url":"https://cpa.example/team-a"}` {
 		t.Fatalf("CLIProxyAPI target config = %s", got)
 	}
-	if !target.SupportsResponsesLifecycle() {
-		t.Fatal("CLIProxyAPI must advertise native Responses resource forwarding")
+	if target.SupportsResponsesLifecycle() {
+		t.Fatal("CLIProxyAPI must not advertise stored Responses lifecycle support")
 	}
 
 	wantRoutes := map[protocol.Protocol]map[execution.Operation]RouteMode{
@@ -67,11 +67,6 @@ func TestCLIProxyAPIChannelContract(t *testing.T) {
 			execution.OperationProbe:                RouteNative,
 			execution.OperationResponsesCreate:      RouteNative,
 			execution.OperationResponsesCompact:     RouteNative,
-			execution.OperationResponsesRetrieve:    RouteNative,
-			execution.OperationResponsesDelete:      RouteNative,
-			execution.OperationResponsesCancel:      RouteNative,
-			execution.OperationResponsesInputItems:  RouteNative,
-			execution.OperationResponsesInputTokens: RouteNative,
 			execution.OperationResponsesPassthrough: RouteNative,
 			execution.OperationWebSearch:            RouteNative,
 		},
