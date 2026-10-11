@@ -885,17 +885,26 @@ async function resetQuota(): Promise<void> {
     void cache.invalidateQueries({ queryKey: credentialDetailKey(props.group.id, row.id) })
   } catch (cause) {
     if (controller.signal.aborted) return
+    const preparationFailed =
+      cause instanceof ApiError && cause.code === 'RESET_CREDIT_PREPARATION_FAILED'
     const unknown =
-      !(cause instanceof ApiError) ||
-      cause.code === 'RESET_CREDIT_OUTCOME_UNKNOWN' ||
-      cause.status >= 500
+      !preparationFailed &&
+      (!(cause instanceof ApiError) ||
+        cause.code === 'RESET_CREDIT_OUTCOME_UNKNOWN' ||
+        cause.status >= 500)
     if (!unknown) {
       resetKeys.delete(row.id)
       resetTarget.value = undefined
     }
     cardErrors.value.set(
       row.id,
-      t(unknown ? 'credentialCards.resetUnknown' : 'credentialCards.actionFailed'),
+      t(
+        preparationFailed
+          ? 'credentialCards.resetPreparationFailed'
+          : unknown
+            ? 'credentialCards.resetUnknown'
+            : 'credentialCards.actionFailed',
+      ),
     )
   } finally {
     mutating.value = undefined

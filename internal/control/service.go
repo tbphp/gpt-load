@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -75,7 +76,8 @@ type Service struct {
 	recoverSubscriptionCredential     func(context.Context, channel.ID, execution.CredentialSnapshot) (subscriptionruntime.Credential, *execution.ErrorEvidence)
 	discoverSubscriptionModels        func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target) ([]string, error)
 	observeSubscriptionAccount        func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target) (subscriptionruntime.Observation, error)
-	consumeSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, string) (subscriptionruntime.ResetCreditResult, error)
+	prepareSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target) (json.RawMessage, error)
+	consumeSubscriptionResetCredit    func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error)
 	oauthCallback                     *OAuthCallbackManager
 	now                               func() time.Time
 	publishSnapshot                   func(state.CompileInput) (*state.ConfigSnapshot, error)
@@ -243,12 +245,22 @@ func NewService(
 			}
 			return capability.Observe(ctx, credential, target)
 		},
-		consumeSubscriptionResetCredit: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+		prepareSubscriptionResetCredit: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (json.RawMessage, error) {
+			capability, ok := subscriptions.ResetCreditAction(channelID)
+			if !ok {
+				return nil, app_errors.ErrValidation
+			}
+			if preparer, ok := capability.(subscriptionruntime.ResetCreditPreparer); ok {
+				return preparer.PrepareResetCredit(ctx, credential, target)
+			}
+			return nil, nil
+		},
+		consumeSubscriptionResetCredit: func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, target subscriptionruntime.Target, request subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error) {
 			capability, ok := subscriptions.ResetCreditAction(channelID)
 			if !ok {
 				return subscriptionruntime.ResetCreditResult{}, app_errors.ErrValidation
 			}
-			return capability.Consume(ctx, credential, target, requestID)
+			return capability.Consume(ctx, credential, target, request)
 		},
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
