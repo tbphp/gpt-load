@@ -271,6 +271,26 @@ func liveRequest(t *testing.T, client *http.Client, method, endpoint, key, conte
 	return response
 }
 
+// waitLiveSidebandReleased 等待服务端读到断开并释放控制连接占用；race 模式下释放明显变慢，立即重连会被当作重复接入拒绝。
+func waitLiveSidebandReleased(t *testing.T, handler *Handler, id string) {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		handler.liveSessions.mu.Lock()
+		call := handler.liveSessions.calls[id]
+		attached := call != nil && call.attached
+		handler.liveSessions.mu.Unlock()
+		if !attached {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("live sideband was not released after the client closed it")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
 func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connection, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
@@ -287,7 +307,7 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 	}))
 	defer echo.Close()
 	fake := &liveFakeOpener{wsURL: "ws" + strings.TrimPrefix(echo.URL, "http")}
-	_, engine, sink, _, _ := liveGatewayFixture(t, fake)
+	handler, engine, sink, _, _ := liveGatewayFixture(t, fake)
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	models := []string{"client-live-model", channel.CodexLiveModelID, channel.CodexLiveModelID, channel.CodexLiveModelID}
@@ -349,6 +369,7 @@ func TestCodexLiveCreatesAcrossGroupsPinsOwnerAndLogsOnce(t *testing.T) {
 					}
 				}
 				_ = connection.Close()
+				waitLiveSidebandReleased(t, handler, "rtc_1")
 			}
 		}
 		hungup := liveRequest(t, server.Client(), http.MethodPost, server.URL+location+"/hangup", "gl-client", "", nil)
