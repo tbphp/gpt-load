@@ -22,7 +22,6 @@ func Logger(config types.LogConfig) gin.HandlerFunc {
 
 		start := time.Now()
 		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
 
 		// Process request
 		c.Next()
@@ -33,12 +32,6 @@ func Logger(config types.LogConfig) gin.HandlerFunc {
 		// Get basic information
 		method := c.Request.Method
 		statusCode := c.Writer.Status()
-
-		// Build full path (avoid string concatenation)
-		fullPath := path
-		if raw != "" {
-			fullPath = path + "?" + raw
-		}
 
 		// Get key information (if exists)
 		keyInfo := ""
@@ -58,18 +51,18 @@ func Logger(config types.LogConfig) gin.HandlerFunc {
 		if isMonitoringEndpoint(path) {
 			// Only log errors for monitoring endpoints
 			if statusCode >= 400 {
-				logrus.Warnf("%s %s - %d - %v", method, fullPath, statusCode, latency)
+				logrus.Warnf("%s %s - %d - %v", method, path, statusCode, latency)
 			}
 			return
 		}
 
 		// Choose log level based on status code
 		if statusCode >= 500 {
-			logrus.Errorf("%s %s - %d - %v%s%s", method, fullPath, statusCode, latency, keyInfo, retryInfo)
+			logrus.Errorf("%s %s - %d - %v%s%s", method, path, statusCode, latency, keyInfo, retryInfo)
 		} else if statusCode >= 400 {
-			logrus.Warnf("%s %s - %d - %v%s%s", method, fullPath, statusCode, latency, keyInfo, retryInfo)
+			logrus.Warnf("%s %s - %d - %v%s%s", method, path, statusCode, latency, keyInfo, retryInfo)
 		} else {
-			logrus.Infof("%s %s - %d - %v%s%s", method, fullPath, statusCode, latency, keyInfo, retryInfo)
+			logrus.Infof("%s %s - %d - %v%s%s", method, path, statusCode, latency, keyInfo, retryInfo)
 		}
 	}
 }
