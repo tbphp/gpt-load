@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  Activity,
   ChevronDown,
   Download,
   Layers,
@@ -40,7 +41,9 @@ import {
   revealCredential,
   runCredentialAction,
   updateCredential,
+  testCredential,
 } from '@modern/api/credential-actions'
+import { useCredentialTestBatch, type CredentialTestOptions } from '@shared/credential-test-batch'
 import { ApiError } from '@shared/http/errors'
 import {
   APIKeyFileImportError,
@@ -63,6 +66,7 @@ import {
   AppFilterSummary,
   AppIconButton,
   AppListFrame,
+  AppNotice,
   AppPagination,
   AppSegmentedControl,
   AppSortMenu,
@@ -183,6 +187,17 @@ const accountBatch = ref<{
 }>()
 const list = ref<InstanceType<typeof AppListFrame>>()
 const controller = new AbortController()
+const {
+  report: testBatch,
+  pending: testBatchPending,
+  itemsByID: testBatchItems,
+  counts: testBatchCounts,
+  retryIDs: testBatchRetryIDs,
+  run: runTestBatch,
+  stop: stopTestBatch,
+  reset: resetTestBatch,
+} = useCredentialTestBatch()
+const testBatchTargets = ref<number[]>([])
 const syncSuccessTimers = new Map<number, ReturnType<typeof setTimeout>>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const query = useQuery(
@@ -195,7 +210,9 @@ const query = useQuery(
 )
 const rows = computed(() => query.data.value?.items ?? [])
 const filteredCredential = computed(() => (filters.value.credential ? rows.value[0] : undefined))
-const busy = computed(() => query.isFetching.value || mutating.value !== undefined)
+const busy = computed(
+  () => query.isFetching.value || mutating.value !== undefined || testBatchPending.value,
+)
 const syncPending = (id: number) => syncing.value.has(id) || queuedSync.value.has(id)
 const bulkBusy = computed(() => busy.value || accountBatchPending.value || syncing.value.size > 0)
 const stale = computed(() => query.isError.value && Boolean(query.data.value))
@@ -312,6 +329,13 @@ const canSyncSelected = computed(
     rows.value.some((row) => selected.value.has(row.id) && !syncPending(row.id)),
 )
 watch(bulkBusy, (value) => emit('pending', value), { immediate: true })
+watch(
+  () => props.group.id,
+  () => {
+    resetTestBatch()
+    testBatchTargets.value = []
+  },
+)
 watch(query.dataUpdatedAt, (value) => emit('updatedAt', value), { immediate: true })
 watch([query.data, bulkBusy], ([data, pending]) => {
   if (!data || query.isPlaceholderData.value) return
@@ -473,6 +497,23 @@ async function runAccountBatch(
     accountBatchPending.value = false
     if (action === 'download') mutating.value = undefined
   }
+}
+function openBatchTest(): void {
+  if (bulkBusy.value || props.group.connectionType !== 'api_key') return
+  testBatchTargets.value = rows.value
+    .filter((row) => selected.value.has(row.id))
+    .map((row) => row.id)
+}
+async function startBatchTest(
+  options: CredentialTestOptions,
+  ids = testBatchTargets.value,
+): Promise<void> {
+  if (bulkBusy.value || props.group.connectionType !== 'api_key' || !ids.length) return
+  const groupID = props.group.id
+  testBatchTargets.value = []
+  await runTestBatch(ids, options, (id, selected, signal) =>
+    testCredential(client, groupID, id, selected.protocol, selected.model, signal),
+  )
 }
 async function syncQuota(row: CredentialRow): Promise<void> {
   const previous = syncSuccessTimers.get(row.id)
@@ -1025,6 +1066,14 @@ defineExpose({ refresh })
                 @click="deleting = [...selected]"
               />
               <AppIconButton
+                v-if="group.connectionType === 'api_key'"
+                :icon="Activity"
+                :label="t('credentialBatchTest.selected')"
+                size="sm"
+                :disabled="bulkBusy"
+                @click="openBatchTest"
+              />
+              <AppIconButton
                 v-if="group.connectionType === 'subscription' && channel?.quotaObservation"
                 :icon="RefreshCw"
                 :label="t('groupWorkflows.syncSelected')"
@@ -1071,6 +1120,35 @@ defineExpose({ refresh })
             </template>
           </AppFileButton>
         </div>
+        <AppNotice
+          v-if="testBatch"
+          :tone="
+            testBatchPending
+              ? 'info'
+              : testBatchCounts.passed === testBatchCounts.total
+                ? 'success'
+                : 'warning'
+          "
+        >
+          {{ testBatch.options.protocol }} · {{ testBatch.options.model }}<br />
+          {{ t('credentialBatchTest.progress', testBatchCounts) }}
+          <template v-if="testBatchCounts.cancelled">
+            ·
+            {{ t('credentialBatchTest.cancelled', { count: testBatchCounts.cancelled }) }}</template
+          >
+          <template #actions>
+            <AppButton v-if="testBatchPending" size="sm" @click="stopTestBatch">{{
+              t('credentialBatchTest.stop')
+            }}</AppButton>
+            <AppButton
+              v-else-if="testBatchRetryIDs.length"
+              size="sm"
+              :disabled="bulkBusy"
+              @click="startBatchTest(testBatch.options, testBatchRetryIDs)"
+              >{{ t('credentialBatchTest.retry') }}</AppButton
+            >
+          </template>
+        </AppNotice>
       </template>
       <AppCollectionState
         v-if="query.isError.value && !query.data.value"
@@ -1113,6 +1191,7 @@ defineExpose({ refresh })
             :row="row"
             :selected="selected.has(row.id)"
             :pending="mutating === row.id"
+            :test-state="testBatchItems.get(row.id)"
             :disabled="busy"
             :error="cardErrors.get(row.id)"
             :resolve-secret="copySecret(row.id)"
@@ -1206,6 +1285,13 @@ defineExpose({ refresh })
     :row="testing"
     @close="testing = undefined"
     @changed="changed"
+  />
+  <CredentialTestDialog
+    v-if="testBatchTargets.length"
+    :group-id="group.id"
+    :batch-count="testBatchTargets.length"
+    @close="testBatchTargets = []"
+    @start="startBatchTest"
   />
   <AppDraftGuard
     :dirty="nameDrafts.size > 0"

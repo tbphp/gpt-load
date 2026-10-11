@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { CircleCheck, CircleOff, Download, ListChecks, RefreshCw, Trash2 } from '@lucide/vue'
+import {
+  Activity,
+  CircleCheck,
+  CircleOff,
+  Download,
+  ListChecks,
+  RefreshCw,
+  Trash2,
+} from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
@@ -11,6 +19,7 @@ defineProps<{
   pending?: boolean
   canSync?: boolean
   canDownload?: boolean
+  canTest?: boolean
 }>()
 const emit = defineEmits<{
   'toggle-select': []
@@ -19,6 +28,7 @@ const emit = defineEmits<{
   sync: []
   download: []
   remove: []
+  test: []
 }>()
 const { n, t } = useI18n()
 </script>
@@ -76,6 +86,17 @@ const { n, t } = useI18n()
       >
         <Trash2 :size="15" aria-hidden="true" />
         {{ t('group.credentials.batch.delete') }}
+      </AppButton>
+      <AppButton
+        v-if="canTest"
+        variant="secondary"
+        tone="action"
+        size="compact"
+        :disabled="pending || selectedCount === 0"
+        @click="emit('test')"
+      >
+        <Activity :size="15" aria-hidden="true" />
+        {{ t('credentialBatchTest.selected') }}
       </AppButton>
       <AppButton
         v-if="canSync"
