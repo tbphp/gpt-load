@@ -204,7 +204,10 @@ useMessageSource(() =>
       </button>
     </AppTooltip>
     <div class="modern-main-column">
-      <header class="modern-topbar">
+      <header
+        class="modern-topbar"
+        :class="{ 'has-auto-refresh': pageRefresh.autoAvailable.value }"
+      >
         <h1>{{ pageTitle }}</h1>
         <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
           <span v-if="refreshedAt">{{ refreshedAt }}</span>
@@ -456,6 +459,10 @@ useMessageSource(() =>
   .modern-topbar-refresh > span,
   .modern-topbar-divider {
     display: none;
+  }
+  /* 多出自动刷新按钮的页面，标题独占首行，避免被挤成省略号。 */
+  .modern-topbar.has-auto-refresh h1 {
+    flex: 1 0 100%;
   }
   .modern-session-scope {
     order: 1;
