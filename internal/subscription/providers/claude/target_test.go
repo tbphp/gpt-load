@@ -38,7 +38,7 @@ func TestBusinessTargetPreservesNativeEndpoints(t *testing.T) {
 				{"observation", func(ctx context.Context, c subscriptionruntime.Credential, target subscriptionruntime.Target) error {
 					_, err := driver.Observe(ctx, c, target)
 					return err
-				}, []string{"https://api.anthropic.com/api/oauth/profile", "https://api.anthropic.com/api/oauth/claude_cli/roles", "https://api.anthropic.com/api/claude_cli/bootstrap", "https://api.anthropic.com/api/oauth/usage"}},
+				}, []string{"https://api.anthropic.com/api/oauth/profile", "https://api.anthropic.com/api/oauth/claude_cli/roles", "https://api.anthropic.com/api/claude_cli/bootstrap", "https://api.anthropic.com/api/oauth/usage?cedar_ember=1"}},
 				{"refresh official", func(ctx context.Context, c subscriptionruntime.Credential, _ subscriptionruntime.Target) error {
 					_, err := driver.Refresh(ctx, c)
 					return err

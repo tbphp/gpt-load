@@ -20,8 +20,11 @@ import (
 const (
 	claudeBootstrapBeta      = "oauth-2025-04-20"
 	claudeBootstrapUserAgent = "claude-code/2.1.220"
+	// 重置卡信息要求识别到支持该能力的 CLI 版本，仅用于用量查询。
+	claudeUsageUserAgent     = "claude-cli/2.1.296 (external, cli)"
 	maxClaudeModels          = 256
 	maxClaudeScopedLimits    = 256
+	maxClaudeResetCredits    = 256
 	maxClaudeSafeScalarBytes = 512
 )
 
@@ -91,6 +94,12 @@ type ClaudeScopedLimit struct {
 	SurfaceDisplayName string
 }
 
+// ClaudeResetGrant 只保留可展示的数量和期限，不接收上游兑换标识。
+type ClaudeResetGrant struct {
+	Remaining int64
+	ExpiresAt *string
+}
+
 // ClaudeUsage is the typed Claude OAuth usage response.
 type ClaudeUsage struct {
 	FiveHour          *ClaudeUsageWindow
@@ -101,6 +110,7 @@ type ClaudeUsage struct {
 	CinderCove        *ClaudeUsageWindow
 	ExtraUsage        *ClaudeExtraUsage
 	Limits            []ClaudeScopedLimit
+	ResetGrants       []ClaudeResetGrant
 }
 
 // ClaudeAccountObservation combines account metadata and quota evidence.
@@ -165,7 +175,16 @@ type claudeUsagePayload struct {
 	SevenDaySonnet    *claudeUsageWindowPayload `json:"seven_day_sonnet"`
 	CinderCove        *claudeUsageWindowPayload `json:"cinder_cove"`
 	ExtraUsage        *claudeExtraUsagePayload  `json:"extra_usage"`
-	Limits            []struct {
+	CedarEmber        *struct {
+		Eligible bool `json:"eligible"`
+		Grants   []struct {
+			Remaining int64   `json:"resets_left"`
+			ExpiresAt *string `json:"ends_at"`
+			UsableNow bool    `json:"usable_now"`
+			Paused    bool    `json:"paused"`
+		} `json:"grants"`
+	} `json:"cedar_ember"`
+	Limits []struct {
 		Kind     string   `json:"kind"`
 		Group    string   `json:"group"`
 		Percent  *float64 `json:"percent"`
@@ -559,7 +578,13 @@ func fetchAndDecodeClaudeUsage(
 	if endpoint == "" {
 		endpoint = ClaudeUsageURL
 	}
-	body, header, err := fetchClaudeOAuthJSONRequest(ctx, options, endpoint, credential.AccessToken, nil)
+	body, header, err := fetchClaudeOAuthJSONRequest(ctx, options, endpoint, credential.AccessToken, func(request *http.Request) {
+		query := request.URL.Query()
+		query.Set("cedar_ember", "1")
+		request.URL.RawQuery = query.Encode()
+		request.Header.Set("Anthropic-Beta", claudeBootstrapBeta)
+		request.Header.Set("User-Agent", claudeUsageUserAgent)
+	})
 	if err != nil {
 		return ClaudeUsage{}, nil, err
 	}
@@ -664,7 +689,7 @@ func claudeUsageUsable(usage ClaudeUsage) bool {
 			return true
 		}
 	}
-	return usage.ExtraUsage != nil || len(usage.Limits) > 0
+	return usage.ExtraUsage != nil || len(usage.Limits) > 0 || usage.ResetGrants != nil
 }
 
 func validateClaudeProfileIdentity(credential ClaudeCredential, profile claudeOAuthProfile) error {
@@ -694,6 +719,32 @@ func validateClaudeBootstrapIdentity(credential ClaudeCredential, bootstrap clau
 
 func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 	result := ClaudeUsage{}
+	if resets := payload.CedarEmber; resets != nil {
+		result.ResetGrants = []ClaudeResetGrant{}
+		if len(resets.Grants) > maxClaudeResetCredits {
+			return ClaudeUsage{}, fmt.Errorf("too many Claude reset grants")
+		}
+		if resets.Eligible {
+			total := int64(0)
+			for _, grant := range resets.Grants {
+				if !grant.UsableNow || grant.Paused {
+					continue
+				}
+				if grant.Remaining < 0 || grant.Remaining > maxClaudeResetCredits-total {
+					return ClaudeUsage{}, fmt.Errorf("Claude reset credit count is invalid")
+				}
+				if grant.Remaining == 0 {
+					continue
+				}
+				expires, err := claudeOptionalSafeScalar("reset credit expiration", grant.ExpiresAt)
+				if err != nil {
+					return ClaudeUsage{}, err
+				}
+				total += grant.Remaining
+				result.ResetGrants = append(result.ResetGrants, ClaudeResetGrant{Remaining: grant.Remaining, ExpiresAt: expires})
+			}
+		}
+	}
 	var err error
 	if result.FiveHour, err = mapClaudeUsageWindow("five_hour", payload.FiveHour); err != nil {
 		return ClaudeUsage{}, err

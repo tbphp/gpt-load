@@ -329,11 +329,7 @@ const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
 const availableResetCreditDetails = computed(() =>
   resetCredits.value.slice(0, resetCreditsAvailable.value),
 )
-const hasResetCredits = computed(
-  () =>
-    props.account.capabilities.credential_actions.includes('reset_credit') &&
-    resetCreditsAvailable.value > 0,
-)
+const hasResetCredits = computed(() => resetCreditsAvailable.value > 0)
 
 // 点阵最多画 5 个，避免账号数多、卡片窄时被点阵撑爆；确切张数留给 tooltip 与读屏文本。
 const resetCreditDots = computed(() =>
