@@ -40,6 +40,10 @@ type storedResetCreditResult struct {
 	RedeemedAtMS *int64 `json:"redeemed_at_ms,omitempty"`
 }
 
+type storedResetCreditRequest struct {
+	Request json.RawMessage `json:"request"`
+}
+
 // ConsumeCredentialResetCredit idempotently consumes one provider reset credit
 // and returns the refreshed observation when it is immediately available.
 func (s *Service) ConsumeCredentialResetCredit(
@@ -109,7 +113,11 @@ func (s *Service) ConsumeCredentialResetCredit(
 		return ResetCreditConsumeResponse{}, app_errors.ErrResetCreditOutcomeUnknown
 	}
 	callContext, cancel := context.WithTimeout(ctx, defaultSubscriptionControlTimeout)
-	upstream, consumeErr := s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, target, operation.RedeemRequestID)
+	request, consumeErr := s.prepareResetCreditRequest(callContext, operation, channelID, preparedCredential, target)
+	var upstream subscriptionruntime.ResetCreditResult
+	if consumeErr == nil {
+		upstream, consumeErr = s.consumeSubscriptionResetCredit(callContext, channelID, preparedCredential, target, request)
+	}
 	cancel()
 	if consumeErr != nil {
 		state, apiErr := classifyResetCreditConsumeError(consumeErr)
@@ -253,7 +261,6 @@ func (s *Service) beginResetCreditOperation(
 				Where("idempotency_key = ? AND state = ? AND updated_at_ms = ?", existing.IdempotencyKey, existing.State, existing.UpdatedAtMS).
 				Updates(map[string]any{
 					"state":           models.CredentialResetOperationPrepared,
-					"result_json":     models.JSON(nil),
 					"error_code":      "",
 					"updated_at_ms":   nowMS,
 					"completed_at_ms": nil,
@@ -265,7 +272,6 @@ func (s *Service) beginResetCreditOperation(
 				return models.CredentialResetOperation{}, false, app_errors.ErrResetCreditOutcomeUnknown
 			}
 			existing.State = models.CredentialResetOperationPrepared
-			existing.ResultJSON = nil
 			existing.ErrorCode = ""
 			existing.UpdatedAtMS = nowMS
 			existing.CompletedAtMS = nil
@@ -433,8 +439,12 @@ func (s *Service) finishResetCreditOperation(
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	updates := map[string]any{
-		"state": state, "result_json": models.JSON(result), "error_code": errorCode,
+		"state": state, "error_code": errorCode,
 		"updated_at_ms": nowMS, "completed_at_ms": nowMS,
+	}
+	// 结果不确定时保留选卡参数，重试不得改用另一张卡。
+	if state != models.CredentialResetOperationOutcomeUnknown || result != nil {
+		updates["result_json"] = models.JSON(result)
 	}
 	resultUpdate := s.db.WithContext(cleanupContext).Model(&models.CredentialResetOperation{}).
 		Where("idempotency_key = ? AND state = ?", idempotencyKey, models.CredentialResetOperationPrepared).
@@ -446,6 +456,51 @@ func (s *Service) finishResetCreditOperation(
 		return fmt.Errorf("credential reset operation state changed")
 	}
 	return nil
+}
+
+func (s *Service) prepareResetCreditRequest(
+	ctx context.Context,
+	operation models.CredentialResetOperation,
+	channelID channel.ID,
+	credential subscriptionruntime.Credential,
+	target subscriptionruntime.Target,
+) (subscriptionruntime.ResetCreditRequest, error) {
+	request := subscriptionruntime.ResetCreditRequest{ID: operation.RedeemRequestID}
+	if len(operation.ResultJSON) > 0 {
+		var stored storedResetCreditRequest
+		if json.Unmarshal(operation.ResultJSON, &stored) != nil || len(stored.Request) == 0 {
+			return request, errors.New("invalid stored reset credit request")
+		}
+		request.Data = stored.Request
+		return request, nil
+	}
+	if s.prepareSubscriptionResetCredit == nil {
+		return request, nil
+	}
+	data, err := s.prepareSubscriptionResetCredit(ctx, channelID, credential, target)
+	if err != nil || len(data) == 0 {
+		return request, err
+	}
+	if len(data) > 4096 || !json.Valid(data) {
+		return request, errors.New("invalid reset credit request data")
+	}
+	raw, err := json.Marshal(storedResetCreditRequest{Request: data})
+	if err != nil {
+		return request, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	result := s.db.WithContext(ctx).Model(&models.CredentialResetOperation{}).
+		Where("idempotency_key = ? AND state = ? AND updated_at_ms = ?", operation.IdempotencyKey, models.CredentialResetOperationPrepared, operation.UpdatedAtMS).
+		Updates(map[string]any{"result_json": models.JSON(raw), "updated_at_ms": operation.UpdatedAtMS})
+	if result.Error != nil {
+		return request, app_errors.ParseDBError(result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return request, errors.New("reset credit operation changed before dispatch")
+	}
+	request.Data = data
+	return request, nil
 }
 
 func classifyResetCreditConsumeError(err error) (models.CredentialResetOperationState, *app_errors.APIError) {

@@ -53,6 +53,7 @@ type ClaudeOptions struct {
 	RolesURL     string
 	BootstrapURL string
 	UsageURL     string
+	ResetBaseURL string
 	HTTPClient   *http.Client
 	Now          func() time.Time
 }

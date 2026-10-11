@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/embedded"
+
+	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
 func TestClaudeResetCreditObservation(t *testing.T) {
@@ -108,6 +111,46 @@ func TestClaudeResetCreditObservation(t *testing.T) {
 			}
 			if strings.Contains(string(bridgeJSON), "private-redemption-handle") || strings.Contains(string(raw), "private-redemption-handle") {
 				t.Fatal("observation leaked a redemption handle")
+			}
+		})
+	}
+}
+
+func TestClaudeResetResultClassification(t *testing.T) {
+	for _, test := range []struct {
+		result, reason string
+		status         int
+	}{
+		{result: "reset"},
+		{result: "already_used", status: http.StatusConflict},
+		{result: "ineligible", status: http.StatusConflict},
+		{result: "unavailable", status: -1},
+		{result: "not_limited", status: http.StatusBadRequest},
+		{result: "cooldown", status: http.StatusTooManyRequests},
+		{result: "unavailable", reason: "stamp_indeterminate", status: -1},
+		{result: "unavailable", reason: "reset_unconfirmed", status: -1},
+		{result: "unknown-private-response", status: -1},
+	} {
+		t.Run(test.result+"/"+test.reason, func(t *testing.T) {
+			got, err := normalizeClaudeResetResult(cpaembedded.ClaudeResetCreditResult{
+				Result: test.result, Reason: test.reason, Cleared: []string{"five_hour", "seven_day"},
+			})
+			if test.status == 0 {
+				if err != nil || got.Status != "succeeded" || got.WindowsReset != 2 {
+					t.Fatalf("confirmed reset = %#v, %v", got, err)
+				}
+				return
+			}
+			if err == nil || got.Status == "succeeded" || strings.Contains(err.Error(), "unknown-private-response") {
+				t.Fatalf("unconfirmed reset was accepted or leaked upstream data: %#v, %v", got, err)
+			}
+			var upstream *subscriptionruntime.UpstreamHTTPError
+			if test.status > 0 {
+				if !errors.As(err, &upstream) || upstream.StatusCode != test.status {
+					t.Fatalf("reset rejection = %v, want HTTP %d", err, test.status)
+				}
+			} else if errors.As(err, &upstream) {
+				t.Fatalf("unknown outcome classified as a definitive rejection: %v", err)
 			}
 		})
 	}

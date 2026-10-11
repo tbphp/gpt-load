@@ -289,7 +289,7 @@ const resetCredits = computed(() => snapshot.value?.reset_credits ?? [])
 const availableResetCreditDetails = computed(() =>
   resetCredits.value.slice(0, resetCreditsAvailable.value),
 )
-const hasResetCredits = computed(() => resetCreditsAvailable.value > 0)
+const hasResetCredits = computed(() => supportsResetCredit.value && resetCreditsAvailable.value > 0)
 type ResetCreditDotTone = 'default' | 'warning' | 'danger'
 const resetCreditDots = computed(() =>
   Array.from({ length: Math.min(resetCreditsAvailable.value, 5) }, (_, index) => {
@@ -705,7 +705,7 @@ function runMenuAction(
           width="68px"
           height="14px"
         />
-        <SkeletonBlock v-if="supportsResetCredit" width="26px" height="26px" />
+        <SkeletonBlock width="26px" height="26px" />
       </div>
       <div class="subscription-account__refresh-skeleton-detail-control" aria-hidden="true">
         <span></span>
@@ -1044,7 +1044,7 @@ function runMenuAction(
         </span>
         <span class="subscription-account__spacer"></span>
         <AppTooltip
-          v-if="hasResetCredits && supportsResetCredit"
+          v-if="hasResetCredits"
           :content="t('group.credentials.subscription.resetCreditsActionTooltip')"
         >
           <AppButton

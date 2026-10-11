@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,12 @@ func TestBusinessTargetPreservesNativeEndpoints(t *testing.T) {
 					_, err := driver.Refresh(ctx, c)
 					return err
 				}, []string{"https://platform.claude.com/v1/oauth/token"}},
+				{"reset", func(ctx context.Context, c subscriptionruntime.Credential, target subscriptionruntime.Target) error {
+					_, err := (claudeResetCreditAction{driver}).Consume(ctx, c, target, subscriptionruntime.ResetCreditRequest{
+						ID: "test-request-id", Data: json.RawMessage(`{"organization_id":"org-one","grant_id":"grant-one"}`),
+					})
+					return err
+				}, []string{"https://api.anthropic.com/api/organizations/org-one/reset_rate_limits"}},
 			} {
 				t.Run(op.name, func(t *testing.T) {
 					var mu sync.Mutex
@@ -82,7 +89,7 @@ func TestBusinessTargetPreservesNativeEndpoints(t *testing.T) {
 							t.Fatal(err)
 						}
 						method := "GET"
-						if strings.Contains(u.Path, "v1internal:") || strings.HasSuffix(u.Path, "/token") || strings.HasSuffix(u.Path, "/consume") {
+						if strings.Contains(u.Path, "v1internal:") || strings.HasSuffix(u.Path, "/token") || strings.HasSuffix(u.Path, "/consume") || strings.HasSuffix(u.Path, "/reset_rate_limits") {
 							method = "POST"
 						}
 						if root != "" && op.name != "refresh official" {

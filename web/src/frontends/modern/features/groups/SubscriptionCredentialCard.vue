@@ -213,9 +213,8 @@ useLoadingActivity(() => Boolean(props.pending))
     <footer class="modern-subscription-card-footer modern-credential-surface-footer">
       <CredentialOutcomeSummary :usage="row.daily" compact />
       <div class="modern-subscription-card-actions">
-        <AppTooltip v-if="observation?.resetCredits" :label="creditLabel">
+        <AppTooltip v-if="channel?.resetCredit && observation?.resetCredits" :label="creditLabel">
           <AppButton
-            v-if="channel?.resetCredit"
             class="modern-subscription-card-reset"
             :icon="Ticket"
             variant="outline"
@@ -230,9 +229,6 @@ useLoadingActivity(() => Boolean(props.pending))
               n(observation.resetCredits)
             }}</span>
           </AppButton>
-          <AppBadge v-else :icon="Ticket" variant="outline" tabindex="0" :aria-label="creditLabel">
-            {{ t('credentialCards.resetCreditsShort', { count: n(observation.resetCredits) }) }}
-          </AppBadge>
         </AppTooltip>
         <CredentialCardActions
           :row="row"

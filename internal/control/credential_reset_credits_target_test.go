@@ -30,11 +30,11 @@ func TestConsumeCredentialResetCreditRejectsChangedTarget(t *testing.T) {
 				fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
 				setSubscriptionTestTarget(t, fixture, groupID, targets.before)
 				consumeCalls := 0
-				fixture.service.consumeSubscriptionResetCredit = func(_ context.Context, _ channel.ID, _ subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+				fixture.service.consumeSubscriptionResetCredit = func(_ context.Context, _ channel.ID, _ subscriptionruntime.Credential, target subscriptionruntime.Target, request subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error) {
 					consumeCalls++
 					root, err := target.BaseURL()
-					if err != nil || root != targets.before || requestID != resetCreditTestKey {
-						t.Errorf("reset target/request ID = %q/%q, error=%v", root, requestID, err)
+					if err != nil || root != targets.before || request.ID != resetCreditTestKey {
+						t.Errorf("reset target/request ID = %q/%q, error=%v", root, request.ID, err)
 					}
 					return subscriptionruntime.ResetCreditResult{}, context.DeadlineExceeded
 				}

@@ -94,7 +94,7 @@ type ClaudeScopedLimit struct {
 	SurfaceDisplayName string
 }
 
-// ClaudeResetGrant 只保留可展示的数量和期限，不接收上游兑换标识。
+// ClaudeResetGrant 只保留可展示的数量和期限，不向观测结果暴露兑换标识。
 type ClaudeResetGrant struct {
 	Remaining int64
 	ExpiresAt *string
@@ -176,8 +176,11 @@ type claudeUsagePayload struct {
 	CinderCove        *claudeUsageWindowPayload `json:"cinder_cove"`
 	ExtraUsage        *claudeExtraUsagePayload  `json:"extra_usage"`
 	CedarEmber        *struct {
-		Eligible bool `json:"eligible"`
-		Grants   []struct {
+		Eligible      bool    `json:"eligible"`
+		NextGrantID   string  `json:"next_grant_id"`
+		CooldownUntil *string `json:"cooldown_until"`
+		Grants        []struct {
+			ID        string  `json:"id"`
 			Remaining int64   `json:"resets_left"`
 			ExpiresAt *string `json:"ends_at"`
 			UsableNow bool    `json:"usable_now"`
@@ -574,6 +577,18 @@ func fetchAndDecodeClaudeUsage(
 	credential ClaudeCredential,
 	options ClaudeOptions,
 ) (ClaudeUsage, http.Header, error) {
+	payload, header, err := fetchClaudeUsagePayload(ctx, credential, options)
+	if err != nil {
+		return ClaudeUsage{}, nil, err
+	}
+	usage, err := mapClaudeUsage(payload)
+	if err != nil {
+		return ClaudeUsage{}, nil, err
+	}
+	return usage, header, nil
+}
+
+func fetchClaudeUsagePayload(ctx context.Context, credential ClaudeCredential, options ClaudeOptions) (claudeUsagePayload, http.Header, error) {
 	endpoint := strings.TrimSpace(options.UsageURL)
 	if endpoint == "" {
 		endpoint = ClaudeUsageURL
@@ -586,18 +601,14 @@ func fetchAndDecodeClaudeUsage(
 		request.Header.Set("User-Agent", claudeUsageUserAgent)
 	})
 	if err != nil {
-		return ClaudeUsage{}, nil, err
+		return claudeUsagePayload{}, nil, err
 	}
 	defer clear(body)
 	var payload claudeUsagePayload
 	if err := decodeClaudeJSONObject(body, &payload); err != nil {
-		return ClaudeUsage{}, nil, err
+		return claudeUsagePayload{}, nil, err
 	}
-	usage, err := mapClaudeUsage(payload)
-	if err != nil {
-		return ClaudeUsage{}, nil, err
-	}
-	return usage, header, nil
+	return payload, header, nil
 }
 
 func mapClaudeAccountProfile(payload claudeOAuthProfile) (ClaudeAccountProfile, error) {

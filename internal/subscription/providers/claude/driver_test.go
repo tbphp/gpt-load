@@ -80,14 +80,15 @@ func TestClaudeDriverClassifiesRefreshFailures(t *testing.T) {
 	}
 }
 
-func TestClaudeImplementationsExposeCompleteReadOnlyCapabilities(t *testing.T) {
+func TestClaudeImplementationsExposeDeclaredCapabilities(t *testing.T) {
 	implementations := Implementations()
 	if len(implementations.Drivers) != 1 || implementations.Drivers[0].ID() != modules.ClaudeSubscriptionDriver ||
 		len(implementations.ModelDiscoveries) != 1 ||
 		implementations.ModelDiscoveries[0].ID() != modules.ClaudeModelDiscovery ||
 		len(implementations.QuotaObservations) != 1 ||
 		implementations.QuotaObservations[0].ID() != modules.ClaudeQuotaObservation ||
-		len(implementations.ResetCreditActions) != 0 {
+		len(implementations.ResetCreditActions) != 1 ||
+		implementations.ResetCreditActions[0].ID() != modules.ClaudeResetCreditAction {
 		t.Fatalf("implementations = %#v", implementations)
 	}
 }

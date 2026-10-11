@@ -57,7 +57,7 @@ func TestBusinessTargetPreservesNativeEndpoints(t *testing.T) {
 					return err
 				}, []string{"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"}},
 				{"reset consume", func(ctx context.Context, c subscriptionruntime.Credential, target subscriptionruntime.Target) error {
-					_, err := driver.Consume(ctx, c, target, "test-request-id")
+					_, err := driver.Consume(ctx, c, target, subscriptionruntime.ResetCreditRequest{ID: "test-request-id"})
 					return err
 				}, []string{"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume"}},
 			} {
