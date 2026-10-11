@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { ArrowRight, CircleHelp, Info, Layers, Magnet, Search, TriangleAlert } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -15,6 +15,7 @@ import {
   requestLogQueryOptions,
   type RequestLogFilters,
   type RequestLogItemDto,
+  type RequestLogPageDto,
   type RequestLogPageSize,
 } from '@/app/resources/request-logs'
 import { monitorLocation } from '@/app/route-locations'
@@ -184,7 +185,20 @@ const logsQuery = useQuery({
   ...requestLogQueryOptions(client, appliedFilters, currentCursor),
   enabled: computed(() => !filterCommitPending.value),
 })
-const logs = computed(() => logsQuery.data.value?.items ?? [])
+// 快捷区间推进后，新区间拿到真实数据前沿用上次结果；请求失败时继续展示并保留提示，直到该区间请求成功。
+const refreshFallback = shallowRef<{ identity: string; page: RequestLogPageDto; failed: boolean }>()
+const logsIdentity = computed(() =>
+  JSON.stringify([appliedFilters.value, currentCursor.value ?? null]),
+)
+const activeFallback = computed(() =>
+  refreshFallback.value?.identity === logsIdentity.value &&
+  (logsQuery.data.value === undefined || logsQuery.isPlaceholderData.value)
+    ? refreshFallback.value
+    : undefined,
+)
+const logsPage = computed(() => logsQuery.data.value ?? activeFallback.value?.page)
+const logsStale = computed(() => logsQuery.isError.value || Boolean(activeFallback.value?.failed))
+const logs = computed(() => logsPage.value?.items ?? [])
 const {
   initial: initialLoading,
   transition: collectionTransition,
@@ -505,7 +519,7 @@ async function removeFilter(key: string): Promise<void> {
 
 function nextPage(): void {
   if (paginationBusy.value) return
-  const cursor = logsQuery.data.value?.next_cursor
+  const cursor = logsPage.value?.next_cursor
   if (!cursor || cursor === currentCursor.value) return
   if (routeState.value.cursorHistory.includes(cursor)) return
   pageTransitionOrigin.value = {
@@ -569,27 +583,35 @@ async function refresh(): Promise<void> {
   ])
 }
 
+// 已有日志请求、翻页或筛选提交进行中时，自动刷新跳过本轮。
+const autoRefreshBusy = computed(
+  () => logsQuery.isFetching.value || paginationPending.value || filterCommitPending.value,
+)
+
 async function autoRefresh(): Promise<boolean> {
-  if (logsQuery.isFetching.value || paginationPending.value || filterCommitPending.value)
-    return true
-  const { from_ms, to_ms, preset } = appliedFilters.value
+  const { preset } = appliedFilters.value
+  const page = logsPage.value
+  const failed = logsStale.value
   silentRefresh.value = true
   try {
     if (preset) {
       const interval = resolveDateTimePreset(preset, Math.floor(Date.now() / 1000) * 1000)
       if (interval.to_ms > interval.from_ms) emit('time-range-resolved', { ...interval, preset })
       await nextTick()
+      // 请求发出前就绑定兜底结果，失败时列表不会先被错误状态替换。
+      if (page) refreshFallback.value = { identity: logsIdentity.value, page, failed }
     }
+    const identity = logsIdentity.value
     const ok = !(await logsQuery.refetch({ cancelRefetch: false })).isError
-    // 推进后的区间没有数据可保留，失败时退回上一个区间，继续展示已加载的日志与失败提示。
-    if (!ok && preset) emit('time-range-resolved', { from_ms, to_ms, preset })
+    if (!ok && refreshFallback.value?.identity === identity)
+      refreshFallback.value = { ...refreshFallback.value, failed: true }
     return ok
   } finally {
     silentRefresh.value = false
   }
 }
 
-defineExpose({ openFilters, refresh, autoRefresh, filterCount })
+defineExpose({ openFilters, refresh, autoRefresh, autoRefreshBusy, filterCount })
 
 async function setDetailOpen(requestID: string | undefined, open: boolean): Promise<void> {
   const closingID = selectedRequestID.value
@@ -786,15 +808,15 @@ function costLabel(log: RequestLogItemDto): string {
       :label="t('monitor.logs.loading')"
     />
     <QueryFeedback
-      v-else-if="logsQuery.isError.value && !logsQuery.data.value"
+      v-else-if="logsQuery.isError.value && !logsPage"
       state="error"
       :message="t('monitor.logs.loadFailed')"
       :retry-label="t('common.retry')"
       @retry="logsQuery.refetch()"
     />
-    <template v-else-if="logsQuery.data.value">
+    <template v-else-if="logsPage">
       <QueryFeedback
-        v-if="logsQuery.isError.value"
+        v-if="logsStale"
         state="stale"
         :message="t('monitor.logs.stale')"
         :retry-label="t('common.retry')"
@@ -1160,7 +1182,7 @@ function costLabel(log: RequestLogItemDto): string {
         show-page-size
         appearance="detail"
         :has-previous="routeState.cursorHistory.length > 0"
-        :has-next="Boolean(logsQuery.data.value?.next_cursor)"
+        :has-next="Boolean(logsPage?.next_cursor)"
         :pending="paginationBusy"
         @previous="previousPage"
         @next="nextPage"

@@ -51,6 +51,7 @@ const logsTab = ref<{
   openFilters: () => void
   refresh: () => Promise<void>
   autoRefresh: () => Promise<boolean>
+  autoRefreshBusy: boolean
   filterCount: number
 } | null>(null)
 const usageTab = ref<{
@@ -89,7 +90,7 @@ const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQ
 useAutoRefresh({
   interval: () => (activeTab.value === 'logs' ? Number(logsAutoRefresh.value) : 0),
   run: () => logsTab.value?.autoRefresh() ?? Promise.resolve(true),
-  busy: () => logsRefreshPending.value,
+  busy: () => logsRefreshPending.value || (logsTab.value?.autoRefreshBusy ?? true),
 })
 const items = computed<AppTabItem[]>(() => {
   const shared = [
@@ -178,9 +179,9 @@ const timeErrors = computed(() => {
 })
 // 快捷区间随刷新推进时不重置正在编辑的时间草稿；打开选择器时会重新同步。
 watch(
-  () => [
-    activeTab.value,
-    timeFilters.value.preset ?? `${timeFilters.value.from_ms}:${timeFilters.value.to_ms}`,
+  [
+    () => activeTab.value,
+    () => timeFilters.value.preset ?? `${timeFilters.value.from_ms}:${timeFilters.value.to_ms}`,
   ],
   resetTimeDraft,
   { immediate: true },
