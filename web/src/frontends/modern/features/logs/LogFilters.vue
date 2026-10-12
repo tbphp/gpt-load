@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { SlidersHorizontal } from '@lucide/vue'
+import { SlidersHorizontal, X } from '@lucide/vue'
+import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LogAccessKeyOption, LogFilterName, LogQuery } from '@modern/api/logs'
@@ -8,7 +9,6 @@ import type { GroupChannel } from '@modern/api/group-create'
 import { getGroupCredentials } from '@modern/api/group-detail'
 import { channelSearchOption } from '@modern/components/channel-options'
 import {
-  AppAdvancedFilters,
   AppAdvancedFilterSection,
   AppProtocolTag,
   AppOverflowText,
@@ -21,6 +21,7 @@ import {
   AppTextField,
 } from '@modern/components/ui'
 import type { SearchSelectOption } from '@modern/components/ui'
+import { overlaySideOffset } from '@modern/components/ui/overlay'
 import {
   formatLocalDateTime,
   parseLocalDateTime,
@@ -246,6 +247,11 @@ const sections = computed(() =>
     }))
     .filter((section) => section.fields.length || (section.id === 'routing' && props.admin)),
 )
+const hasAdvancedFilters = computed(
+  () =>
+    sections.value.some((section) => section.fields.some((field) => props.filters[field.key])) ||
+    Boolean(props.admin && props.filters.credential_id),
+)
 const loadCredentials = computed(() => {
   const groupID = Number(draft.value.group_id)
   return async (q: string, signal: AbortSignal) => {
@@ -350,113 +356,144 @@ const loadCredentials = computed(() => {
         @update:model-value="update('client_model', $event, false)"
       />
       <div class="modern-log-filter-actions">
-        <AppIconButton
-          :icon="SlidersHorizontal"
-          :label="t('logs.moreFilters')"
-          :tooltip="true"
-          :aria-expanded="more"
-          aria-controls="modern-log-more-filters"
-          @click="emit('more', !more)"
-        />
+        <PopoverRoot :open="more" @update:open="emit('more', $event)">
+          <PopoverTrigger as-child>
+            <AppIconButton
+              :icon="SlidersHorizontal"
+              :label="t('logs.moreFilters')"
+              :variant="more || hasAdvancedFilters ? 'brand' : 'ghost'"
+            />
+          </PopoverTrigger>
+          <PopoverPortal>
+            <PopoverContent
+              class="modern-log-more-filters"
+              align="end"
+              :side-offset="overlaySideOffset"
+              :collision-padding="16"
+              :aria-label="t('logs.moreFilters')"
+              @keydown.enter="keyApply"
+              @compositionstart="startComposition"
+              @compositionend="endComposition"
+            >
+              <header class="modern-log-more-filter-heading">
+                <strong>{{ t('logs.moreFilters') }}</strong>
+                <PopoverClose as-child>
+                  <AppIconButton :icon="X" :label="t('ui.close')" size="xs" />
+                </PopoverClose>
+              </header>
+              <div class="modern-log-more-filter-sections">
+                <AppAdvancedFilterSection
+                  v-for="section in sections"
+                  :key="section.id"
+                  :title="t('logs.filterSections.' + section.id)"
+                  compact
+                >
+                  <template v-if="section.id === 'routing' && admin">
+                    <AppSearchSelect
+                      :key="draft.group_id || 'all'"
+                      :model-value="draft.credential_id ?? ''"
+                      :options="[]"
+                      :load-options="loadCredentials"
+                      :selected-option="credentialOption"
+                      :label="t('logs.filters.credential_id')"
+                      :placeholder="
+                        t(draft.group_id ? 'logs.searchCredential' : 'logs.selectGroupFirst')
+                      "
+                      size="xs"
+                      :disabled="!draft.group_id"
+                      @update:model-value="update('credential_id', $event)"
+                    />
+                  </template>
+                  <!-- 任意分段内的下限字段都渲染成一行范围，上限并入其中。 -->
+                  <template v-for="field in section.fields" :key="field.key">
+                    <div v-if="field.key.includes('_min')" class="modern-log-filter-range">
+                      <span>{{ rangeLabel(field) }}{{ rangeUnit(field) }}</span>
+                      <div>
+                        <AppTextField
+                          :model-value="draft[field.key] ?? ''"
+                          :label="t('logs.filters.' + field.key)"
+                          label-hidden
+                          :placeholder="t('logs.minimum')"
+                          :inputmode="field.kind === 'money' ? 'decimal' : 'numeric'"
+                          :error="
+                            errors[field.key] ? t('logs.errors.' + errors[field.key]) : undefined
+                          "
+                          size="xs"
+                          @update:model-value="update(field.key, $event, false)"
+                        />
+                        <span aria-hidden="true">–</span>
+                        <AppTextField
+                          :model-value="draft[upperKey(field.key)] ?? ''"
+                          :label="t('logs.filters.' + upperKey(field.key))"
+                          label-hidden
+                          :placeholder="t('logs.maximum')"
+                          :inputmode="field.kind === 'money' ? 'decimal' : 'numeric'"
+                          :error="
+                            errors[upperKey(field.key)]
+                              ? t('logs.errors.' + errors[upperKey(field.key)])
+                              : undefined
+                          "
+                          size="xs"
+                          @update:model-value="update(upperKey(field.key), $event, false)"
+                        />
+                      </div>
+                    </div>
+                    <AppSearchSelect
+                      v-else-if="field.key === 'operation'"
+                      :model-value="draft.operation ?? ''"
+                      :options="options(field)"
+                      :label="t('logs.filters.operation')"
+                      size="xs"
+                      @update:model-value="update('operation', $event)"
+                    />
+                    <AppSelect
+                      v-else-if="field.kind === 'select'"
+                      :model-value="draft[field.key] ?? ''"
+                      :options="options(field)"
+                      :label="t('logs.filters.' + field.key)"
+                      size="xs"
+                      @update:model-value="update(field.key, $event)"
+                    >
+                      <template #value="{ value, label }"
+                        ><AppProtocolTag
+                          v-if="field.key === 'protocol' && value"
+                          :protocol="value" /><AppOverflowText v-else :text="label"
+                      /></template>
+                      <template #option="{ option }"
+                        ><AppProtocolTag
+                          v-if="field.key === 'protocol' && option.value"
+                          :protocol="option.value"
+                        /><span v-else>{{ option.label }}</span></template
+                      >
+                    </AppSelect>
+                    <AppTextField
+                      v-else-if="!field.key.includes('_max')"
+                      :model-value="draft[field.key] ?? ''"
+                      :label="t('logs.filters.' + field.key)"
+                      :placeholder="
+                        t(field.key === 'audit_rule' ? 'requestAudit.ruleSearch' : 'logs.any')
+                      "
+                      :inputmode="
+                        field.kind === 'money'
+                          ? 'decimal'
+                          : field.kind === 'number'
+                            ? 'numeric'
+                            : undefined
+                      "
+                      :error="errors[field.key] ? t('logs.errors.' + errors[field.key]) : undefined"
+                      size="xs"
+                      autocomplete="off"
+                      @update:model-value="update(field.key, $event, false)"
+                    />
+                  </template>
+                </AppAdvancedFilterSection>
+              </div>
+            </PopoverContent>
+          </PopoverPortal>
+        </PopoverRoot>
         <slot name="actions" />
       </div>
     </div>
-    <AppAdvancedFilters id="modern-log-more-filters" :open="more">
-      <AppAdvancedFilterSection
-        v-for="section in sections"
-        :key="section.id"
-        :title="t('logs.filterSections.' + section.id)"
-      >
-        <template v-if="section.id === 'routing' && admin">
-          <AppSearchSelect
-            :key="draft.group_id || 'all'"
-            :model-value="draft.credential_id ?? ''"
-            :options="[]"
-            :load-options="loadCredentials"
-            :selected-option="credentialOption"
-            :label="t('logs.filters.credential_id')"
-            :placeholder="t(draft.group_id ? 'logs.searchCredential' : 'logs.selectGroupFirst')"
-            size="xs"
-            :disabled="!draft.group_id"
-            @update:model-value="update('credential_id', $event)"
-          />
-        </template>
-        <!-- 任意分段内的下限字段都渲染成一行范围，上限并入其中。 -->
-        <template v-for="field in section.fields" :key="field.key">
-          <div v-if="field.key.includes('_min')" class="modern-log-filter-range">
-            <span>{{ rangeLabel(field) }}{{ rangeUnit(field) }}</span>
-            <div>
-              <AppTextField
-                :model-value="draft[field.key] ?? ''"
-                :label="t('logs.filters.' + field.key)"
-                label-hidden
-                :placeholder="t('logs.minimum')"
-                :inputmode="field.kind === 'money' ? 'decimal' : 'numeric'"
-                :error="errors[field.key] ? t('logs.errors.' + errors[field.key]) : undefined"
-                size="xs"
-                @update:model-value="update(field.key, $event, false)"
-              />
-              <span aria-hidden="true">–</span>
-              <AppTextField
-                :model-value="draft[upperKey(field.key)] ?? ''"
-                :label="t('logs.filters.' + upperKey(field.key))"
-                label-hidden
-                :placeholder="t('logs.maximum')"
-                :inputmode="field.kind === 'money' ? 'decimal' : 'numeric'"
-                :error="
-                  errors[upperKey(field.key)]
-                    ? t('logs.errors.' + errors[upperKey(field.key)])
-                    : undefined
-                "
-                size="xs"
-                @update:model-value="update(upperKey(field.key), $event, false)"
-              />
-            </div>
-          </div>
-          <AppSearchSelect
-            v-else-if="field.key === 'operation'"
-            :model-value="draft.operation ?? ''"
-            :options="options(field)"
-            :label="t('logs.filters.operation')"
-            size="xs"
-            @update:model-value="update('operation', $event)"
-          />
-          <AppSelect
-            v-else-if="field.kind === 'select'"
-            :model-value="draft[field.key] ?? ''"
-            :options="options(field)"
-            :label="t('logs.filters.' + field.key)"
-            size="xs"
-            @update:model-value="update(field.key, $event)"
-          >
-            <template #value="{ value, label }"
-              ><AppProtocolTag
-                v-if="field.key === 'protocol' && value"
-                :protocol="value" /><AppOverflowText v-else :text="label"
-            /></template>
-            <template #option="{ option }"
-              ><AppProtocolTag
-                v-if="field.key === 'protocol' && option.value"
-                :protocol="option.value"
-              /><span v-else>{{ option.label }}</span></template
-            >
-          </AppSelect>
-          <AppTextField
-            v-else-if="!field.key.includes('_max')"
-            :model-value="draft[field.key] ?? ''"
-            :label="t('logs.filters.' + field.key)"
-            :placeholder="t(field.key === 'audit_rule' ? 'requestAudit.ruleSearch' : 'logs.any')"
-            :inputmode="
-              field.kind === 'money' ? 'decimal' : field.kind === 'number' ? 'numeric' : undefined
-            "
-            :error="errors[field.key] ? t('logs.errors.' + errors[field.key]) : undefined"
-            size="xs"
-            autocomplete="off"
-            @update:model-value="update(field.key, $event, false)"
-          />
-        </template>
-      </AppAdvancedFilterSection>
-    </AppAdvancedFilters>
   </div>
 </template>
 
@@ -496,6 +533,34 @@ const loadCredentials = computed(() => {
   gap: var(--modern-space-2);
   flex: none;
   margin-left: auto;
+}
+.modern-log-more-filters {
+  z-index: var(--modern-layer-menu);
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, calc(100vw - var(--modern-space-8)));
+  max-height: min(640px, calc(100dvh - var(--modern-space-8)), var(--reka-popper-available-height));
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-panel);
+  background: var(--modern-surface);
+  box-shadow: var(--modern-shadow-menu);
+  overflow: hidden;
+}
+.modern-log-more-filter-heading {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  padding: var(--modern-space-2) var(--modern-space-3);
+  font-size: var(--modern-font-size-secondary);
+}
+.modern-log-more-filter-sections {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: var(--modern-space-3);
 }
 .modern-log-filter-range {
   display: grid;
