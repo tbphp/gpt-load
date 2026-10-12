@@ -15,6 +15,7 @@ import {
   AppChannelIcon,
   AppDateTimeRangePicker,
   AppModelSelect,
+  AppIcon,
   AppIconButton,
   AppSearchSelect,
   AppSelect,
@@ -377,7 +378,14 @@ const loadCredentials = computed(() => {
             >
               <div class="modern-log-more-filters">
                 <header class="modern-log-more-filter-heading">
-                  <strong>{{ t('logs.moreFilters') }}</strong>
+                  <strong>
+                    <AppIcon
+                      :icon="SlidersHorizontal"
+                      size="sm"
+                      class="modern-log-more-filter-icon"
+                    />
+                    {{ t('logs.moreFilters') }}
+                  </strong>
                   <PopoverClose as-child>
                     <AppIconButton :icon="X" :label="t('ui.close')" size="xs" />
                   </PopoverClose>
@@ -544,10 +552,11 @@ const loadCredentials = computed(() => {
   flex-direction: column;
   width: min(1120px, calc(100vw - var(--modern-space-8)));
   max-height: min(640px, calc(100dvh - var(--modern-space-8)), var(--reka-popper-available-height));
-  border: var(--modern-line-width) solid var(--modern-border);
+  border: var(--modern-line-width) solid
+    color-mix(in srgb, var(--modern-accent) 18%, var(--modern-border));
   border-radius: var(--modern-radius-panel);
   background: var(--modern-surface);
-  box-shadow: var(--modern-shadow-menu);
+  box-shadow: var(--modern-shadow-dialog);
   overflow: hidden;
 }
 .modern-log-more-filter-heading {
@@ -556,9 +565,19 @@ const loadCredentials = computed(() => {
   align-items: center;
   justify-content: space-between;
   gap: var(--modern-space-2);
-  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  border-bottom: var(--modern-line-width) solid
+    color-mix(in srgb, var(--modern-accent) 10%, var(--modern-border));
+  background: color-mix(in srgb, var(--modern-accent-soft) 65%, var(--modern-surface));
   padding: var(--modern-space-2) var(--modern-space-3);
   font-size: var(--modern-font-size-secondary);
+}
+.modern-log-more-filter-heading strong {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--modern-space-1-5);
+}
+.modern-log-more-filter-icon {
+  color: var(--modern-accent);
 }
 .modern-log-more-filter-sections {
   min-height: 0;
