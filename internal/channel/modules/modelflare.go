@@ -36,12 +36,14 @@ func Modelflare() spec.Module {
 				EndpointPolicy: spec.EndpointFixedWithOverride,
 				FixedBaseURL:   "https://modelflare.dev",
 			},
-			// 只声明实测可用的协议：上游 Responses 非流式返回 400、Gemini 原生不可用，
-			// 图片接口需要媒体分组密钥尚未验证，修复或验证后再补。
+			// 上游 Responses 只支持流式，非流式返回 400；凭据测试因此不走 Responses，
+			// 默认使用 Chat Completions。Gemini 原生不可用、图片接口需要媒体分组密钥
+			// 尚未验证，修复或验证后再补。
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteNative),
+				spec.NewResponsesCreateRoute(execution.RouteNative, spec.ResponsesStoreHandlingStateless),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationProbe, execution.RouteNative),
 			},

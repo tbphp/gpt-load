@@ -869,6 +869,7 @@ func TestEveryResponsesCreateChannelDeclaresStoreHandling(t *testing.T) {
 		HuggingFace:      ResponsesStoreHandlingStateless,
 		OpenCodeGo:       ResponsesStoreHandlingStateless,
 		OpenCodeZen:      ResponsesStoreHandlingStateless,
+		Modelflare:       ResponsesStoreHandlingStateless,
 		GPTLoad:          ResponsesStoreHandlingUpstreamManaged,
 		NewAPI:           ResponsesStoreHandlingUpstreamManaged,
 		CLIProxyAPI:      ResponsesStoreHandlingUpstreamManaged,
