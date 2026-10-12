@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { Database } from '@lucide/vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -12,7 +12,8 @@ import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import { listChannels } from '@/app/resources/channels'
 import { controlQueryKeys } from '@/app/query-keys'
 import {
-  usageQueryOptions,
+  getUsageReport,
+  usageQueryIdentity,
   type UsageAggregateDto,
   type UsageDistributionDimension,
   type UsageDistributionMetric,
@@ -79,6 +80,7 @@ const filterOpen = computed(() => routeState.value.filtersOpen)
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 const filterCommitPending = ref(false)
+const silentRefresh = ref(false)
 
 const groupsQuery = useQuery({
   ...groupOptionsQueryOptions(client, () => !isAccessKey.value),
@@ -102,7 +104,29 @@ const accessKeysQuery = useQuery({
   refetchOnReconnect: false,
 })
 const usageQuery = useQuery({
-  ...usageQueryOptions(client, appliedFilters),
+  // 快捷区间以预设作为查询身份；刷新时只推进请求区间，保留旧报告和筛选草稿。
+  queryKey: computed(() => {
+    const { preset, from_ms, to_ms, ...filters } = appliedFilters.value
+    return preset
+      ? [...controlQueryKeys.usage.all, 'preset', filters, preset]
+      : usageQueryIdentity({ ...filters, from_ms, to_ms })
+  }),
+  queryFn: ({ signal }) => {
+    const filters = { ...appliedFilters.value }
+    if (filters.preset) {
+      const interval = resolveDateTimePreset(filters.preset, Math.floor(Date.now() / 1000) * 1000)
+      if (interval.to_ms > interval.from_ms) {
+        Object.assign(filters, interval)
+        emit('time-range-resolved', { ...interval, preset: filters.preset })
+      }
+    }
+    return getUsageReport(client, filters, signal)
+  },
+  placeholderData: keepPreviousData,
+  staleTime: computed(() => (appliedFilters.value.preset ? 0 : Number.POSITIVE_INFINITY)),
+  refetchOnMount: true,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
   enabled: computed(() => !filterCommitPending.value),
 })
 const report = computed(() => usageQuery.data.value)
@@ -139,7 +163,7 @@ const {
   {
     pending: () => usageQuery.isPending.value,
     placeholder: () => usageQuery.isPlaceholderData.value,
-    fetching: () => usageQuery.isFetching.value,
+    fetching: () => usageQuery.isFetching.value && !silentRefresh.value,
     hasData: () => report.value !== undefined,
     itemCount: () =>
       (distribution.value?.items.length ?? 0) + (distribution.value?.other === null ? 0 : 1),
@@ -305,9 +329,9 @@ const barTrendSeries = computed<UsageBarDatum[]>(() => {
 
 watch(
   [
-    () => appliedFilters.value.from_ms,
-    () => appliedFilters.value.to_ms,
-    () => appliedFilters.value.preset,
+    () =>
+      appliedFilters.value.preset ??
+      `${appliedFilters.value.from_ms}:${appliedFilters.value.to_ms}`,
     () => appliedFilters.value.access_key_id,
     () => appliedFilters.value.group_id,
     () => appliedFilters.value.channel_id,
@@ -468,7 +492,24 @@ async function refresh(): Promise<void> {
   ])
 }
 
-defineExpose({ openFilters, refresh, navigationReport, navigationPending })
+const autoRefreshBusy = computed(() => usageQuery.isFetching.value || filterCommitPending.value)
+async function autoRefresh(): Promise<boolean> {
+  silentRefresh.value = true
+  try {
+    return !(await usageQuery.refetch({ cancelRefetch: false })).isError
+  } finally {
+    silentRefresh.value = false
+  }
+}
+
+defineExpose({
+  openFilters,
+  refresh,
+  autoRefresh,
+  autoRefreshBusy,
+  navigationReport,
+  navigationPending,
+})
 </script>
 
 <template>

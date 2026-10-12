@@ -27,7 +27,7 @@ func TestRuntimeCompilesAllSubscriptionProviderCapabilities(t *testing.T) {
 		actionID      string
 	}{
 		{channel.Codex, string(modules.CodexSubscriptionDriver), string(modules.CodexModelDiscovery), string(modules.CodexQuotaObservation), string(modules.CodexResetCreditAction)},
-		{channel.Claude, string(modules.ClaudeSubscriptionDriver), string(modules.ClaudeModelDiscovery), string(modules.ClaudeQuotaObservation), ""},
+		{channel.Claude, string(modules.ClaudeSubscriptionDriver), string(modules.ClaudeModelDiscovery), string(modules.ClaudeQuotaObservation), string(modules.ClaudeResetCreditAction)},
 		{channel.Antigravity, string(modules.AntigravitySubscriptionDriver), string(modules.AntigravityModelDiscovery), string(modules.AntigravityQuotaObservation), ""},
 		{channel.Grok, string(modules.GrokSubscriptionDriver), string(modules.GrokModelDiscovery), string(modules.GrokQuotaObservation), ""},
 	}

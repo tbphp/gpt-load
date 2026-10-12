@@ -27,18 +27,19 @@ import (
 // ForwardInput is the frozen logical-attempt input shared by the gateway
 // orchestrator and the provider-neutral execution adapter.
 type ForwardInput struct {
-	Dialect              dialect.Dialect
-	ObserveUsage         bool
-	Group                state.GroupView
-	APIKey               string
-	CredentialSecrets    []string
-	RedactionCipher      encryption.RedactionCipher
-	Request              *dialect.ParsedRequest
-	ConfiguredParameters []string
-	ExternalModel        string
-	UpstreamModelID      string
-	OnStreamReady        func()
-	OnFirstResponse      func()
+	Dialect               dialect.Dialect
+	ObserveUsage          bool
+	Group                 state.GroupView
+	APIKey                string
+	CredentialSecrets     []string
+	RedactionCipher       encryption.RedactionCipher
+	Request               *dialect.ParsedRequest
+	ConfiguredParameters  []string
+	RemovedParameterPaths [][]string
+	ExternalModel         string
+	UpstreamModelID       string
+	OnStreamReady         func()
+	OnFirstResponse       func()
 	// OnFirstOutput 仅供自动选模记录成功交付的首次生成内容。
 	OnFirstOutput func()
 	// OnResponse 在原生 Response 对象下发前登记归属，不承担上游执行。

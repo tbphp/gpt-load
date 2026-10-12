@@ -1,3 +1,4 @@
+import { credentialTestMessages } from '@shared/credential-test-messages'
 import { errorRuleMessages } from '@shared/error-rule-messages'
 import { enUS as proxies } from '@shared/proxies/messages'
 import { enUS as concurrency } from './concurrency'
@@ -25,6 +26,7 @@ import { enUS as autoModel } from './auto-model'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  credentialBatchTest: credentialTestMessages['en-US'],
   errorRules: errorRuleMessages['en-US'],
   proxies,
   concurrency,
@@ -58,6 +60,10 @@ export default {
   shell: {
     refresh: 'Refresh',
     refreshedAt: 'Updated {time}',
+    autoRefresh: 'Auto refresh',
+    autoRefreshOff: 'Off',
+    autoRefreshSeconds: '{count}s',
+    autoRefreshMinutes: '{count} min',
     importCredentials: 'Import credentials',
     goHome: 'GPT-Load overview',
     mascotHint:

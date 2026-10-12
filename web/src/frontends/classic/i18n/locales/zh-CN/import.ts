@@ -14,6 +14,9 @@ export default {
       loadFailed: '无法加载渠道列表',
       channelRequired: '请选择渠道',
       connectionType: '凭据类型',
+      partners: '合作推荐',
+      principalPartner: '首席合作伙伴',
+      featuredPartner: '精选合作伙伴',
     },
     mode: {
       label: '导入目标',
@@ -254,6 +257,8 @@ export default {
       tooMany: '最多可提交 5,000 个非空密钥',
       required: '请先填写至少一条凭据',
       channelCredentialNotice: '这里导入的是渠道 API 密钥；客户端凭证请在“访问密钥”页面创建',
+      partnerSignup: '{name} 是 GPT-Load 合作渠道。还没有 API 密钥？',
+      partnerSignupLink: '前往 {name} 注册',
       result: '新增 {added} 条凭据，跳过 {duplicated} 条重复凭据',
       validation: '第 {entry} 条凭据的字段 {field} 无效：{reason}',
       validationReasons: {

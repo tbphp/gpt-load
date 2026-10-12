@@ -20,21 +20,24 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
-    <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
-      <textarea
-        :id="id"
-        ref="input"
-        v-model="model"
-        v-bind="controlAttrs($attrs)"
-        class="modern-textarea modern-resizable-textarea"
-        :class="[{ 'is-mono': mono }, `modern-textarea--${size}`]"
-        :rows="rows"
-        :disabled="disabled"
-        :aria-invalid="invalid || undefined"
-        :aria-describedby="describedBy"
-      />
-    </AppFieldControl>
+  <AppField v-bind="{ ...props, ...layoutAttrs($attrs) }">
+    <template v-if="$slots['label-extra']" #label-extra><slot name="label-extra" /></template>
+    <template #default="{ id, describedBy, invalid }">
+      <AppFieldControl as-child :invalid="invalid" :disabled="disabled" :size="size">
+        <textarea
+          :id="id"
+          ref="input"
+          v-model="model"
+          v-bind="controlAttrs($attrs)"
+          class="modern-textarea modern-resizable-textarea"
+          :class="[{ 'is-mono': mono }, `modern-textarea--${size}`]"
+          :rows="rows"
+          :disabled="disabled"
+          :aria-invalid="invalid || undefined"
+          :aria-describedby="describedBy"
+        />
+      </AppFieldControl>
+    </template>
   </AppField>
 </template>
 

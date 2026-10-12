@@ -10,6 +10,7 @@ const (
 	ClaudeSubscriptionDriver spec.SubscriptionDriverID = "claude"
 	ClaudeModelDiscovery     spec.UtilityID            = "claude_models"
 	ClaudeQuotaObservation   spec.UtilityID            = "claude_quota"
+	ClaudeResetCreditAction  spec.ActionID             = "claude_reset_credit"
 )
 
 // Claude declares the subscription-backed Anthropic OAuth channel.
@@ -53,6 +54,7 @@ func Claude() spec.Module {
 				SubscriptionDriver: ClaudeSubscriptionDriver,
 				ModelDiscovery:     ClaudeModelDiscovery,
 				QuotaObservation:   ClaudeQuotaObservation,
+				ResetCreditAction:  ClaudeResetCreditAction,
 			},
 		},
 	}

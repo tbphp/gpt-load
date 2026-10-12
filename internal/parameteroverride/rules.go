@@ -27,6 +27,9 @@ const (
 
 var forbiddenRootFields = []string{"model", "stream", "store"}
 
+// ErrBodyTooLarge 表示覆盖后的请求超过调用方允许的大小。
+var ErrBodyTooLarge = errors.New("overridden request body exceeds size limit")
+
 type rule struct {
 	clientProtocol protocol.Protocol
 	model          string
@@ -219,6 +222,20 @@ func (rules Rules) ConfiguredFields(clientProtocol protocol.Protocol, operation 
 	return names
 }
 
+// RemovedPaths 返回命中规则的删除路径，供执行层避免用兼容默认值补回显式删除的字段。
+func (rules Rules) RemovedPaths(clientProtocol protocol.Protocol, operation execution.Operation, model string) [][]string {
+	if !supports(clientProtocol, operation) {
+		return nil
+	}
+	var paths [][]string
+	for _, entry := range rules.entries {
+		if entry.matches(clientProtocol, model) {
+			paths = append(paths, clonePointers(entry.remove)...)
+		}
+	}
+	return paths
+}
+
 // ValidateResponsesContinuation 用于管理面保存；不改变历史配置的 Compile 行为。
 func (rules Rules) ValidateResponsesContinuation() error {
 	for _, entry := range rules.entries {
@@ -276,6 +293,17 @@ func (rules Rules) Apply(
 	clientModel string,
 	body []byte,
 ) ([]byte, bool, error) {
+	return rules.ApplyWithLimit(clientProtocol, operation, clientModel, body, 0)
+}
+
+// ApplyWithLimit 在分配输出前校验最终大小；maxBytes 为零表示不限制。
+func (rules Rules) ApplyWithLimit(
+	clientProtocol protocol.Protocol,
+	operation execution.Operation,
+	clientModel string,
+	body []byte,
+	maxBytes int64,
+) ([]byte, bool, error) {
 	if rules.Empty() || !supports(clientProtocol, operation) {
 		return body, false, nil
 	}
@@ -312,7 +340,7 @@ func (rules Rules) Apply(
 				return nil, false, err
 			}
 		}
-		if err := object.merge(entry.set); err != nil {
+		if err := object.merge(newRequestSet(entry.set)); err != nil {
 			return nil, false, err
 		}
 	}
@@ -320,6 +348,9 @@ func (rules Rules) Apply(
 	var measured requestOutput
 	if err := object.write(&measured); err != nil {
 		return nil, false, fmt.Errorf("encode overridden request body: %w", err)
+	}
+	if maxBytes > 0 && int64(measured.size) > maxBytes {
+		return nil, false, ErrBodyTooLarge
 	}
 	encoded := requestOutput{body: make([]byte, 0, measured.size)}
 	if err := object.write(&encoded); err != nil {

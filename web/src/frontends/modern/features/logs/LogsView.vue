@@ -117,6 +117,20 @@ const requestIdentity = computed(() =>
   JSON.stringify([state.value.filters, state.value.preset, state.value.page]),
 )
 watch(requestIdentity, () => frame.value?.scrollToTop(), { flush: 'post' })
+// 自动刷新静默拉取当前页：不切页、不回顶，也不显示加载遮罩和禁用分页。
+const silentRequest = ref<string>()
+const fetching = computed(
+  () => query.isFetching.value && silentRequest.value !== requestIdentity.value,
+)
+async function autoRefresh(): Promise<boolean> {
+  const identity = requestIdentity.value
+  silentRequest.value = identity
+  try {
+    return !(await query.refetch({ cancelRefetch: false })).isError
+  } finally {
+    if (silentRequest.value === identity) silentRequest.value = undefined
+  }
+}
 
 function applyFilters(input: LogQuery, preset: DateRangePreset | undefined): void {
   const filters = { ...input }
@@ -159,7 +173,7 @@ function showDetail(id = ''): void {
   state.value = { ...state.value, detail: id }
 }
 function changePage(value: number): void {
-  if (query.isFetching.value) return
+  if (fetching.value) return
   state.value = { ...state.value, page: value }
 }
 function pageSize(value: number): void {
@@ -243,8 +257,9 @@ onMounted(() => {
 })
 usePageRefresh({
   refresh,
-  pending: () => query.isFetching.value,
+  pending: () => fetching.value,
   updatedAt: () => query.dataUpdatedAt.value || undefined,
+  autoRefresh,
 })
 useMessageSource(() =>
   query.isError.value && query.data.value
@@ -307,7 +322,7 @@ useMessageSource(() =>
       role="table"
       :aria-colcount="columns.cells.value.length + 1"
       :label="t('logs.title')"
-      :loading="query.isFetching.value && Boolean(query.data.value)"
+      :loading="fetching && Boolean(query.data.value)"
       :style="columns.style.value"
     >
       <template #header>
@@ -410,7 +425,7 @@ useMessageSource(() =>
           :page="state.page"
           :page-size="Number(state.filters.limit)"
           :total="query.data.value?.pagination.total_items"
-          :pending="query.isFetching.value"
+          :pending="fetching"
           @update:page="changePage"
           @update:page-size="pageSize"
       /></template>

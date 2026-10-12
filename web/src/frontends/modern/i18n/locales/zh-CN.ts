@@ -1,3 +1,4 @@
+import { credentialTestMessages } from '@shared/credential-test-messages'
 import { errorRuleMessages } from '@shared/error-rule-messages'
 import { zhCN as proxies } from '@shared/proxies/messages'
 import { zhCN as concurrency } from './concurrency'
@@ -25,6 +26,7 @@ import { zhCN as autoModel } from './auto-model'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  credentialBatchTest: credentialTestMessages['zh-CN'],
   errorRules: errorRuleMessages['zh-CN'],
   proxies,
   concurrency,
@@ -58,6 +60,10 @@ export default {
   shell: {
     refresh: '刷新',
     refreshedAt: '更新于 {time}',
+    autoRefresh: '自动刷新',
+    autoRefreshOff: '关闭',
+    autoRefreshSeconds: '{count} 秒',
+    autoRefreshMinutes: '{count} 分钟',
     importCredentials: '导入密钥',
     goHome: 'GPT-Load 总览',
     mascotHint: '长按吉祥物或聚焦后按空格与它互动，按回车返回总览。',

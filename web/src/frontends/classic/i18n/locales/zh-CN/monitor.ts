@@ -11,6 +11,12 @@ export default {
     help: '查看说明',
     scrollHint: '可横向滚动查看全部列。',
     currentState: '当前状态',
+    autoRefresh: {
+      label: '自动刷新',
+      off: '不自动刷新',
+      seconds: '每 {count} 秒',
+      minutes: '每 {count} 分钟',
+    },
     tabs: {
       label: '监控分区',
       health: '健康',

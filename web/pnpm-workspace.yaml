@@ -2,7 +2,8 @@ allowBuilds:
   vue-demi: true
 
 overrides:
-  brace-expansion@5.0.8: 5.0.9
+  brace-expansion@5.0.8: 5.0.12
   minimatch@9.0.9: 10.2.5
   nanoid@3.3.16: 3.3.18
   postcss@8.5.21: 8.5.23
+  source-map-js@1.2.1: 1.2.2

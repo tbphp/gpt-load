@@ -14,6 +14,11 @@ export interface SelectOption {
 export interface SearchSelectOption extends SelectOption {
   description?: string
   keywords?: readonly string[]
+  // 未输入关键词时按相邻的同名 group 分组显示；输入关键词后按 searchOrder 回到自然顺序，
+  // 置顶分组不会让搜索结果加权。
+  group?: string
+  searchOrder?: number
+  class?: string
 }
 
 export interface FieldProps {

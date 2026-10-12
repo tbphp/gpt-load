@@ -260,7 +260,18 @@ type QuotaObservation interface {
 // ResetCreditAction is the currently supported mutating subscription action.
 type ResetCreditAction interface {
 	ID() spec.ActionID
-	Consume(context.Context, Credential, Target, string) (ResetCreditResult, error)
+	Consume(context.Context, Credential, Target, ResetCreditRequest) (ResetCreditResult, error)
+}
+
+// ResetCreditRequest 将持久化的请求 ID 与上游选卡参数绑定，重试时复用。
+type ResetCreditRequest struct {
+	ID   string
+	Data json.RawMessage
+}
+
+// ResetCreditPreparer 仅用于必须先选定卡片的渠道，返回值不得包含认证凭据。
+type ResetCreditPreparer interface {
+	PrepareResetCredit(context.Context, Credential, Target) (json.RawMessage, error)
 }
 
 // ResetCreditResult is the provider-neutral result of one durable credit action.

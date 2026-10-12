@@ -62,9 +62,14 @@ const composing = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let edited = false
 const credentialLabels = ref(new Map<string, string>())
+// 每次刷新都会按当前时间重新解析快捷区间；只有已应用条件变化时才重置草稿，避免打断正在输入的筛选。
 watch(
-  () => props.filters,
-  (filters) => {
+  () => {
+    const { from_ms, to_ms, ...filters } = props.filters
+    return JSON.stringify([filters, props.preset ?? [from_ms, to_ms]])
+  },
+  () => {
+    const filters = props.filters
     clearTimeout(searchTimer)
     edited = false
     draft.value = {
@@ -72,11 +77,17 @@ watch(
       cost_min_nano_usd: nanoToUSD(filters.cost_min_nano_usd),
       cost_max_nano_usd: nanoToUSD(filters.cost_max_nano_usd),
     }
-    from.value = formatLocalDateTime(Number(filters.from_ms))
-    to.value = formatLocalDateTime(Number(filters.to_ms))
     draftPreset.value = props.preset
   },
-  { immediate: true, deep: true },
+  { immediate: true },
+)
+watch(
+  [() => props.filters.from_ms, () => props.filters.to_ms],
+  ([start, end]) => {
+    from.value = formatLocalDateTime(Number(start))
+    to.value = formatLocalDateTime(Number(end))
+  },
+  { immediate: true },
 )
 const request = computed(() => {
   const result = Object.fromEntries(

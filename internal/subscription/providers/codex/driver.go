@@ -195,7 +195,7 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 
 // Consume redeems one Codex reset credit against the resolved target using the
 // caller's durable request identity.
-func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target, request subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
 		return subscriptionruntime.ResetCreditResult{}, err
@@ -204,7 +204,7 @@ func (*codexDriver) Consume(ctx context.Context, credential subscriptionruntime.
 	if err != nil {
 		return subscriptionruntime.ResetCreditResult{}, err
 	}
-	result, err := ConsumeResetCredit(ctx, value, baseURL, requestID)
+	result, err := ConsumeResetCredit(ctx, value, baseURL, request.ID)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
