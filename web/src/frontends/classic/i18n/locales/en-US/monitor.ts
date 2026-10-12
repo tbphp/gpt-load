@@ -11,6 +11,12 @@ export default {
     help: 'View description',
     scrollHint: 'Scroll horizontally to inspect every column.',
     currentState: 'Current state',
+    autoRefresh: {
+      label: 'Auto refresh',
+      off: 'Auto refresh off',
+      seconds: 'Every {count}s',
+      minutes: 'Every {count} min',
+    },
     tabs: {
       label: 'Monitor sections',
       health: 'Health',
@@ -603,12 +609,6 @@ export default {
       nextPageFailed: 'Unable to load the next page. Current logs were preserved.',
       refresh: 'Refresh',
       refreshFailed: 'Unable to refresh request logs. Every current page was preserved.',
-      autoRefresh: {
-        label: 'Auto refresh',
-        off: 'Auto refresh off',
-        seconds: 'Every {count}s',
-        minutes: 'Every {count} min',
-      },
       stale: 'Showing the last successful result because the latest refresh failed.',
       caption: 'Request logs',
       empty: {

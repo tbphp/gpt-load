@@ -3,6 +3,34 @@ import { onScopeDispose, toValue, watch, type MaybeRefOrGetter } from 'vue'
 // 自动刷新只提供固定档位，最短 5 秒，避免高频轮询。
 export const autoRefreshIntervals = [5_000, 10_000, 30_000, 60_000] as const
 const maxBackoffMs = 5 * 60_000
+// 选择的档位记在浏览器里，两套前端共用；默认关闭，读取失败或值不在档位内时按关闭处理。
+const storageKey = 'gpt-load.auto-refresh'
+const legacyStorageKey = 'gpt-load.logs-auto-refresh'
+
+export function readAutoRefreshInterval(): number {
+  try {
+    // 沿用此前保存的日志页档位，后续只写统一设置。
+    const stored = Number(
+      window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey),
+    )
+    if ((autoRefreshIntervals as readonly number[]).includes(stored)) return stored
+  } catch {
+    // 无法读取偏好时保持默认关闭。
+  }
+  return 0
+}
+
+// 返回是否保存成功；存储不可用时本次选择仍然有效，只是不会被记住。
+export function saveAutoRefreshInterval(value: number): boolean {
+  try {
+    if (value > 0) window.localStorage.setItem(storageKey, String(value))
+    else window.localStorage.removeItem(storageKey)
+    window.localStorage.removeItem(legacyStorageKey)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export interface AutoRefreshOptions {
   // 0 表示关闭。

@@ -48,7 +48,13 @@ const createGroupLocation = computed(() => ({
   name: 'modern-groups',
   query: { ...(route.name === 'modern-groups' ? route.query : {}), panel: 'create' },
 }))
-const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
+const {
+  sidebarCollapsed,
+  toggleSidebar,
+  persistenceFailed,
+  autoRefreshInterval,
+  setAutoRefreshInterval,
+} = usePreferences()
 provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
@@ -114,7 +120,7 @@ const autoRefreshOptions = computed(() => [
   })),
 ])
 function changeAutoRefresh(value: string): void {
-  pageRefresh.autoInterval.value = Number(value)
+  setAutoRefreshInterval(Number(value))
 }
 watch(
   () => route.fullPath,
@@ -222,9 +228,9 @@ useMessageSource(() =>
             v-if="pageRefresh.autoAvailable.value"
             :label="t('shell.autoRefresh')"
             :icon="Timer"
-            :model-value="String(pageRefresh.autoInterval.value)"
+            :model-value="String(autoRefreshInterval)"
             :options="autoRefreshOptions"
-            :show-value="pageRefresh.autoInterval.value > 0"
+            :show-value="autoRefreshInterval > 0"
             @update:model-value="changeAutoRefresh"
           />
         </div>

@@ -4,7 +4,12 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
-import { autoRefreshIntervals, useAutoRefresh } from '@shared/auto-refresh'
+import {
+  autoRefreshIntervals,
+  readAutoRefreshInterval,
+  saveAutoRefreshInterval,
+  useAutoRefresh,
+} from '@shared/auto-refresh'
 import { lazySurface } from '@/app/async-surface'
 import { monitorLocation } from '@/app/route-locations'
 import type { UsageReportDto } from '@/app/resources/usage'
@@ -57,6 +62,8 @@ const logsTab = ref<{
 const usageTab = ref<{
   openFilters: () => void
   refresh: () => Promise<void>
+  autoRefresh: () => Promise<boolean>
+  autoRefreshBusy: boolean
   navigationReport?: UsageReportDto
   navigationPending: boolean
 } | null>(null)
@@ -64,16 +71,20 @@ const healthRefreshPending = ref(false)
 const logsRefreshPending = ref(false)
 const usageRefreshPending = ref(false)
 const isAccessKey = computed(() => session.state.principalType === 'access_key')
-// 请求日志的自动刷新默认关闭，只在日志页生效。
-const logsAutoRefresh = ref('0')
-const logsAutoRefreshOptions = computed(() => [
-  { value: '0', label: t('monitor.logs.autoRefresh.off') },
+// 日志与用量共用浏览器里记住的档位，默认关闭。
+const autoRefreshInterval = ref(String(readAutoRefreshInterval()))
+watch(autoRefreshInterval, (value) => {
+  // 存储不可用时本次选择仍然有效，与主题等偏好一致。
+  saveAutoRefreshInterval(Number(value))
+})
+const autoRefreshOptions = computed(() => [
+  { value: '0', label: t('monitor.autoRefresh.off') },
   ...autoRefreshIntervals.map((ms) => ({
     value: String(ms),
     label:
       ms < 60_000
-        ? t('monitor.logs.autoRefresh.seconds', { count: ms / 1_000 })
-        : t('monitor.logs.autoRefresh.minutes', { count: ms / 60_000 }),
+        ? t('monitor.autoRefresh.seconds', { count: ms / 1_000 })
+        : t('monitor.autoRefresh.minutes', { count: ms / 60_000 }),
   })),
 ])
 const canonicalQuery = computed(() =>
@@ -88,9 +99,12 @@ const dataRefreshPending = computed(() =>
 )
 const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
 useAutoRefresh({
-  interval: () => (activeTab.value === 'logs' ? Number(logsAutoRefresh.value) : 0),
-  run: () => logsTab.value?.autoRefresh() ?? Promise.resolve(true),
-  busy: () => logsRefreshPending.value || (logsTab.value?.autoRefreshBusy ?? true),
+  interval: () =>
+    activeTab.value === 'logs' || activeTab.value === 'usage'
+      ? Number(autoRefreshInterval.value)
+      : 0,
+  run: () => dataTab.value?.autoRefresh() ?? Promise.resolve(true),
+  busy: () => dataRefreshPending.value || (dataTab.value?.autoRefreshBusy ?? true),
 })
 const items = computed<AppTabItem[]>(() => {
   const shared = [
@@ -407,10 +421,9 @@ function applyTimeRange(from: number, to: number, preset?: DateTimePreset): void
               {{ t('monitor.usage.filters.refresh') }}
             </AppButton>
             <AppSelect
-              v-if="activeTab === 'logs'"
-              v-model="logsAutoRefresh"
-              :label="t('monitor.logs.autoRefresh.label')"
-              :options="logsAutoRefreshOptions"
+              v-model="autoRefreshInterval"
+              :label="t('monitor.autoRefresh.label')"
+              :options="autoRefreshOptions"
               size="compact"
             />
           </div>
