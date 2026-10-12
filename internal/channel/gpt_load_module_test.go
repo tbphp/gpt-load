@@ -75,6 +75,7 @@ func TestGPTLoadChannelContract(t *testing.T) {
 			execution.OperationResponsesCompact:     RouteNative,
 			execution.OperationResponsesInputTokens: RouteNative,
 			execution.OperationResponsesPassthrough: RouteNative,
+			execution.OperationWebSearch:            RouteNative,
 		},
 		protocol.OpenAIImages: {
 			execution.OperationImagesGenerate: RouteNative,

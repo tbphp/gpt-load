@@ -39,6 +39,8 @@ func NewAPI() spec.Module {
 				spec.NewResponsesCreateRoute(execution.RouteNative, spec.ResponsesStoreHandlingUpstreamManaged),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesCompact, execution.RouteNative),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationResponsesPassthrough, execution.RouteNative),
+				spec.NewRoute(protocol.OpenAIResponses, execution.OperationWebSearch, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesEdit, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),

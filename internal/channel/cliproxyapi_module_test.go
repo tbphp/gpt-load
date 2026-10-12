@@ -54,7 +54,7 @@ func TestCLIProxyAPIChannelContract(t *testing.T) {
 		t.Fatalf("CLIProxyAPI target config = %s", got)
 	}
 	if target.SupportsResponsesLifecycle() {
-		t.Fatal("CLIProxyAPI must not advertise a complete Responses lifecycle")
+		t.Fatal("CLIProxyAPI must not advertise stored Responses lifecycle support")
 	}
 
 	wantRoutes := map[protocol.Protocol]map[execution.Operation]RouteMode{
@@ -64,9 +64,11 @@ func TestCLIProxyAPIChannelContract(t *testing.T) {
 			execution.OperationProbe:          RouteNative,
 		},
 		protocol.OpenAIResponses: {
-			execution.OperationProbe:            RouteNative,
-			execution.OperationResponsesCreate:  RouteNative,
-			execution.OperationResponsesCompact: RouteNative,
+			execution.OperationProbe:                RouteNative,
+			execution.OperationResponsesCreate:      RouteNative,
+			execution.OperationResponsesCompact:     RouteNative,
+			execution.OperationResponsesPassthrough: RouteNative,
+			execution.OperationWebSearch:            RouteNative,
 		},
 		protocol.OpenAIImages: {
 			execution.OperationImagesGenerate: RouteNative,
