@@ -1,9 +1,9 @@
 <script setup lang="ts">
-defineProps<{ title: string }>()
+defineProps<{ title: string; compact?: boolean }>()
 </script>
 
 <template>
-  <section class="modern-advanced-filter-section">
+  <section class="modern-advanced-filter-section" :class="{ 'is-compact': compact }">
     <h3>{{ title }}</h3>
     <div class="modern-advanced-filter-fields">
       <slot />
@@ -34,6 +34,13 @@ defineProps<{ title: string }>()
   grid-template-columns: repeat(auto-fill, minmax(min(204px, 100%), 1fr));
   gap: var(--modern-space-2) var(--modern-space-4);
   min-width: 0;
+}
+.modern-advanced-filter-section.is-compact {
+  gap: var(--modern-space-3);
+  padding-block: var(--modern-space-2);
+}
+.modern-advanced-filter-section.is-compact .modern-advanced-filter-fields {
+  gap: var(--modern-space-1-5) var(--modern-space-3);
 }
 /* 仅直接字段使用横排标签；范围输入内部的字段保持自身布局。 */
 .modern-advanced-filter-fields > :deep(.modern-field) {
