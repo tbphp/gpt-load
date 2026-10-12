@@ -4,6 +4,19 @@ export function formatCompactNumber(value: number, locale: string): string {
   return numberFormatter('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
+export function formatByteSize(bytes: number, locale: string): string {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) return '—'
+  const units = ['B', 'KiB', 'MiB', 'GiB'] as const
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  const formatter = numberFormatter(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 })
+  return `${formatter.format(value)} ${units[unit]}`
+}
+
 export function formatRemainingDuration(milliseconds: number, locale: string): string {
   void locale
   const minutes = Math.max(0, Math.ceil(milliseconds / 60000))

@@ -26,6 +26,7 @@ import {
   AppIconButton,
   AppChannelIcon,
 } from '@modern/components/ui'
+import { formatByteSize } from '@modern/components/ui/format'
 import { useApiClient } from '@shared/http/client-context'
 import type { LogColumnId } from './log-columns'
 import {
@@ -62,6 +63,13 @@ const query = useQuery({
   queryFn: ({ signal }) => getLogDetail(client, props.id, signal),
 })
 const log = computed(() => query.data.value)
+const requestBodySize = computed(() =>
+  log.value?.request_body
+    ? t('logs.requestBody.originalSize', {
+        size: formatByteSize(log.value.request_body.original_bytes, locale.value),
+      })
+    : '',
+)
 const outputRate = computed(() => (log.value ? logOutputRate(log.value, locale.value) : '—'))
 const outcomeFields = computed<LogColumnId[]>(() => [
   'status_code',
@@ -315,6 +323,36 @@ function decisionRuleLabel(ruleID: string): string {
               </div>
             </dl>
           </section>
+          <AppFormSection v-if="log.request_body" :title="t('logs.requestBody.title')" compact>
+            <template #actions>
+              <span class="modern-log-detail-note">{{ requestBodySize }}</span>
+              <AppCopyValue
+                v-if="log.request_body.body !== null"
+                :value="log.request_body.body"
+                @copied="messages.show({ tone: 'success', text: t('ui.copy.success') })"
+              >
+                <template #trigger="{ copy, pending }">
+                  <AppButton
+                    size="xs"
+                    :icon="Copy"
+                    :loading="pending"
+                    :aria-label="t('logs.requestBody.copy')"
+                    @click="copy()"
+                    >{{ t('ui.copy.action') }}</AppButton
+                  >
+                </template>
+              </AppCopyValue>
+            </template>
+            <p v-if="log.request_body.state !== 'original'" class="modern-log-request-body-state">
+              {{ t('logs.requestBody.states.' + log.request_body.state) }}
+            </p>
+            <pre
+              v-if="log.request_body.body !== null"
+              class="modern-log-request-body"
+              tabindex="0"
+              :aria-label="t('logs.requestBody.title')"
+            ><code>{{ log.request_body.body }}</code></pre>
+          </AppFormSection>
           <AppFormSection
             v-if="
               log.request_audit &&
@@ -819,6 +857,35 @@ function decisionRuleLabel(ruleID: string): string {
 .modern-log-detail-note {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+}
+.modern-log-request-body-state {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
+}
+.modern-log-request-body {
+  min-width: 0;
+  max-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  border: var(--modern-line-width) solid var(--modern-border);
+  border-radius: var(--modern-radius-control);
+  background: var(--modern-subtle);
+  padding: var(--modern-space-3);
+  font-family: var(--modern-font-mono);
+  font-size: var(--modern-font-size-small);
+  line-height: var(--modern-leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-gutter: var(--modern-scrollbar-gutter);
+}
+.modern-log-request-body:focus-visible {
+  outline: var(--modern-focus-width) solid var(--modern-accent);
+  outline-offset: var(--modern-focus-offset);
+}
+.modern-log-request-body code {
+  font: inherit;
 }
 .modern-log-request-identity {
   display: flex;

@@ -168,6 +168,21 @@ export default {
       limits: 'Limits',
       lastRequest: 'Last request',
       actions: 'Actions',
+      recordRequestBody: 'Body recording',
+    },
+    recordRequestBody: {
+      label: 'Record request bodies',
+      description:
+        'When enabled, the original client requests sent with this key are saved for troubleshooting.',
+      enabled: 'On',
+      disabled: 'Off',
+      confirmTitle: 'Enable request body recording?',
+      confirmDescription:
+        'Once enabled, the full content of every request sent with this key is saved to the database, including conversations, tool calls and images; oversized parts are truncated. {retention} This content may include personal information, passwords, keys or trade secrets. Enable it only while troubleshooting, turn it off as soon as you are done, and make sure you are authorized to record this content. People who hold this key will see a “recording enabled” notice when they sign in to the console and can view the recorded content; people who only call the API will not see the notice, so tell them separately.',
+      retentionDays: 'Saved content is deleted automatically after {days} days.',
+      retentionDefault:
+        'Saved content is deleted automatically according to the request log retention period.',
+      confirm: 'I understand, enable',
     },
     actions: {
       more: 'More actions',

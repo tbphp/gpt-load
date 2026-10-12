@@ -1304,6 +1304,14 @@ type recordingRequestLogReader struct {
 	details     map[string]requestlog.Record
 	getErr      error
 	getRequests []string
+	bodies      map[string]*requestlog.RequestBody
+}
+
+func (reader *recordingRequestLogReader) GetRequestBody(
+	_ context.Context,
+	requestID string,
+) (*requestlog.RequestBody, error) {
+	return reader.bodies[requestID], nil
 }
 
 func (reader *recordingRequestLogReader) List(

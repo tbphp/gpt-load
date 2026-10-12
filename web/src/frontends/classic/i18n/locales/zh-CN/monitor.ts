@@ -924,6 +924,17 @@ export default {
         modelObservation: '上游返回模型观测',
         requestedModel: '上游请求模型',
         reportedModel: '上游返回模型',
+        requestBody: {
+          title: '请求内容',
+          originalSize: '原始大小 {size}',
+          copy: '复制请求内容',
+          states: {
+            truncated: '超长字符串已截断，结构保持不变',
+            non_json: '不是 JSON 请求，未记录正文',
+            too_large: '请求体过大，未记录正文',
+            queue_full: '记录队列繁忙，未记录正文',
+          },
+        },
         usage: {
           title: '用量成本',
           description: '最终持久化的用量字段。成本始终为预估值，未知不代表免费。',

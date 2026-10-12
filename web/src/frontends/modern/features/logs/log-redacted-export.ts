@@ -209,6 +209,8 @@ export async function createRedactedLogExport(log: LogDetail): Promise<string> {
         credential_name: credentialReference,
         auto_decision: decision,
         error_summary: await redactDiagnosticText(log.error_summary),
+        // 请求内容无法可靠脱敏，脱敏导出中不包含。
+        request_body: undefined,
         attempts,
       },
     },

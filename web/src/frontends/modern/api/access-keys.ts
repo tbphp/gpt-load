@@ -37,6 +37,7 @@ export interface AccessKey {
   concurrency_limit: number | null
   rpm_limit: number
   price_multiplier: string
+  record_request_body: boolean
   cost_limit_rules: CostRule[]
   cost_limit_status: {
     allowed: boolean
@@ -78,6 +79,7 @@ export interface AccessInput {
   concurrency_limit: number | null
   rpm_limit: number
   price_multiplier: string
+  record_request_body: boolean
   cost_limit_rules: CostRule[]
 }
 export const accessKeysKey = ['modern', 'access-keys'] as const
@@ -130,6 +132,7 @@ function readAccessKey(value: unknown): AccessKey {
     concurrency: readConcurrency(row.concurrency),
     rpm_limit: integer(row.rpm_limit),
     price_multiplier: decimal(row.price_multiplier),
+    record_request_body: boolean(row.record_request_body),
     cost_limit_rules: list(row.cost_limit_rules).map(readRule),
     cost_limit_status: runtime
       ? {

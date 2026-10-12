@@ -614,6 +614,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
+	recorder.recordRequestBody(accessKey, body)
 	requestHeaders := ginContext.Request.Header.Clone()
 	platformheader.StripRepresentationMetadata(requestHeaders)
 	parsed := &dialect.ParsedRequest{

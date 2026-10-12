@@ -45,6 +45,12 @@ type authLockedData struct {
 type authSessionResponse struct {
 	Authenticated bool                 `json:"authenticated"`
 	PrincipalType controlPrincipalType `json:"principal_type"`
+	// RequestBodyRecording 只对开启请求内容记录的访问密钥返回，用于登录后的明确提示。
+	RequestBodyRecording *authSessionRequestBodyRecording `json:"request_body_recording,omitempty"`
+}
+
+type authSessionRequestBodyRecording struct {
+	RetentionDays int `json:"retention_days"`
 }
 
 var accessKeyControlRoutes = map[string]struct{}{
@@ -286,8 +292,20 @@ func (s *Server) handleAuthSession(c *gin.Context) {
 		c,
 		"common.success",
 		authSessionResponse{
-			Authenticated: true,
-			PrincipalType: principal.Type,
+			Authenticated:        true,
+			PrincipalType:        principal.Type,
+			RequestBodyRecording: s.requestBodyRecording(principal),
 		},
 	)
+}
+
+func (s *Server) requestBodyRecording(principal controlPrincipal) *authSessionRequestBodyRecording {
+	if principal.Type != controlPrincipalAccessKey || s.service == nil || s.service.manager == nil {
+		return nil
+	}
+	snapshot := s.service.manager.Current()
+	if snapshot == nil || !snapshot.AccessKeysByID[principal.AccessKeyID].RecordRequestBody {
+		return nil
+	}
+	return &authSessionRequestBodyRecording{RetentionDays: snapshot.Settings.RequestLogRetentionDays}
 }

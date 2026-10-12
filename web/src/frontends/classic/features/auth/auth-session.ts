@@ -27,6 +27,8 @@ export interface AuthState {
   phase: AuthPhase
   retryAfterSeconds: number
   principalType: AuthPrincipalType | null
+  // 访问密钥被管理员开启请求内容记录时，记录内容的保留天数；其他情况为 null。
+  requestBodyRecording: { retentionDays: number } | null
 }
 
 export interface AuthSession {
@@ -35,6 +37,7 @@ export interface AuthSession {
   getPrincipalType(): AuthPrincipalType | null
   hasCredential(): boolean
   ensureValidated(): Promise<void>
+  refreshRequestBodyRecording(signal?: AbortSignal): Promise<AuthState['requestBodyRecording']>
   login(candidate: string): Promise<void>
   retryValidation(): Promise<void>
   clear(): void
@@ -92,6 +95,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     phase: credential ? 'unvalidated' : 'anonymous',
     retryAfterSeconds: 0,
     principalType: null,
+    requestBodyRecording: null,
   })
   let validationPromise: Promise<void> | undefined
 
@@ -103,6 +107,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     state.phase = 'anonymous'
     state.retryAfterSeconds = 0
     state.principalType = null
+    state.requestBodyRecording = null
     deps.onClear?.()
     void clearAuthenticatedClientState(deps.queryClient)
   }
@@ -162,6 +167,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
           state.phase = 'validated'
           state.retryAfterSeconds = 0
           state.principalType = payload.principal_type
+          state.requestBodyRecording = requestBodyRecording(payload)
         }
       })
       .catch((error: unknown) => {
@@ -189,6 +195,23 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     return ensureValidated()
   }
 
+  // 管理员可能在用户登录后切换记录开关；静默重读会话，只更新记录提示。
+  async function refreshRequestBodyRecording(
+    signal?: AbortSignal,
+  ): Promise<AuthState['requestBodyRecording']> {
+    if (!credential || state.phase !== 'validated' || state.principalType !== 'access_key') {
+      return state.requestBodyRecording
+    }
+    const key = credential
+    const revision = credentialRevision
+    const payload = await deps.validate(key, true, signal)
+    if (!isValidAuthSessionPayload(payload)) throw new InvalidResponseError()
+    if (revision === credentialRevision && key === credential && state.phase === 'validated') {
+      state.requestBodyRecording = requestBodyRecording(payload)
+    }
+    return state.requestBodyRecording
+  }
+
   async function login(candidate: string): Promise<void> {
     const payload = await deps.validate(candidate, false)
     if (!isValidAuthSessionPayload(payload)) {
@@ -202,6 +225,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     state.phase = 'validated'
     state.retryAfterSeconds = 0
     state.principalType = payload.principal_type
+    state.requestBodyRecording = requestBodyRecording(payload)
     deps.queryClient.setQueryData(authSessionQueryKey, payload)
   }
 
@@ -217,6 +241,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
       return credential.length > 0
     },
     ensureValidated,
+    refreshRequestBodyRecording,
     login,
     retryValidation,
     clear,
@@ -226,8 +251,23 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
 function isValidAuthSessionPayload(payload: AuthSessionPayload | undefined): boolean {
   return (
     payload?.authenticated === true &&
-    (payload.principal_type === 'admin' || payload.principal_type === 'access_key')
+    (payload.principal_type === 'admin' || payload.principal_type === 'access_key') &&
+    isValidRequestBodyRecording(payload.request_body_recording)
   )
+}
+
+function isValidRequestBodyRecording(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  if (typeof value !== 'object' || Array.isArray(value)) return false
+  const days = (value as Record<string, unknown>).retention_days
+  return typeof days === 'number' && Number.isSafeInteger(days) && days >= 1
+}
+
+function requestBodyRecording(payload: AuthSessionPayload): AuthState['requestBodyRecording'] {
+  const recording = payload.request_body_recording
+  // 只有访问密钥会话需要提示；管理员会话即使带有该字段也不展示。
+  if (payload.principal_type !== 'access_key' || !recording) return null
+  return { retentionDays: recording.retention_days }
 }
 
 export const authSessionKey: InjectionKey<AuthSession> = Symbol('auth-session')
