@@ -22,9 +22,10 @@ func newClaudeDriver() *claudeDriver { return &claudeDriver{} }
 func Implementations() subscriptionruntime.Implementations {
 	driver := newClaudeDriver()
 	return subscriptionruntime.Implementations{
-		Drivers:           []subscriptionruntime.Driver{driver},
-		ModelDiscoveries:  []subscriptionruntime.ModelDiscovery{driver.modelDiscovery()},
-		QuotaObservations: []subscriptionruntime.QuotaObservation{driver.quotaObservation()},
+		Drivers:            []subscriptionruntime.Driver{driver},
+		ModelDiscoveries:   []subscriptionruntime.ModelDiscovery{driver.modelDiscovery()},
+		QuotaObservations:  []subscriptionruntime.QuotaObservation{driver.quotaObservation()},
+		ResetCreditActions: []subscriptionruntime.ResetCreditAction{claudeResetCreditAction{driver}},
 	}
 }
 

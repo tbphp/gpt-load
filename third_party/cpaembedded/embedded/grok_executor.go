@@ -94,8 +94,8 @@ func NewGrokAuth(id string, credential GrokCredential, baseURL string) *cliproxy
 		"auth_kind": "oauth", "using_api": "false",
 		// CPA 默认仅向官方域附加这些头，API 代理仍需保持相同订阅协议。
 		"header:X-XAI-Token-Auth":         "xai-grok-cli",
-		"header:x-grok-client-version":    grokClientVersion,
-		"header:User-Agent":               "xai-grok-workspace/" + grokClientVersion,
+		"header:x-grok-client-version":    GrokClientVersion,
+		"header:User-Agent":               "xai-grok-workspace/" + GrokClientVersion,
 		"header:x-grok-client-identifier": "grok-shell",
 		"header:x-authenticateresponse":   "authenticate-response",
 	}

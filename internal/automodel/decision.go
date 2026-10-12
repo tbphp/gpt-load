@@ -23,6 +23,8 @@ type Selection struct {
 }
 
 type Decision struct {
+	// RemovedParameterPaths 仅供当前请求的执行尝试使用，不进入日志或持久化数据。
+	RemovedParameterPaths [][]string       `json:"-"`
 	PresetReasoning       reasoning.Config `json:"preset_reasoning"`
 	AnswerFirstResponseMs *int64           `json:"answer_first_response_ms,omitempty"`
 	Selection             Selection        `json:"selection"`

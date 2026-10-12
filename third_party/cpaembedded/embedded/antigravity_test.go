@@ -905,6 +905,9 @@ func TestAntigravityExecutionOnlyBridgeNeverRefreshesPreparedNearExpiryToken(t *
 
 func TestAntigravityExecutionOnlyBridgeConvertsDeclaredUnaryProtocols(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("") {
+			t.Errorf("execution identity = %q; want the shared CPA version source", got)
+		}
 		if request.URL.Path != "/v1internal:generateContent" {
 			http.NotFound(writer, request)
 			return
@@ -959,6 +962,9 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredUnaryProtocols(t *testing
 
 func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("") {
+			t.Errorf("stream identity = %q; want the shared CPA version source", got)
+		}
 		if request.URL.Path != "/v1internal:streamGenerateContent" {
 			http.NotFound(writer, request)
 			return
@@ -1023,6 +1029,9 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *tes
 func TestAntigravityExecutionOnlyBridgeCountsTokensUpstreamForDeclaredProtocols(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("") {
+			t.Errorf("token-count identity = %q; want the shared CPA version source", got)
+		}
 		calls++
 		if request.URL.Path != "/v1internal:countTokens" {
 			http.NotFound(writer, request)

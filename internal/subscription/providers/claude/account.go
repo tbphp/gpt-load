@@ -54,6 +54,11 @@ type ScopedLimit struct {
 	SurfaceDisplayName string
 }
 
+type ResetGrant struct {
+	Remaining int64
+	ExpiresAt *string
+}
+
 type Usage struct {
 	FiveHour          *UsageWindow
 	SevenDay          *UsageWindow
@@ -63,6 +68,7 @@ type Usage struct {
 	CinderCove        *UsageWindow
 	ExtraUsage        *ExtraUsage
 	Limits            []ScopedLimit
+	ResetGrants       []ResetGrant
 }
 
 type AccountObservation struct {
@@ -153,6 +159,14 @@ func usageFromBridge(value cpaembedded.ClaudeUsage) Usage {
 			ResetsAt: cloneString(limit.ResetsAt), ModelDisplayName: limit.ModelDisplayName,
 			SurfaceDisplayName: limit.SurfaceDisplayName,
 		})
+	}
+	if value.ResetGrants != nil {
+		result.ResetGrants = make([]ResetGrant, 0, len(value.ResetGrants))
+		for _, grant := range value.ResetGrants {
+			result.ResetGrants = append(result.ResetGrants, ResetGrant{
+				Remaining: grant.Remaining, ExpiresAt: cloneString(grant.ExpiresAt),
+			})
+		}
 	}
 	return result
 }

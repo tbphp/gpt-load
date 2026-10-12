@@ -122,6 +122,8 @@ export default {
         '認証情報を一時的に更新できません。しばらくしてから再試行してください',
       versionConflict: '認証が別の操作で更新されました。再読み込みしてから再試行してください',
       resetCreditUnavailable: '利用可能なリセットクレジットがありません。先に同期してください',
+      resetCreditPreparationFailed:
+        'リセットの準備に失敗しました。リセットカードは消費されていません。しばらくしてから再試行してください',
       resetCreditRejected:
         '上流でリセットクレジットを使用できませんでした。同期後に再試行してください',
       resetCreditOutcomeUnknown:

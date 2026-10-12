@@ -115,6 +115,7 @@ export default {
       refreshTemporarilyUnavailable: '凭据刷新暂时失败，请稍后重试',
       versionConflict: '账号授权已被其他操作更新，请重新加载后再试',
       resetCreditUnavailable: '当前没有可用的重置卡，请先同步账号信息',
+      resetCreditPreparationFailed: '重置准备失败，尚未使用重置卡，请稍后重试',
       resetCreditRejected: '上游未能使用重置卡，请同步后再试',
       resetCreditOutcomeUnknown:
         '无法确认重置结果；请不要刷新页面，直接再次确认以复用同一操作标识安全重试',

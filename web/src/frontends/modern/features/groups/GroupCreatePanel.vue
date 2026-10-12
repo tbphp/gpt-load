@@ -20,6 +20,7 @@ import {
   AppButton,
   AppCollectionState,
   AppConfirmDialog,
+  AppExternalLink,
   AppFormSection,
   AppIcon,
   AppIconButton,
@@ -640,7 +641,16 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
             spellcheck="false"
             :disabled="inputLocked"
             :error="attempted ? credentialError : undefined"
-          />
+          >
+            <template v-if="channel.partner" #label-extra>
+              <span class="modern-group-create-partner"
+                >{{ t('groupCreate.partnerChannel') }} ·
+                <AppExternalLink :href="channel.partner.signupURL"
+                  >{{ t('groupCreate.partnerSignup', { name: channel.name }) }} ↗</AppExternalLink
+                ></span
+              >
+            </template>
+          </AppTextArea>
           <p v-if="!subscription" class="modern-group-create-count">
             {{ t('groupCreate.credentialCount', { count: n(count) }) }}
           </p>
@@ -843,6 +853,18 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
   flex-wrap: wrap;
   align-items: center;
   gap: var(--modern-space-1);
+}
+.modern-group-create-partner {
+  color: var(--modern-muted);
+  white-space: nowrap;
+}
+.modern-group-create-partner a {
+  color: var(--modern-accent);
+  text-decoration: none;
+}
+.modern-group-create-partner a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .modern-group-create-count {
   margin-top: calc(-1 * var(--modern-space-2));

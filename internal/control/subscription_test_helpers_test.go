@@ -62,7 +62,7 @@ func installCodexControlTestHooks(service *Service) {
 		payload, err := json.Marshal(snapshot)
 		return subscriptionruntime.Observation{Payload: payload, Header: observed.Header.Clone()}, err
 	}
-	service.consumeSubscriptionResetCredit = func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, string) (subscriptionruntime.ResetCreditResult, error) {
+	service.consumeSubscriptionResetCredit = func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error) {
 		return subscriptionruntime.ResetCreditResult{}, errors.New("test reset-credit action is not configured")
 	}
 }
@@ -186,7 +186,7 @@ func setCodexResetCreditConsume(
 	consume func(context.Context, codex.Credential, string) (codex.AccountObservation, error),
 ) {
 	t.Helper()
-	service.consumeSubscriptionResetCredit = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target, requestID string) (subscriptionruntime.ResetCreditResult, error) {
+	service.consumeSubscriptionResetCredit = func(ctx context.Context, channelID channel.ID, credential subscriptionruntime.Credential, _ subscriptionruntime.Target, request subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error) {
 		if channelID != channel.Codex {
 			return subscriptionruntime.ResetCreditResult{}, errors.New("unexpected subscription channel")
 		}
@@ -194,7 +194,7 @@ func setCodexResetCreditConsume(
 		if err != nil {
 			return subscriptionruntime.ResetCreditResult{}, err
 		}
-		observed, err := consume(ctx, current, requestID)
+		observed, err := consume(ctx, current, request.ID)
 		if err != nil {
 			var upstream *codex.UpstreamHTTPError
 			if errors.As(err, &upstream) {

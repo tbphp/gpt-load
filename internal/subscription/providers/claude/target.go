@@ -20,5 +20,6 @@ func claudeAPIOptions(ctx context.Context, apiRoot string) (cpaembedded.ClaudeOp
 	options.RolesURL = endpoints.RolesURL
 	options.BootstrapURL = endpoints.BootstrapURL
 	options.UsageURL = endpoints.UsageURL
+	options.ResetBaseURL = endpoints.ExecutionBase
 	return options, nil
 }

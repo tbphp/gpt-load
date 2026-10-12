@@ -12,6 +12,7 @@ import {
   projectArray,
   projectBoolean,
   projectEnum,
+  projectHTTPURL,
   projectRecord,
   projectString,
 } from './projector'
@@ -27,6 +28,15 @@ export type ChannelNoticeTone = 'warning'
 export interface ChannelNoticeDto {
   id: ChannelNoticeID
   tone: ChannelNoticeTone
+}
+
+const partnerTiers = ['principal', 'featured', 'standard'] as const
+export type ChannelPartnerTier = (typeof partnerTiers)[number]
+
+// 合作档位只决定选择渠道时的位置、标识和注册链接，不影响其他页面。
+export interface ChannelPartnerDto {
+  tier: ChannelPartnerTier
+  signup_url: string
 }
 
 export interface ChannelConnectionDto {
@@ -100,6 +110,7 @@ export interface ChannelDto {
   default_base_url: string
   default_base_urls: string[]
   notices: ChannelNoticeDto[]
+  partner: ChannelPartnerDto | null
   param_fields: ChannelFieldDto[]
   credential_fields: ChannelFieldDto[]
   connection: ChannelConnectionDto
@@ -123,6 +134,7 @@ const channelFields = [
   'default_base_url',
   'default_base_urls',
   'notices',
+  'partner',
   'param_fields',
   'credential_fields',
   'connection',
@@ -153,6 +165,7 @@ const credentialActions = ['reset_credit'] as const
 const noticeFields = ['id', 'tone'] as const
 const noticeIDs = ['claude_oauth_risk', 'antigravity_oauth_risk'] as const
 const noticeTones = ['warning'] as const
+const partnerFields = ['tier', 'signup_url'] as const
 const routeFields = [
   'client_protocol',
   'operation',
@@ -273,6 +286,15 @@ function projectNotice(value: unknown): ChannelNoticeDto {
   }
 }
 
+function projectPartner(value: unknown): ChannelPartnerDto | null {
+  if (value === null || value === undefined) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, partnerFields)
+  const signupURL = projectHTTPURL(record.signup_url)
+  if (new URL(signupURL).protocol !== 'https:') invalidResponse()
+  return { tier: projectEnum(record.tier, partnerTiers), signup_url: signupURL }
+}
+
 function projectRoute(value: unknown): ChannelRouteDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, routeFields)
@@ -305,6 +327,7 @@ function projectChannel(value: unknown): ChannelDto {
   const connection = projectConnection(record.connection)
   const capabilities = projectCapabilities(record.capabilities)
   const notices = projectArray(record.notices, projectNotice)
+  const partner = projectPartner(record.partner)
   const routes = projectArray(record.routes, projectRoute)
   const clientProtocols = projectArray(record.client_protocols, (protocol) =>
     projectEnum(protocol, enabledDataProtocols),
@@ -321,6 +344,7 @@ function projectChannel(value: unknown): ChannelDto {
     new Set(routeKeys).size !== routeKeys.length ||
     credentialFields.some(({ sensitive }) => !sensitive) ||
     new Set(notices.map(({ id }) => id)).size !== notices.length ||
+    (partner !== null && connection.type !== 'api_key') ||
     new Set(clientProtocols).size !== clientProtocols.length ||
     JSON.stringify(clientProtocols) !== JSON.stringify(derivedProtocols)
   ) {
@@ -336,6 +360,7 @@ function projectChannel(value: unknown): ChannelDto {
     default_base_url: projectString(record.default_base_url, { allowEmpty: true }),
     default_base_urls: projectArray(record.default_base_urls, (url) => projectString(url)),
     notices,
+    partner,
     param_fields: paramFields,
     credential_fields: credentialFields,
     connection,

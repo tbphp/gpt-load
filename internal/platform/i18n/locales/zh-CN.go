@@ -19,6 +19,7 @@ var MessagesZhCN = map[string]string{
 	"control.operation_incomplete":               "资源已提交，但运行时恢复尚未完成",
 	"control.recovery_pending":                   "较早提交的操作仍在恢复",
 	"reset_credit.unavailable":                   "当前没有可用的重置卡",
+	"reset_credit.preparation_failed":            "重置准备失败，尚未使用重置卡，请稍后重试",
 	"reset_credit.rejected":                      "上游未能使用这张重置卡",
 	"reset_credit.outcome_unknown":               "无法确认重置结果；请使用同一幂等键重试，系统不会使用新键重复消耗",
 	"model_price.not_found":                      "模型价格不存在",

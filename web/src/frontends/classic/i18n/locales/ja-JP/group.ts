@@ -1,4 +1,6 @@
+import { credentialTestMessages } from '@shared/credential-test-messages'
 export default {
+  credentialBatchTest: credentialTestMessages['ja-JP'],
   groups: {
     title: 'グループ',
     collection: {

@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ChevronDown } from '@lucide/vue'
+import { ChevronDown, Star } from '@lucide/vue'
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ChannelConnectionType, ChannelDto } from '@/app/resources/channels'
+import type {
+  ChannelConnectionType,
+  ChannelDto,
+  ChannelPartnerTier,
+} from '@/app/resources/channels'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppPopover from '@/components/ui/AppPopover.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
@@ -17,6 +21,14 @@ const MAX_FEATURED_CHANNELS = 4
 const FEATURED_CHANNEL_IDS: Record<ChannelConnectionType, readonly string[]> = {
   api_key: ['openai', 'anthropic', 'gemini', 'openai_compatible'],
   subscription: ['codex', 'claude'],
+}
+// 合作只改变选择时的位置与标识：首席、精选进入「合作推荐」行，普通合作排在
+// 「其他渠道」列表顶部；不预选、搜索时也不加权。
+const PARTNER_PICK_TIERS: readonly ChannelPartnerTier[] = ['principal', 'featured']
+const PARTNER_TIER_ORDER: Record<ChannelPartnerTier, number> = {
+  principal: 0,
+  featured: 1,
+  standard: 2,
 }
 
 const props = withDefaults(
@@ -101,15 +113,54 @@ const featuredChannels = computed(() => featuredChannelsForType(activeConnection
 const featuredChannelIDs = computed(
   () => new Set(featuredChannels.value.map((channel) => channel.channel_id)),
 )
+const partnerPicks = computed(() =>
+  activeChannels.value
+    .filter(
+      (channel) =>
+        channel.partner !== null &&
+        PARTNER_PICK_TIERS.includes(channel.partner.tier) &&
+        !featuredChannelIDs.value.has(channel.channel_id),
+    )
+    .sort((a, b) => partnerOrder(a) - partnerOrder(b)),
+)
+const pinnedChannelIDs = computed(
+  () =>
+    new Set([
+      ...featuredChannelIDs.value,
+      ...partnerPicks.value.map((channel) => channel.channel_id),
+    ]),
+)
 const extraChannel = computed(() =>
   props.selectedChannel?.connection.type === activeConnectionType.value &&
-  !featuredChannelIDs.value.has(props.selectedChannel.channel_id)
+  !pinnedChannelIDs.value.has(props.selectedChannel.channel_id)
     ? props.selectedChannel
     : null,
 )
 const otherChannels = computed(() =>
-  activeChannels.value.filter((channel) => !featuredChannelIDs.value.has(channel.channel_id)),
+  activeChannels.value
+    .filter((channel) => !pinnedChannelIDs.value.has(channel.channel_id))
+    .sort((a, b) => partnerOrder(a) - partnerOrder(b)),
 )
+const pinnedStandardCount = computed(
+  () => otherChannels.value.filter((channel) => channel.partner?.tier === 'standard').length,
+)
+
+function partnerOrder(channel: ChannelDto): number {
+  return channel.partner
+    ? PARTNER_TIER_ORDER[channel.partner.tier]
+    : PARTNER_TIER_ORDER.standard + 1
+}
+
+function partnerStarLabel(channel: ChannelDto): string {
+  switch (channel.partner?.tier) {
+    case 'principal':
+      return t('import.presets.principalPartner')
+    case 'featured':
+      return t('import.presets.featuredPartner')
+    default:
+      return ''
+  }
+}
 
 watch(
   () => props.selectedChannel,
@@ -375,47 +426,100 @@ function onSearchKeydown(event: KeyboardEvent): void {
                 role="listbox"
                 :aria-label="t('import.presets.more')"
               >
-                <button
-                  v-for="(match, index) in rankedMatches"
-                  :id="optionId(match.channel.channel_id)"
-                  :key="match.channel.channel_id"
-                  type="button"
-                  role="option"
-                  class="channel-picker__option"
-                  :class="{ 'channel-picker__option--active': index === activeIndex }"
-                  :aria-selected="channelSelected(match.channel)"
-                  @click="choose(match.channel)"
-                  @mouseenter="activeIndex = index"
-                >
-                  <ChannelIcon :icon="match.channel.icon" :mark="match.channel.mark" />
-                  <OverflowTooltip
-                    as="span"
-                    class="channel-picker__option-name"
-                    :content="match.channel.name"
-                    :focusable="false"
+                <template v-for="(match, index) in rankedMatches" :key="match.channel.channel_id">
+                  <button
+                    :id="optionId(match.channel.channel_id)"
+                    type="button"
+                    role="option"
+                    class="channel-picker__option"
+                    :class="{ 'channel-picker__option--active': index === activeIndex }"
+                    :aria-selected="channelSelected(match.channel)"
+                    @click="choose(match.channel)"
+                    @mouseenter="activeIndex = index"
                   >
-                    <template
-                      v-for="(segment, segIndex) in highlightSegments(match.channel.name, query)"
-                      :key="segIndex"
-                    >
-                      <mark v-if="segment.matched">{{ segment.text }}</mark>
-                      <template v-else>{{ segment.text }}</template>
-                    </template>
-                  </OverflowTooltip>
-                  <span v-if="match.reason" class="channel-picker__option-reason">
-                    <template
-                      v-for="(segment, segIndex) in highlightSegments(match.reason, query)"
-                      :key="segIndex"
-                    >
-                      <mark v-if="segment.matched">{{ segment.text }}</mark>
-                      <template v-else>{{ segment.text }}</template>
-                    </template>
-                  </span>
-                </button>
+                    <ChannelIcon :icon="match.channel.icon" :mark="match.channel.mark" />
+                    <span class="channel-picker__option-label">
+                      <OverflowTooltip
+                        as="span"
+                        class="channel-picker__option-name"
+                        :content="match.channel.name"
+                        :focusable="false"
+                      >
+                        <template
+                          v-for="(segment, segIndex) in highlightSegments(
+                            match.channel.name,
+                            query,
+                          )"
+                          :key="segIndex"
+                        >
+                          <mark v-if="segment.matched">{{ segment.text }}</mark>
+                          <template v-else>{{ segment.text }}</template>
+                        </template>
+                      </OverflowTooltip>
+                      <span
+                        v-if="partnerStarLabel(match.channel)"
+                        class="channel-picker__star"
+                        role="img"
+                        :aria-label="partnerStarLabel(match.channel)"
+                        :title="partnerStarLabel(match.channel)"
+                      >
+                        <Star :size="11" fill="currentColor" aria-hidden="true" />
+                      </span>
+                    </span>
+                    <span v-if="match.reason" class="channel-picker__option-reason">
+                      <template
+                        v-for="(segment, segIndex) in highlightSegments(match.reason, query)"
+                        :key="segIndex"
+                      >
+                        <mark v-if="segment.matched">{{ segment.text }}</mark>
+                        <template v-else>{{ segment.text }}</template>
+                      </template>
+                    </span>
+                  </button>
+                  <span
+                    v-if="
+                      !query.trim() &&
+                      index === pinnedStandardCount - 1 &&
+                      index < rankedMatches.length - 1
+                    "
+                    class="channel-picker__options-divider"
+                    aria-hidden="true"
+                  />
+                </template>
               </div>
             </div>
           </AppPopover>
         </div>
+
+        <template v-if="partnerPicks.length > 0">
+          <span class="channel-picker__partners-label">{{ t('import.presets.partners') }}</span>
+          <div class="channel-picker__chips channel-picker__partners">
+            <button
+              v-for="channel in partnerPicks"
+              :key="channel.channel_id"
+              type="button"
+              class="channel-picker__chip"
+              :class="{
+                'channel-picker__chip--principal': channel.partner?.tier === 'principal',
+                'channel-picker__chip--selected': channelSelected(channel),
+              }"
+              :disabled="disabled"
+              :aria-pressed="channelSelected(channel)"
+              @click="choose(channel)"
+            >
+              <ChannelIcon :icon="channel.icon" :mark="channel.mark" />
+              <span>{{ channel.name }}</span>
+              <span
+                class="channel-picker__star"
+                role="img"
+                :aria-label="partnerStarLabel(channel)"
+                :title="partnerStarLabel(channel)"
+              >
+                <Star :size="11" fill="currentColor" aria-hidden="true" />
+              </span>
+            </button>
+          </div>
+        </template>
       </div>
     </div>
   </section>
@@ -423,6 +527,8 @@ function onSearchKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 .channel-picker {
+  /* 合作标识统一用金色，与警示色同源但只用于星标和首席边框 */
+  --partner-accent: var(--color-warning);
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 var(--space-6);
@@ -471,11 +577,30 @@ function onSearchKeydown(event: KeyboardEvent): void {
 }
 
 .channel-picker__selector {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-wrap: wrap;
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
+}
+
+.channel-picker__partners-label {
+  grid-column: 1 / span 2;
+  justify-self: end;
+  padding-right: var(--space-2);
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.channel-picker__partners {
+  grid-column: 3;
+}
+
+.channel-picker__star {
+  display: inline-flex;
+  flex: none;
+  color: var(--partner-accent);
 }
 
 .channel-picker__chips {
@@ -529,6 +654,16 @@ function onSearchKeydown(event: KeyboardEvent): void {
 .channel-picker__chip:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.channel-picker__chip--principal:not(.channel-picker__chip--selected) {
+  border-color: color-mix(in srgb, var(--partner-accent) 62%, var(--color-border-control));
+  background: color-mix(in srgb, var(--partner-accent) 10%, var(--color-surface));
+}
+
+.channel-picker__chip--principal:not(.channel-picker__chip--selected):hover:not(:disabled) {
+  border-color: var(--partner-accent);
+  background: color-mix(in srgb, var(--partner-accent) 16%, var(--color-surface));
 }
 
 .channel-picker__chip--selected {
@@ -630,6 +765,19 @@ function onSearchKeydown(event: KeyboardEvent): void {
   font-weight: 600;
 }
 
+.channel-picker__option-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.channel-picker__options-divider {
+  height: 1px;
+  margin: 3px 8px;
+  background: var(--color-border-subtle);
+}
+
 .channel-picker__option-name {
   min-width: 0;
   overflow: hidden;
@@ -661,7 +809,19 @@ function onSearchKeydown(event: KeyboardEvent): void {
 
 @media (max-width: 860px) {
   .channel-picker__selector {
+    grid-template-columns: minmax(0, 1fr);
     align-items: flex-start;
+    justify-items: start;
+  }
+
+  .channel-picker__partners-label,
+  .channel-picker__partners {
+    grid-column: auto;
+  }
+
+  .channel-picker__partners-label {
+    justify-self: start;
+    padding-right: 0;
   }
 
   .channel-picker__selector > .channel-picker__divider {
@@ -670,6 +830,7 @@ function onSearchKeydown(event: KeyboardEvent): void {
 
   .channel-picker__chips {
     flex-basis: 100%;
+    justify-self: stretch;
   }
 
   .channel-picker__chip {

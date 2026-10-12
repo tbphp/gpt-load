@@ -206,11 +206,13 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	raw.RouteRequirement = RouteRequirementNative
 	raw.ConfiguredHeaders = []string{"User-Agent"}
 	raw.ConfiguredParameters = []string{"cache_control"}
+	raw.RemovedParameterPaths = [][]string{{"messages", "*", "reasoning_content"}}
 	owned := NewAttemptSpec(raw)
 
 	raw.Header.Set("X-Test", "mutated")
 	raw.ConfiguredHeaders[0] = "Originator"
 	raw.ConfiguredParameters[0] = "top_k"
+	raw.RemovedParameterPaths[0][2] = "content"
 	raw.Query.Set("api-version", "mutated")
 	raw.Body[0] = 'X'
 	raw.TargetConfig[0] = 'Y'
@@ -223,6 +225,9 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	}
 	if owned.ConfiguredParameters[0] != "cache_control" {
 		t.Fatal("mutating input changed configured parameters")
+	}
+	if owned.RemovedParameterPaths[0][2] != "reasoning_content" {
+		t.Fatal("mutating input changed removed parameter paths")
 	}
 	if got := owned.Query.Get("api-version"); got != "2026-01-01" {
 		t.Fatalf("owned query = %q, want original", got)
@@ -244,6 +249,7 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	clone.Header.Set("X-Test", "clone")
 	clone.ConfiguredHeaders[0] = "Version"
 	clone.ConfiguredParameters[0] = "top_k"
+	clone.RemovedParameterPaths[0][2] = "content"
 	clone.Query.Set("api-version", "clone")
 	clone.Body[0] = 'Z'
 	clone.TargetConfig[0] = 'Q'
@@ -256,6 +262,9 @@ func TestAttemptSpecOwnsReferenceBackedValues(t *testing.T) {
 	}
 	if owned.ConfiguredParameters[0] != "cache_control" {
 		t.Fatal("mutating clone changed configured parameters")
+	}
+	if owned.RemovedParameterPaths[0][2] != "reasoning_content" {
+		t.Fatal("mutating clone changed removed parameter paths")
 	}
 	if string(owned.Body) != `{"model":"client-model"}` || string(owned.Credential.Data()) != `{"api_key":"sk-secret-value"}` {
 		t.Fatal("mutating clone changed original byte slices")

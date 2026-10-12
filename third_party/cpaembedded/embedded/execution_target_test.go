@@ -73,8 +73,8 @@ func TestSubscriptionExecutionUsesAPIProxyRoot(t *testing.T) {
 						t.Errorf("missing subscription Bearer header")
 					}
 					if strings.HasPrefix(test.name, "grok") && (request.Header.Get("X-XAI-Token-Auth") != "xai-grok-cli" ||
-						request.Header.Get("x-grok-client-version") != grokClientVersion ||
-						request.Header.Get("User-Agent") != "xai-grok-workspace/"+grokClientVersion ||
+						request.Header.Get("x-grok-client-version") != GrokClientVersion ||
+						request.Header.Get("User-Agent") != "xai-grok-workspace/"+GrokClientVersion ||
 						request.Header.Get("x-grok-client-identifier") != "grok-shell" ||
 						request.Header.Get("x-authenticateresponse") != "authenticate-response") {
 						t.Errorf("missing Grok CLI identity headers: %#v", request.Header)

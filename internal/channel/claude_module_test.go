@@ -49,7 +49,7 @@ func TestClaudeModuleDeclaresSubscriptionContract(t *testing.T) {
 	if bindings.SubscriptionDriver != modules.ClaudeSubscriptionDriver ||
 		bindings.ModelDiscovery != modules.ClaudeModelDiscovery ||
 		bindings.QuotaObservation != modules.ClaudeQuotaObservation ||
-		bindings.ResetCreditAction != "" {
+		bindings.ResetCreditAction != modules.ClaudeResetCreditAction {
 		t.Fatalf("Claude capabilities = %#v", bindings)
 	}
 	wantRoutes := map[protocol.Protocol]RouteMode{

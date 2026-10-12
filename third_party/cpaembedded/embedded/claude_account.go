@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
@@ -19,9 +20,9 @@ import (
 
 const (
 	claudeBootstrapBeta      = "oauth-2025-04-20"
-	claudeBootstrapUserAgent = "claude-code/2.1.220"
 	maxClaudeModels          = 256
 	maxClaudeScopedLimits    = 256
+	maxClaudeResetCredits    = 256
 	maxClaudeSafeScalarBytes = 512
 )
 
@@ -91,6 +92,12 @@ type ClaudeScopedLimit struct {
 	SurfaceDisplayName string
 }
 
+// ClaudeResetGrant 只保留可展示的数量和期限，不向观测结果暴露兑换标识。
+type ClaudeResetGrant struct {
+	Remaining int64
+	ExpiresAt *string
+}
+
 // ClaudeUsage is the typed Claude OAuth usage response.
 type ClaudeUsage struct {
 	FiveHour          *ClaudeUsageWindow
@@ -101,6 +108,7 @@ type ClaudeUsage struct {
 	CinderCove        *ClaudeUsageWindow
 	ExtraUsage        *ClaudeExtraUsage
 	Limits            []ClaudeScopedLimit
+	ResetGrants       []ClaudeResetGrant
 }
 
 // ClaudeAccountObservation combines account metadata and quota evidence.
@@ -165,6 +173,7 @@ type claudeUsagePayload struct {
 	SevenDaySonnet    *claudeUsageWindowPayload `json:"seven_day_sonnet"`
 	CinderCove        *claudeUsageWindowPayload `json:"cinder_cove"`
 	ExtraUsage        *claudeExtraUsagePayload  `json:"extra_usage"`
+	CedarEmber        json.RawMessage           `json:"cedar_ember"`
 	Limits            []struct {
 		Kind     string   `json:"kind"`
 		Group    string   `json:"group"`
@@ -416,7 +425,10 @@ func ObserveClaudeAccount(
 		recordFailure(bootstrapErr)
 	}
 
-	usage, header, err := fetchAndDecodeClaudeUsage(ctx, credential, options)
+	usage, header, resetCreditsIncomplete, err := fetchAndDecodeClaudeUsage(ctx, credential, options)
+	if resetCreditsIncomplete {
+		incomplete = append(incomplete, "reset_credits")
+	}
 	if err != nil {
 		if isClaudeObservationContextError(err) {
 			return ClaudeAccountObservation{}, err
@@ -554,25 +566,41 @@ func fetchAndDecodeClaudeUsage(
 	ctx context.Context,
 	credential ClaudeCredential,
 	options ClaudeOptions,
-) (ClaudeUsage, http.Header, error) {
+) (ClaudeUsage, http.Header, bool, error) {
+	payload, header, err := fetchClaudeUsagePayload(ctx, credential, options)
+	if err != nil {
+		return ClaudeUsage{}, nil, false, err
+	}
+	usage, err := mapClaudeUsage(payload)
+	if err != nil {
+		return ClaudeUsage{}, nil, false, err
+	}
+	// 可选重置卡字段独立校验，失败只标记该来源不完整，不丢弃正常额度。
+	usage.ResetGrants, err = mapClaudeResetGrants(payload.CedarEmber, claudeNow(options))
+	return usage, header, err != nil, nil
+}
+
+func fetchClaudeUsagePayload(ctx context.Context, credential ClaudeCredential, options ClaudeOptions) (claudeUsagePayload, http.Header, error) {
 	endpoint := strings.TrimSpace(options.UsageURL)
 	if endpoint == "" {
 		endpoint = ClaudeUsageURL
 	}
-	body, header, err := fetchClaudeOAuthJSONRequest(ctx, options, endpoint, credential.AccessToken, nil)
+	body, header, err := fetchClaudeOAuthJSONRequest(ctx, options, endpoint, credential.AccessToken, func(request *http.Request) {
+		query := request.URL.Query()
+		query.Set("cedar_ember", "1")
+		request.URL.RawQuery = query.Encode()
+		request.Header.Set("Anthropic-Beta", claudeBootstrapBeta)
+		request.Header.Set("User-Agent", claudeUserAgent)
+	})
 	if err != nil {
-		return ClaudeUsage{}, nil, err
+		return claudeUsagePayload{}, nil, err
 	}
 	defer clear(body)
 	var payload claudeUsagePayload
 	if err := decodeClaudeJSONObject(body, &payload); err != nil {
-		return ClaudeUsage{}, nil, err
+		return claudeUsagePayload{}, nil, err
 	}
-	usage, err := mapClaudeUsage(payload)
-	if err != nil {
-		return ClaudeUsage{}, nil, err
-	}
-	return usage, header, nil
+	return payload, header, nil
 }
 
 func mapClaudeAccountProfile(payload claudeOAuthProfile) (ClaudeAccountProfile, error) {
@@ -664,7 +692,7 @@ func claudeUsageUsable(usage ClaudeUsage) bool {
 			return true
 		}
 	}
-	return usage.ExtraUsage != nil || len(usage.Limits) > 0
+	return usage.ExtraUsage != nil || len(usage.Limits) > 0 || usage.ResetGrants != nil
 }
 
 func validateClaudeProfileIdentity(credential ClaudeCredential, profile claudeOAuthProfile) error {
@@ -780,6 +808,48 @@ func mapClaudeUsage(payload claudeUsagePayload) (ClaudeUsage, error) {
 			}
 		}
 		result.Limits = append(result.Limits, item)
+	}
+	return result, nil
+}
+
+func mapClaudeResetGrants(raw json.RawMessage, now time.Time) ([]ClaudeResetGrant, error) {
+	resets, err := decodeClaudeResetCredits(raw)
+	if err != nil || resets == nil {
+		return nil, err
+	}
+	if len(resets.Grants) > maxClaudeResetCredits {
+		return nil, fmt.Errorf("too many Claude reset grants")
+	}
+	result := []ClaudeResetGrant{}
+	if !resets.Eligible {
+		return result, nil
+	}
+	total := int64(0)
+	for _, grant := range resets.Grants {
+		if !grant.UsableNow || grant.Paused {
+			continue
+		}
+		if grant.Remaining < 0 || grant.Remaining > maxClaudeResetCredits-total {
+			return nil, fmt.Errorf("Claude reset credit count is invalid")
+		}
+		if grant.Remaining == 0 {
+			continue
+		}
+		expires, err := claudeOptionalSafeScalar("reset credit expiration", grant.ExpiresAt)
+		if err != nil {
+			return nil, err
+		}
+		if expires != nil && *expires != "" {
+			until, err := time.Parse(time.RFC3339, *expires)
+			if err != nil {
+				return nil, fmt.Errorf("Claude reset credit expiration is invalid")
+			}
+			if !until.After(now) {
+				continue
+			}
+		}
+		total += grant.Remaining
+		result = append(result, ClaudeResetGrant{Remaining: grant.Remaining, ExpiresAt: expires})
 	}
 	return result, nil
 }

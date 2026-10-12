@@ -123,7 +123,7 @@ func TestSubscriptionTargetChangeDoesNotJoinOrPersistOldObservation(t *testing.T
 
 func TestResetCreditForOldTargetDoesNotRestoreNewTargetRuntime(t *testing.T) {
 	fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-	fixture.service.consumeSubscriptionResetCredit = func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, string) (subscriptionruntime.ResetCreditResult, error) {
+	fixture.service.consumeSubscriptionResetCredit = func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target, subscriptionruntime.ResetCreditRequest) (subscriptionruntime.ResetCreditResult, error) {
 		setSubscriptionTestTarget(t, fixture, groupID, "https://relay.example/new")
 		if !fixture.registry.SetBlacklisted(credentialID) {
 			t.Fatal("new target credential is missing")

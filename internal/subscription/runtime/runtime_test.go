@@ -62,7 +62,7 @@ func (testObservation) Observe(context.Context, Credential, Target) (Observation
 type testResetCredit struct{ id spec.ActionID }
 
 func (value testResetCredit) ID() spec.ActionID { return value.id }
-func (testResetCredit) Consume(context.Context, Credential, Target, string) (ResetCreditResult, error) {
+func (testResetCredit) Consume(context.Context, Credential, Target, ResetCreditRequest) (ResetCreditResult, error) {
 	return ResetCreditResult{}, nil
 }
 
@@ -92,6 +92,7 @@ func completeTestRuntimeImplementations() ([]Driver, []ModelDiscovery, []QuotaOb
 		testObservation{id: modules.AntigravityQuotaObservation},
 	}, []ResetCreditAction{
 		testResetCredit{id: modules.CodexResetCreditAction},
+		testResetCredit{id: modules.ClaudeResetCreditAction},
 	}
 }
 

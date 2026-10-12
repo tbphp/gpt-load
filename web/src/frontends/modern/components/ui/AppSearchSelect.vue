@@ -7,11 +7,14 @@ import { Check, ChevronDown, Search } from '@lucide/vue'
 import {
   ComboboxAnchor,
   ComboboxContent,
+  ComboboxGroup,
   ComboboxInput,
   ComboboxItem,
   ComboboxItemIndicator,
+  ComboboxLabel,
   ComboboxPortal,
   ComboboxRoot,
+  ComboboxSeparator,
   ComboboxTrigger,
   ComboboxViewport,
 } from 'reka-ui'
@@ -101,11 +104,27 @@ watch(
   },
   { immediate: true },
 )
-const visible = computed(() =>
-  props.loadOptions
-    ? source.value
-    : source.value.filter((option) => matchesSearchOption(option, search.value)),
-)
+const searching = computed(() => search.value.trim() !== '')
+const visible = computed(() => {
+  if (props.loadOptions) return source.value
+  const matched = source.value.filter((option) => matchesSearchOption(option, search.value))
+  if (!searching.value || !matched.some((option) => option.searchOrder !== undefined))
+    return matched
+  return [...matched].sort((a, b) => (a.searchOrder ?? 0) - (b.searchOrder ?? 0))
+})
+const sections = computed(() => {
+  if (searching.value || !visible.value.some((option) => option.group)) {
+    return [{ label: '', options: visible.value }]
+  }
+  const result: { label: string; options: SearchSelectOption[] }[] = []
+  for (const option of visible.value) {
+    const label = option.group ?? ''
+    const last = result.at(-1)
+    if (last?.label === label) last.options.push(option)
+    else result.push({ label, options: [option] })
+  }
+  return result
+})
 function updateSearch(value: string): void {
   inputChanged = true
   keyboardBrowsing = false
@@ -252,23 +271,33 @@ onScopeDispose(cancelRequest)
               {{ t(allowCustom && search.trim() ? 'ui.select.customInput' : 'ui.select.empty') }}
             </div>
             <ComboboxViewport v-else>
-              <ComboboxItem
-                v-for="option in visible"
-                :key="option.value"
-                :value="option.value === '' ? null : option.value"
-                :text-value="option.label"
-                :disabled="option.disabled"
-                class="modern-menu-option"
-                @select="retainedOption = option"
-              >
-                <span class="modern-search-select-option">
-                  <slot name="option" :option="option"
-                    ><span>{{ option.label }}</span
-                    ><small v-if="option.description">{{ option.description }}</small></slot
+              <template v-for="(section, index) in sections" :key="section.label || index">
+                <ComboboxSeparator v-if="index > 0" class="modern-search-select-separator" />
+                <ComboboxGroup>
+                  <ComboboxLabel v-if="section.label" class="modern-menu-label">{{
+                    section.label
+                  }}</ComboboxLabel>
+                  <ComboboxItem
+                    v-for="option in section.options"
+                    :key="option.value"
+                    :value="option.value === '' ? null : option.value"
+                    :text-value="option.label"
+                    :disabled="option.disabled"
+                    :class="['modern-menu-option', option.class]"
+                    @select="retainedOption = option"
                   >
-                </span>
-                <ComboboxItemIndicator><AppIcon :icon="Check" size="sm" /></ComboboxItemIndicator>
-              </ComboboxItem>
+                    <span class="modern-search-select-option">
+                      <slot name="option" :option="option"
+                        ><span>{{ option.label }}</span
+                        ><small v-if="option.description">{{ option.description }}</small></slot
+                      >
+                    </span>
+                    <ComboboxItemIndicator
+                      ><AppIcon :icon="Check" size="sm"
+                    /></ComboboxItemIndicator>
+                  </ComboboxItem>
+                </ComboboxGroup>
+              </template>
             </ComboboxViewport>
           </ComboboxContent>
         </AppMenuSurface>
@@ -320,6 +349,11 @@ onScopeDispose(cancelRequest)
 .modern-search-select-option small {
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+}
+.modern-search-select-separator {
+  height: 1px;
+  margin: var(--modern-space-1) var(--modern-space-2);
+  background: var(--modern-border);
 }
 .modern-search-select-status {
   display: flex;
