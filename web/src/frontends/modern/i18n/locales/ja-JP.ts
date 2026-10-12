@@ -60,6 +60,10 @@ export default {
   shell: {
     refresh: '更新',
     refreshedAt: '{time} 更新',
+    autoRefresh: '自動更新',
+    autoRefreshOff: 'オフ',
+    autoRefreshSeconds: '{count} 秒',
+    autoRefreshMinutes: '{count} 分',
     importCredentials: 'キーをインポート',
     goHome: 'GPT-Load の概要',
     mascotHint:

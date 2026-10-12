@@ -265,6 +265,21 @@ const filterSummary = computed(() => [
       : [],
   ),
 ])
+// 自动刷新只更新报告，保留筛选、图表选项和滚动位置，不刷新筛选候选项。
+const requestIdentity = computed(() => JSON.stringify([state.value.filters, state.value.range]))
+const silentRequest = ref<string>()
+const fetching = computed(
+  () => query.isFetching.value && silentRequest.value !== requestIdentity.value,
+)
+async function autoRefresh(): Promise<boolean> {
+  const identity = requestIdentity.value
+  silentRequest.value = identity
+  try {
+    return !(await query.refetch({ cancelRefetch: false })).isError
+  } finally {
+    if (silentRequest.value === identity) silentRequest.value = undefined
+  }
+}
 async function refresh(): Promise<void> {
   await Promise.all([
     query.refetch(),
@@ -273,8 +288,9 @@ async function refresh(): Promise<void> {
 }
 usePageRefresh({
   refresh,
-  pending: () => query.isFetching.value,
+  pending: () => fetching.value,
   updatedAt: () => report.value?.observed_at_ms,
+  autoRefresh,
 })
 useMessageSource(() =>
   query.isError.value && report.value

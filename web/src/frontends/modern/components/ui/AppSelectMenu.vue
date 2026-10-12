@@ -10,7 +10,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from 'reka-ui'
-import { computed, type Component } from 'vue'
+import { computed, nextTick, ref, type Component } from 'vue'
 import AppButton from './AppButton.vue'
 import AppIcon from './AppIcon.vue'
 import AppIconButton from './AppIconButton.vue'
@@ -30,16 +30,22 @@ const selectedLabel = computed(
   () => props.options.find((option) => option.value === props.modelValue)?.label ?? props.label,
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const open = ref(false)
 
 function select(value: unknown): void {
-  if (!props.disabled && typeof value === 'string' && value !== props.modelValue)
-    emit('update:modelValue', value)
+  if (!props.disabled && typeof value === 'string' && value !== props.modelValue) {
+    // 先收起菜单再提交：提交可能切换触发按钮（showValue），新按钮必须在未展开时创建，
+    // 否则提示组件随后会替换它，菜单就找不到锚点。
+    open.value = false
+    void nextTick(() => emit('update:modelValue', value))
+  }
 }
 </script>
 
 <template>
-  <DropdownMenuRoot>
-    <DropdownMenuTrigger as-child>
+  <DropdownMenuRoot v-model:open="open">
+    <!-- showValue 会切换触发按钮的组件类型；按它重建触发器，菜单才会重新锚定到新按钮。 -->
+    <DropdownMenuTrigger :key="showValue ? 'value' : 'icon'" as-child>
       <AppButton
         v-if="showValue"
         class="modern-select-menu-value"

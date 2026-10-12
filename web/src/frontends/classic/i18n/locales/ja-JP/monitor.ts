@@ -11,6 +11,12 @@ export default {
     help: '説明を表示',
     scrollHint: '横方向にスクロールするとすべての列を確認できます。',
     currentState: '現在の状態',
+    autoRefresh: {
+      label: '自動更新',
+      off: '自動更新オフ',
+      seconds: '{count} 秒ごと',
+      minutes: '{count} 分ごと',
+    },
     tabs: {
       label: 'モニターのセクション',
       health: 'ヘルス',
