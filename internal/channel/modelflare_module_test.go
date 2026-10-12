@@ -45,9 +45,14 @@ func TestModelflarePresetIsPrincipalPartnerWithVerifiedRoutes(t *testing.T) {
 		if target.ProviderKind != ProviderMultiProtocolGateway || string(target.TargetConfig) != `{"base_url":"`+wantURL+`"}` {
 			t.Fatalf("unexpected gateway target: %+v", target)
 		}
-		for _, p := range []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic} {
+		for _, p := range []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic, protocol.Gemini} {
 			if mode, ok := target.Mode(p, execution.OperationChatCompletion); !ok || mode != RouteNative {
 				t.Errorf("%s must use a native route, got %s / %t", p, mode, ok)
+			}
+		}
+		for _, operation := range []execution.Operation{execution.OperationImagesGenerate, execution.OperationImagesEdit} {
+			if mode, ok := target.Mode(protocol.OpenAIImages, operation); !ok || mode != RouteNative {
+				t.Errorf("OpenAI Images %s must use a native route, got %s / %t", operation, mode, ok)
 			}
 		}
 		if mode, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCreate); !ok || mode != RouteNative {
@@ -63,12 +68,12 @@ func TestModelflarePresetIsPrincipalPartnerWithVerifiedRoutes(t *testing.T) {
 		if selected, ok := target.PreferredProtocol(execution.OperationProbe, "gpt-5.4"); !ok || selected != protocol.OpenAICompletions {
 			t.Errorf("credential probe protocol = %q / %t, want openai-completions", selected, ok)
 		}
-		// 实测 Gemini 原生不可用、图片无法验证，修复前不声明。
-		if _, ok := target.Mode(protocol.Gemini, execution.OperationChatCompletion); ok {
-			t.Error("Gemini must not be advertised until the upstream native endpoint works")
+		// 上游未开放 Embeddings，Responses compact 实测失败，均不声明。
+		if _, ok := target.Mode(protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate); ok {
+			t.Error("Embeddings must not be advertised")
 		}
-		if _, ok := target.Mode(protocol.OpenAIImages, execution.OperationImagesGenerate); ok {
-			t.Error("Images must not be advertised before verification")
+		if _, ok := target.Mode(protocol.OpenAIResponses, execution.OperationResponsesCompact); ok {
+			t.Error("Responses compact must not be advertised")
 		}
 	}
 }

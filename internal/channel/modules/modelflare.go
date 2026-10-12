@@ -36,16 +36,20 @@ func Modelflare() spec.Module {
 				EndpointPolicy: spec.EndpointFixedWithOverride,
 				FixedBaseURL:   "https://modelflare.dev",
 			},
-			// 上游 Responses 只支持流式，非流式返回 400；凭据测试因此不走 Responses，
-			// 默认使用 Chat Completions。Gemini 原生不可用、图片接口需要媒体分组密钥
-			// 尚未验证，修复或验证后再补。
+			// 上游 Responses 只支持流式，非流式返回 400，所以不声明 Responses 凭据测试，
+			// 分组默认用 Chat Completions 测试。Gemini 生图模型走 Gemini 原生 generateContent。
+			// 上游未开放 Embeddings，Responses compact 实测失败，均不声明。
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationChatCompletion, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationListModels, execution.RouteNative),
 				spec.NewRoute(protocol.OpenAICompletions, execution.OperationProbe, execution.RouteNative),
 				spec.NewResponsesCreateRoute(execution.RouteNative, spec.ResponsesStoreHandlingStateless),
+				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesGenerate, execution.RouteNative),
+				spec.NewRoute(protocol.OpenAIImages, execution.OperationImagesEdit, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationChatCompletion, execution.RouteNative),
 				spec.NewRoute(protocol.Anthropic, execution.OperationProbe, execution.RouteNative),
+				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteNative),
+				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteNative),
 			},
 		},
 	}
