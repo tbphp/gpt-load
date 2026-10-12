@@ -492,7 +492,7 @@ const dailyIncompleteHint = computed(() =>
     : undefined,
 )
 const failureLabel = computed(() =>
-  props.item.recent_failure_count === 0
+  props.item.last_status_code === null && props.item.last_failure_category === 'ambiguous'
     ? t('group.credentials.none')
     : `${presentCredentialFailureCategory(t, props.item.last_failure_category)}${
         props.item.last_status_code === null ? '' : ` · ${props.item.last_status_code}`
