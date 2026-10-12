@@ -27,6 +27,7 @@ export interface AccessKeyDraft {
   concurrency_limit: number | null
   rpm_limit: number
   price_multiplier: string
+  record_request_body: boolean
   costLimitRules: AccessKeyCostLimitRuleDraft[]
 }
 
@@ -82,6 +83,7 @@ export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKey
     concurrency_limit: accessKey?.concurrency_limit ?? null,
     rpm_limit: accessKey?.rpm_limit ?? 0,
     price_multiplier: accessKey?.price_multiplier ?? '1',
+    record_request_body: accessKey?.record_request_body ?? false,
     costLimitRules: (accessKey?.cost_limit_rules ?? []).map(costLimitRuleDraft),
   }
 }
@@ -100,6 +102,7 @@ export function createAccessKeyDraftFromCreateInput(input: CreateAccessKeyReques
     concurrency_limit: input.concurrency_limit,
     rpm_limit: input.rpm_limit,
     price_multiplier: input.price_multiplier,
+    record_request_body: input.record_request_body,
     costLimitRules: input.cost_limit_rules.map(costLimitRuleDraft),
   }
 }
@@ -123,6 +126,7 @@ export function createAccessKeyDraftFromUpdate(
       patch.concurrency_limit !== undefined ? patch.concurrency_limit : base.concurrency_limit,
     rpm_limit: patch.rpm_limit ?? base.rpm_limit,
     price_multiplier: patch.price_multiplier ?? base.price_multiplier,
+    record_request_body: patch.record_request_body ?? base.record_request_body,
     costLimitRules: (patch.cost_limit_rules ?? base.cost_limit_rules).map(costLimitRuleDraft),
   }
 }
@@ -173,6 +177,7 @@ export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKe
     concurrency_limit: draft.concurrency_limit,
     rpm_limit: draft.rpm_limit,
     price_multiplier: normalizePriceMultiplier(draft.price_multiplier),
+    record_request_body: draft.record_request_body,
     cost_limit_rules: costLimitInputs(draft.costLimitRules, false),
   }
 }
@@ -295,6 +300,7 @@ export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto
     draft.expires_at_ms !== initial.expires_at_ms ||
     draft.concurrency_limit !== initial.concurrency_limit ||
     draft.rpm_limit !== initial.rpm_limit ||
+    draft.record_request_body !== initial.record_request_body ||
     normalizePriceMultiplier(draft.price_multiplier) !== initial.price_multiplier ||
     !equalFilters(draft.filters, initial.filters) ||
     !equalCostLimitRules(
@@ -318,6 +324,8 @@ export function accessKeyMatchesUpdatePatch(
     (patch.concurrency_limit === undefined ||
       patch.concurrency_limit === accessKey.concurrency_limit) &&
     (patch.rpm_limit === undefined || patch.rpm_limit === accessKey.rpm_limit) &&
+    (patch.record_request_body === undefined ||
+      patch.record_request_body === accessKey.record_request_body) &&
     (patch.price_multiplier === undefined ||
       normalizePriceMultiplier(patch.price_multiplier) === accessKey.price_multiplier) &&
     (patch.cost_limit_rules === undefined ||
@@ -397,6 +405,8 @@ export function buildAccessKeyUpdatePatch(
   if (draft.concurrency_limit !== base.concurrency_limit)
     patch.concurrency_limit = draft.concurrency_limit
   if (draft.rpm_limit !== base.rpm_limit) patch.rpm_limit = draft.rpm_limit
+  if (draft.record_request_body !== base.record_request_body)
+    patch.record_request_body = draft.record_request_body
   const priceMultiplier = normalizePriceMultiplier(draft.price_multiplier)
   if (priceMultiplier !== base.price_multiplier) patch.price_multiplier = priceMultiplier
   const desiredCostLimits = costLimitInputs(draft.costLimitRules, true)

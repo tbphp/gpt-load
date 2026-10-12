@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"gpt-load/internal/channel/spec"
@@ -29,7 +30,32 @@ func compileBuiltInModules(channelModules []spec.Module) ([]definition, error) {
 		}
 		definitions = append(definitions, compiled)
 	}
+	if err := validatePartnerSeats(definitions); err != nil {
+		return nil, err
+	}
 	return definitions, nil
+}
+
+// 首席唯一、精选最多 3 家，与对外的合作套餐席位一致。
+const (
+	maxPrincipalPartners = 1
+	maxFeaturedPartners  = 3
+)
+
+func validatePartnerSeats(definitions []definition) error {
+	counts := make(map[PartnerTier]int)
+	for _, compiled := range definitions {
+		if compiled.descriptor.Partner != nil {
+			counts[compiled.descriptor.Partner.Tier]++
+		}
+	}
+	if counts[PartnerPrincipal] > maxPrincipalPartners {
+		return fmt.Errorf("channel registry declares %d principal partners, at most %d allowed", counts[PartnerPrincipal], maxPrincipalPartners)
+	}
+	if counts[PartnerFeatured] > maxFeaturedPartners {
+		return fmt.Errorf("channel registry declares %d featured partners, at most %d allowed", counts[PartnerFeatured], maxFeaturedPartners)
+	}
+	return nil
 }
 
 func compileModuleExtensions(channelModule spec.Module) (compiledExtensions, error) {
@@ -84,6 +110,10 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 		return definition{}, fmt.Errorf("channel %q has incomplete metadata", id)
 	}
 	notices, err := compileNotices(id, source.Notices)
+	if err != nil {
+		return definition{}, err
+	}
+	partner, err := compilePartner(id, source.Partner, source.Connection.Type)
 	if err != nil {
 		return definition{}, err
 	}
@@ -157,6 +187,7 @@ func compileModule(source spec.Definition, extensions compiledExtensions) (defin
 			SearchTerms:      append([]string(nil), source.SearchTerms...),
 			Description:      source.Description,
 			Notices:          notices,
+			Partner:          partner,
 			ParamFields:      params.descriptors(),
 			CredentialFields: credentials.descriptors(),
 			Connection: ConnectionDescriptor{
@@ -206,6 +237,35 @@ func compileNotices(channelID string, source []spec.Notice) ([]NoticeDescriptor,
 		result = append(result, NoticeDescriptor{ID: notice.ID, Tone: notice.Tone})
 	}
 	return result, nil
+}
+
+func compilePartner(channelID string, source spec.Partner, connectionType spec.ConnectionType) (*PartnerDescriptor, error) {
+	if source == (spec.Partner{}) {
+		return nil, nil
+	}
+	if !source.Tier.Valid() {
+		return nil, fmt.Errorf("channel %q has invalid partner tier %q", channelID, source.Tier)
+	}
+	// 合作推荐只出现在 API 密钥渠道的选择处，订阅账号渠道不参与。
+	if connectionType != spec.ConnectionAPIKey {
+		return nil, fmt.Errorf("channel %q declares a partner on a non-API-key connection", channelID)
+	}
+	if err := validatePartnerSignupURL(source.SignupURL); err != nil {
+		return nil, fmt.Errorf("channel %q has invalid partner signup URL: %w", channelID, err)
+	}
+	return &PartnerDescriptor{Tier: source.Tier, SignupURL: source.SignupURL}, nil
+}
+
+// 注册链接原样展示给浏览器，保留统计用的查询参数，只要求是不带凭据的 HTTPS 绝对地址。
+func validatePartnerSignupURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("must be an absolute HTTPS URL without credentials")
+	}
+	return nil
 }
 
 func validateConnection(source spec.Definition) error {

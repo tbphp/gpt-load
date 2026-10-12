@@ -87,6 +87,7 @@ type requestRecorder struct {
 	now                  func() time.Time
 	redactor             *redact.Redactor
 	emitted              bool
+	requestBody          []byte
 
 	pendingRetry int
 }
@@ -170,7 +171,17 @@ func (recorder *requestRecorder) emit() {
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
+		RequestBody:           recorder.requestBody,
 	})
+}
+
+// recordRequestBody 为开启请求内容记录的访问密钥保留客户端原始请求体。
+// 网关内请求体只读，直接引用而不复制；截断与落库由请求日志异步完成。
+func (recorder *requestRecorder) recordRequestBody(key state.AccessKeyView, body []byte) {
+	if recorder == nil || !key.RecordRequestBody || len(body) == 0 {
+		return
+	}
+	recorder.requestBody = body
 }
 
 func (recorder *requestRecorder) freezeSensitiveInputErrorSummaries() {

@@ -1,3 +1,4 @@
+import { credentialTestMessages } from '@shared/credential-test-messages'
 import { errorRuleMessages } from '@shared/error-rule-messages'
 import { zhCN as proxies } from '@shared/proxies/messages'
 import { zhCN as concurrency } from './concurrency'
@@ -25,6 +26,7 @@ import { zhCN as autoModel } from './auto-model'
 import { zhCN as subscriptions } from './subscriptions'
 
 export default {
+  credentialBatchTest: credentialTestMessages['zh-CN'],
   errorRules: errorRuleMessages['zh-CN'],
   proxies,
   concurrency,
@@ -58,6 +60,10 @@ export default {
   shell: {
     refresh: '刷新',
     refreshedAt: '更新于 {time}',
+    autoRefresh: '自动刷新',
+    autoRefreshOff: '关闭',
+    autoRefreshSeconds: '{count} 秒',
+    autoRefreshMinutes: '{count} 分钟',
     importCredentials: '导入密钥',
     goHome: 'GPT-Load 总览',
     mascotHint: '长按吉祥物或聚焦后按空格与它互动，按回车返回总览。',
@@ -96,6 +102,8 @@ export default {
     logout: '退出登录',
     readOnly: '访问密钥 · 只读',
     readOnlyDescription: '仅能查看此密钥的总览、模型、用量和请求记录，不能修改系统配置。',
+    requestBodyRecordingNotice:
+      '管理员已为这个访问密钥开启请求内容记录。你通过它发送的内容会保存 {days} 天，管理员和持有这个密钥的人都可以查看。不希望被记录的内容，请不要通过这个密钥发送。',
     help: {
       title: '可以使用哪种密钥？',
       accessKeyTitle: '访问密钥',

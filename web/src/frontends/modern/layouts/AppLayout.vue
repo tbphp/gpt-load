@@ -8,10 +8,11 @@ import {
   LogOut,
   Menu,
   RefreshCw,
+  Timer,
   X,
 } from '@lucide/vue'
 import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
-import { useIsFetching } from '@tanstack/vue-query'
+import { useIsFetching, useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -19,6 +20,7 @@ import { desktopMediaQuery } from '@modern/app/breakpoints'
 import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
 import { providePageRefresh } from '@modern/app/page-refresh'
+import { autoRefreshIntervals } from '@shared/auto-refresh'
 import { useMessageSource } from '@modern/app/messages'
 import { usePageTitle } from '@modern/app/use-page-title'
 import {
@@ -28,6 +30,8 @@ import {
   AppIcon,
   AppIconButton,
   AppLoadingIndicator,
+  AppNotice,
+  AppSelectMenu,
   AppTooltip,
 } from '@modern/components/ui'
 import { useAuthSession } from '@modern/features/auth/auth-session'
@@ -45,7 +49,32 @@ const createGroupLocation = computed(() => ({
   name: 'modern-groups',
   query: { ...(route.name === 'modern-groups' ? route.query : {}), panel: 'create' },
 }))
-const { sidebarCollapsed, toggleSidebar, persistenceFailed } = usePreferences()
+const {
+  sidebarCollapsed,
+  toggleSidebar,
+  persistenceFailed,
+  autoRefreshInterval,
+  setAutoRefreshInterval,
+} = usePreferences()
+const accessKeySession = computed(() => session.state.principalType === 'access_key')
+// 常驻提示，不提供关闭入口。
+const requestBodyRecording = computed(() =>
+  accessKeySession.value ? session.state.requestBodyRecording : null,
+)
+// 管理员可能在登录后切换记录开关：标签页重新可见、切换页面和手动刷新时都重读会话。
+const recordingRefresh = useQuery({
+  queryKey: ['modern', 'auth', 'request-body-recording'],
+  queryFn: ({ signal }) => session.refreshRequestBodyRecording(signal),
+  enabled: accessKeySession,
+})
+function refreshRecordingNotice(): void {
+  if (accessKeySession.value) void recordingRefresh.refetch()
+}
+watch(() => route.path, refreshRecordingNotice)
+function refreshPage(): void {
+  refreshRecordingNotice()
+  void pageRefresh.run()
+}
 provideSystemStatus()
 const mobileOpen = ref(false)
 const failedNavigation = ref<string | null>(null)
@@ -100,6 +129,19 @@ const refreshedAt = computed(() =>
         }).format(pageRefresh.updatedAt.value),
       }),
 )
+const autoRefreshOptions = computed(() => [
+  { value: '0', label: t('shell.autoRefreshOff') },
+  ...autoRefreshIntervals.map((ms) => ({
+    value: String(ms),
+    label:
+      ms < 60_000
+        ? t('shell.autoRefreshSeconds', { count: ms / 1_000 })
+        : t('shell.autoRefreshMinutes', { count: ms / 60_000 }),
+  })),
+])
+function changeAutoRefresh(value: string): void {
+  setAutoRefreshInterval(Number(value))
+}
 watch(
   () => route.fullPath,
   () => {
@@ -187,8 +229,11 @@ useMessageSource(() =>
         <AppIcon :icon="sidebarCollapsed ? ChevronRight : ChevronLeft" size="xs" />
       </button>
     </AppTooltip>
-    <div class="modern-main-column">
-      <header class="modern-topbar">
+    <div class="modern-main-column" :class="{ 'has-session-notice': requestBodyRecording }">
+      <header
+        class="modern-topbar"
+        :class="{ 'has-auto-refresh': pageRefresh.autoAvailable.value }"
+      >
         <h1>{{ pageTitle }}</h1>
         <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
           <span v-if="refreshedAt">{{ refreshedAt }}</span>
@@ -197,7 +242,16 @@ useMessageSource(() =>
             :label="t('shell.refresh')"
             :loading="pageRefresh.pending.value"
             :disabled="pageRefresh.busy.value"
-            @click="pageRefresh.run()"
+            @click="refreshPage"
+          />
+          <AppSelectMenu
+            v-if="pageRefresh.autoAvailable.value"
+            :label="t('shell.autoRefresh')"
+            :icon="Timer"
+            :model-value="String(autoRefreshInterval)"
+            :options="autoRefreshOptions"
+            :show-value="autoRefreshInterval > 0"
+            @update:model-value="changeAutoRefresh"
           />
         </div>
         <span
@@ -246,6 +300,11 @@ useMessageSource(() =>
         </div>
         <AppLoadingIndicator :loading="pageLoading" />
       </header>
+      <div v-if="requestBodyRecording" class="modern-session-notice">
+        <AppNotice tone="warning" bordered>{{
+          t('auth.requestBodyRecordingNotice', { days: requestBodyRecording.retentionDays })
+        }}</AppNotice>
+      </div>
       <main id="modern-content" :key="route.path" class="modern-content" tabindex="-1">
         <slot />
       </main>
@@ -333,6 +392,13 @@ useMessageSource(() =>
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+}
+/* 请求内容记录提示位于顶栏与内容之间，不随页面内容滚动。 */
+.modern-main-column.has-session-notice {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.modern-session-notice {
+  padding: var(--modern-space-3) var(--modern-content-inset) 0;
 }
 /* 顶栏是所有页面共用的固定结构：标题 | 刷新与时间 | 竖线 | 全局控件。 */
 .modern-topbar {
@@ -427,10 +493,14 @@ useMessageSource(() =>
     gap: var(--modern-space-2);
     padding-block: var(--modern-space-2);
   }
-  /* 移动端顶栏只留刷新按钮，时间文字和竖线让位给标题。 */
-  .modern-topbar-refresh span,
+  /* 移动端顶栏只留刷新控件，时间文字和竖线让位给标题。 */
+  .modern-topbar-refresh > span,
   .modern-topbar-divider {
     display: none;
+  }
+  /* 多出自动刷新按钮的页面，标题独占首行，避免被挤成省略号。 */
+  .modern-topbar.has-auto-refresh h1 {
+    flex: 1 0 100%;
   }
   .modern-session-scope {
     order: 1;

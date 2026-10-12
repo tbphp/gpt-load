@@ -11,6 +11,12 @@ export default {
     help: '説明を表示',
     scrollHint: '横方向にスクロールするとすべての列を確認できます。',
     currentState: '現在の状態',
+    autoRefresh: {
+      label: '自動更新',
+      off: '自動更新オフ',
+      seconds: '{count} 秒ごと',
+      minutes: '{count} 分ごと',
+    },
     tabs: {
       label: 'モニターのセクション',
       health: 'ヘルス',
@@ -934,6 +940,17 @@ export default {
         modelObservation: 'アップストリーム応答モデルの観測',
         requestedModel: 'アップストリーム要求モデル',
         reportedModel: 'アップストリーム応答モデル',
+        requestBody: {
+          title: 'リクエスト内容',
+          originalSize: '元のサイズ {size}',
+          copy: 'リクエスト内容をコピー',
+          states: {
+            truncated: '長すぎる文字列は切り詰められています（構造は変わりません）',
+            non_json: 'JSON リクエストではないため、本文は記録されていません',
+            too_large: 'リクエスト本文が大きすぎるため、本文は記録されていません',
+            queue_full: '記録キューが混雑していたため、本文は記録されていません',
+          },
+        },
         usage: {
           title: '使用量・コスト',
           description:

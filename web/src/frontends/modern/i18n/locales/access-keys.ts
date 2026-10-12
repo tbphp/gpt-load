@@ -131,6 +131,19 @@ export const zhCN = {
   copyHandoff: '复制发放说明',
   handoffText:
     '名称：{name}\nAPI Key：{key}\nBase URL：{endpoint}\n登录地址：{login}\n有效期：{expires}\n使用此密钥登录，可查看自己的用量、额度和可用模型。',
+  recordRequestBody: {
+    column: '内容记录',
+    label: '记录请求内容',
+    description: '开启后会保存这个密钥的客户端原始请求，用于排查问题。',
+    enabled: '开启',
+    disabled: '关闭',
+    confirmTitle: '开启请求内容记录？',
+    confirmDescription:
+      '开启后，这个密钥的每个请求都会把完整请求内容保存到数据库，包括对话、工具调用和图片，超长部分会截断；{retention}。这些内容可能包含个人信息、密码、密钥或商业机密。请只在排查问题时开启，用完及时关闭，并确认你有权记录这些内容。持有这个密钥的人登录管理页面后，会看到「已开启记录」的提示，也能查看记录的内容；只通过 API 调用的人看不到这条提示，请另行告知。',
+    retentionDays: '内容保存 {days} 天后自动删除',
+    retentionDefault: '内容按请求日志保留期自动删除',
+    confirm: '我已了解，开启',
+  },
 }
 export const enUS: typeof zhCN = {
   viewLogs: 'View logs',
@@ -272,6 +285,21 @@ export const enUS: typeof zhCN = {
   copyHandoff: 'Copy sharing instructions',
   handoffText:
     'Name: {name}\nAPI Key: {key}\nBase URL: {endpoint}\nSign-in URL: {login}\nExpiration: {expires}\nSign in with this key to view your usage, quota and available models.',
+  recordRequestBody: {
+    column: 'Body recording',
+    label: 'Record request bodies',
+    description:
+      'When enabled, the original client requests sent with this key are saved for troubleshooting.',
+    enabled: 'On',
+    disabled: 'Off',
+    confirmTitle: 'Enable request body recording?',
+    confirmDescription:
+      'Once enabled, the full content of every request sent with this key is saved to the database, including conversations, tool calls and images; oversized parts are truncated. {retention} This content may include personal information, passwords, keys or trade secrets. Enable it only while troubleshooting, turn it off as soon as you are done, and make sure you are authorized to record this content. People who hold this key will see a “recording enabled” notice when they sign in to the console and can view the recorded content; people who only call the API will not see the notice, so tell them separately.',
+    retentionDays: 'Saved content is deleted automatically after {days} days.',
+    retentionDefault:
+      'Saved content is deleted automatically according to the request log retention period.',
+    confirm: 'I understand, enable',
+  },
 }
 export const jaJP: typeof zhCN = {
   viewLogs: 'ログを表示',
@@ -413,4 +441,18 @@ export const jaJP: typeof zhCN = {
   copyHandoff: '配布情報をコピー',
   handoffText:
     '名前：{name}\nAPI Key：{key}\nBase URL：{endpoint}\nログイン URL：{login}\n有効期限：{expires}\nこのキーでログインすると使用量、上限、利用可能なモデルを確認できます。',
+  recordRequestBody: {
+    column: '内容記録',
+    label: 'リクエスト内容を記録',
+    description:
+      '有効にすると、このキーで送信されたクライアントの元のリクエストをトラブルシューティング用に保存します。',
+    enabled: 'オン',
+    disabled: 'オフ',
+    confirmTitle: 'リクエスト内容の記録を有効にしますか？',
+    confirmDescription:
+      '有効にすると、このキーによるすべてのリクエストの完全な内容（会話、ツール呼び出し、画像を含む）がデータベースに保存されます。長すぎる部分は切り詰められます。{retention}これらの内容には個人情報、パスワード、キー、営業秘密が含まれる可能性があります。トラブルシューティングの間だけ有効にし、終わったらすぐに無効にしてください。また、これらの内容を記録する権限があることを確認してください。このキーを持つ人が管理画面にログインすると「記録が有効」の通知が表示され、記録された内容も閲覧できます。API だけを利用する人には通知が表示されないため、別途お知らせください。',
+    retentionDays: '保存された内容は {days} 日後に自動削除されます。',
+    retentionDefault: '保存された内容はリクエストログの保持期間に従って自動削除されます。',
+    confirm: '理解しました。有効にする',
+  },
 }

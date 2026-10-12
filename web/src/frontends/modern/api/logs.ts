@@ -226,8 +226,22 @@ export interface LogAttempt {
   committed: boolean
   pricing_receipt: LogReceipt | null
 }
+export const logRequestBodyStates = [
+  'original',
+  'truncated',
+  'non_json',
+  'too_large',
+  'queue_full',
+] as const
+export interface LogRequestBody {
+  state: (typeof logRequestBodyStates)[number]
+  original_bytes: number
+  // original / truncated 时为已格式化的 JSON 文本，其余状态为 null。
+  body: string | null
+}
 export interface LogDetail extends LogEntry {
   attempts: LogAttempt[]
+  request_body: LogRequestBody | null
 }
 export interface LogPage {
   items: LogEntry[]
@@ -367,6 +381,19 @@ function entry(value: unknown): LogEntry {
   }
 }
 
+function requestBody(value: unknown): LogRequestBody | null {
+  if (value == null) return null
+  const row = record(value)
+  const state = oneOf(row.state, logRequestBodyStates)
+  const recorded = state === 'original' || state === 'truncated'
+  if (recorded !== (row.body !== null)) throw new InvalidResponseError()
+  return {
+    state,
+    original_bytes: integer(row.original_bytes),
+    body: recorded ? text(row.body) : null,
+  }
+}
+
 function autoDecision(value: unknown): LogAutoDecision {
   const row = record(value),
     selection = record(row.selection)
@@ -454,6 +481,7 @@ export async function getLogDetail(
   if (row.request_id !== id) throw new InvalidResponseError()
   return {
     ...row,
+    request_body: requestBody(data.request_body),
     attempts: list(data.attempts).map((value) => {
       const item = record(value)
       return {

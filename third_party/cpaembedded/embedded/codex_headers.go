@@ -9,9 +9,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 )
 
-// CodexClientVersion 与 GPT-Load 的 Codex 模型目录版本一致，由测试校验。
-const CodexClientVersion = modelcatalog.ClientVersion
-
 // 沿用 CPA 的客户端标识格式，版本统一由 GPT-Load 的已验证版本集固定。
 const codexUserAgent = "codex-tui/" + CodexClientVersion + " (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; " + CodexClientVersion + ")"
 

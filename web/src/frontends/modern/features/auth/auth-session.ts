@@ -5,8 +5,20 @@ import { getAuthSession } from '@modern/api/auth'
 import { clearFrontendPreference } from '@shared/frontend/preference'
 import type { ApiClient } from '@shared/http/client'
 import { RequestCancelledError } from '@shared/http/errors'
-import type { AuthPrincipalType } from '@shared/http/types'
+import type { AuthPrincipalType, AuthSessionPayload } from '@shared/http/types'
 import { authFailure, authRetrySeconds } from './auth-errors'
+
+interface RequestBodyRecording {
+  retentionDays: number
+}
+
+// 只有访问密钥会话需要提示；管理员会话即使带有该字段也不展示。
+function requestBodyRecording(session: AuthSessionPayload): RequestBodyRecording | null {
+  const recording = session.request_body_recording
+  return session.principal_type === 'access_key' && recording
+    ? { retentionDays: recording.retention_days }
+    : null
+}
 
 type AuthPhase =
   | 'anonymous'
@@ -50,6 +62,8 @@ export function createAuthSession(deps: {
   const state = reactive({
     phase: (credential ? 'unvalidated' : 'anonymous') as AuthPhase,
     principalType: null as AuthPrincipalType | null,
+    // 管理员为当前访问密钥开启请求内容记录时，记录内容的保留天数。
+    requestBodyRecording: null as RequestBodyRecording | null,
     retryAfterSeconds: 0,
   })
 
@@ -69,6 +83,7 @@ export function createAuthSession(deps: {
     clearFrontendPreference()
     state.phase = 'anonymous'
     state.principalType = null
+    state.requestBodyRecording = null
     state.retryAfterSeconds = 0
     // 新版 QueryClient 独立于经典版：取消查询，并清空当前身份的查询和 mutation 缓存。
     deps.queryClient.clear()
@@ -82,12 +97,14 @@ export function createAuthSession(deps: {
     const controller = new AbortController()
     state.phase = 'validating'
     state.principalType = null
+    state.requestBodyRecording = null
     state.retryAfterSeconds = 0
 
     const promise = getAuthSession(deps.client, candidate, controller.signal, true)
       .then((session) => {
         if (currentRevision !== revision || controller.signal.aborted) return
         state.principalType = session.principal_type
+        state.requestBodyRecording = requestBodyRecording(session)
         state.phase = 'validated'
       })
       .catch((error: unknown) => {
@@ -113,6 +130,21 @@ export function createAuthSession(deps: {
     return promise
   }
 
+  // 管理员可能在用户登录后切换记录开关；静默重读会话，只更新记录提示。
+  async function refreshRequestBodyRecording(
+    signal: AbortSignal,
+  ): Promise<RequestBodyRecording | null> {
+    if (!credential || state.phase !== 'validated' || state.principalType !== 'access_key') {
+      return state.requestBodyRecording
+    }
+    const currentRevision = revision
+    const session = await getAuthSession(deps.client, credential, signal, true)
+    if (currentRevision === revision && state.phase === 'validated') {
+      state.requestBodyRecording = requestBodyRecording(session)
+    }
+    return state.requestBodyRecording
+  }
+
   async function login(candidate: string, remember: boolean, signal: AbortSignal): Promise<void> {
     cancelValidation()
     if (state.phase === 'validating') state.phase = 'unvalidated'
@@ -136,6 +168,7 @@ export function createAuthSession(deps: {
       storeCredential(remember ? deps.sessionStorage : deps.localStorage, '')
       storeCredential(remember ? deps.localStorage : deps.sessionStorage, candidate)
       state.principalType = session.principal_type
+      state.requestBodyRecording = requestBodyRecording(session)
       state.retryAfterSeconds = 0
       state.phase = 'validated'
     } finally {
@@ -151,6 +184,7 @@ export function createAuthSession(deps: {
     hasCredential: () => credential.length > 0,
     getPrincipalType: () => state.principalType,
     ensureValidated,
+    refreshRequestBodyRecording,
     login,
     clear,
   }

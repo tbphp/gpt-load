@@ -1,6 +1,14 @@
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 import type { AuthSessionPayload } from '@shared/http/types'
+import { integer, record } from './response'
+
+function readRequestBodyRecording(
+  value: unknown,
+): AuthSessionPayload['request_body_recording'] | undefined {
+  if (value == null) return undefined
+  return { retention_days: integer(record(value).retention_days, 1) }
+}
 
 export async function getAuthSession(
   client: ApiClient,
@@ -25,5 +33,12 @@ export async function getAuthSession(
   ) {
     throw new InvalidResponseError()
   }
-  return { authenticated: true, principal_type: data.principal_type }
+  const recording = readRequestBodyRecording(
+    'request_body_recording' in data ? data.request_body_recording : undefined,
+  )
+  return {
+    authenticated: true,
+    principal_type: data.principal_type,
+    ...(recording ? { request_body_recording: recording } : {}),
+  }
 }

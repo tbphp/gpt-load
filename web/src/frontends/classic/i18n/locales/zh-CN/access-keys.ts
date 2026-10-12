@@ -161,6 +161,19 @@ export default {
       limits: '限制',
       lastRequest: '上次请求',
       actions: '操作',
+      recordRequestBody: '内容记录',
+    },
+    recordRequestBody: {
+      label: '记录请求内容',
+      description: '开启后会保存这个密钥的客户端原始请求，用于排查问题。',
+      enabled: '开启',
+      disabled: '关闭',
+      confirmTitle: '开启请求内容记录？',
+      confirmDescription:
+        '开启后，这个密钥的每个请求都会把完整请求内容保存到数据库，包括对话、工具调用和图片，超长部分会截断；{retention}。这些内容可能包含个人信息、密码、密钥或商业机密。请只在排查问题时开启，用完及时关闭，并确认你有权记录这些内容。持有这个密钥的人登录管理页面后，会看到「已开启记录」的提示，也能查看记录的内容；只通过 API 调用的人看不到这条提示，请另行告知。',
+      retentionDays: '内容保存 {days} 天后自动删除',
+      retentionDefault: '内容按请求日志保留期自动删除',
+      confirm: '我已了解，开启',
     },
     actions: {
       more: '更多操作',

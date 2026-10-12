@@ -13,6 +13,12 @@ export interface ChannelField {
   defaultValue: string
 }
 export type AuthorizationMethod = 'browser_oauth' | 'device_oauth' | 'oauth_file'
+export type ChannelPartnerTier = 'principal' | 'featured' | 'standard'
+// 合作档位只决定选择渠道时的位置、标识和注册链接，不影响其他页面。
+export interface ChannelPartner {
+  tier: ChannelPartnerTier
+  signupURL: string
+}
 export interface GroupChannel {
   id: string
   name: string
@@ -32,6 +38,23 @@ export interface GroupChannel {
   connectionType: 'api_key' | 'subscription'
   authorizationMethods: AuthorizationMethod[]
   notices: ('claude_oauth_risk' | 'antigravity_oauth_risk')[]
+  partner: ChannelPartner | null
+}
+function partner(value: unknown): ChannelPartner | null {
+  if (value === null || value === undefined) return null
+  const data = record(value)
+  const signupURL = text(data.signup_url)
+  let protocol = ''
+  try {
+    protocol = new URL(signupURL).protocol
+  } catch {
+    throw new InvalidResponseError()
+  }
+  if (protocol !== 'https:') throw new InvalidResponseError()
+  return {
+    tier: oneOf(data.tier, ['principal', 'featured', 'standard'] as const),
+    signupURL,
+  }
 }
 function field(value: unknown): ChannelField {
   const data = record(value)
@@ -126,6 +149,7 @@ export async function getGroupChannels(
       notices: list(item.notices).map((raw) =>
         oneOf(record(raw).id, ['claude_oauth_risk', 'antigravity_oauth_risk'] as const),
       ),
+      partner: connectionType === 'api_key' ? partner(item.partner) : null,
     }
   })
   if (new Set(items.map((item) => item.id)).size !== items.length) throw new InvalidResponseError()

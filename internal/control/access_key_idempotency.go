@@ -33,6 +33,8 @@ type accessKeyCreateDigestBody struct {
 	RPMLimit         int64                           `json:"rpm_limit"`
 	CostLimitRules   []AccessKeyCostLimitRuleRequest `json:"cost_limit_rules,omitempty"`
 	ExpiresAtMS      *int64                          `json:"expires_at_ms,omitempty"`
+	// 默认关闭时省略，保持既有请求的幂等摘要不变。
+	RecordRequestBody bool `json:"record_request_body,omitempty"`
 }
 
 func (s *Service) CreateAccessKeyIdempotent(
@@ -92,8 +94,9 @@ func (s *Service) CreateAccessKeyIdempotent(
 		KeyHash:          keyHash,
 		PriceMultiplier:  priceMultiplierDigest(priceMultiplier),
 		Name:             name, Status: digestStatus, Filters: digestFilters, RPMLimit: rpmLimit,
-		CostLimitRules: costLimitRuleRequestsForDigest(costLimitRules),
-		ExpiresAtMS:    request.ExpiresAtMS,
+		CostLimitRules:    costLimitRuleRequestsForDigest(costLimitRules),
+		ExpiresAtMS:       request.ExpiresAtMS,
+		RecordRequestBody: request.RecordRequestBody,
 	})
 	if err != nil {
 		return AccessKeyCreateResult{}, app_errors.ErrInternalServer
@@ -135,6 +138,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			row.ConcurrencyLimit = concurrencyLimit
 			row.Status = string(status)
 			row.ExpiresAtMS = cloneOptionalInt64(request.ExpiresAtMS)
+			row.RecordRequestBody = request.RecordRequestBody
 			if err := tx.Create(&row).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}
@@ -148,6 +152,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 				Status:                row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit, ConcurrencyLimit: row.ConcurrencyLimit,
 				ExpiresAtMS: row.ExpiresAtMS,
 				CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
+				RecordRequestBody: row.RecordRequestBody,
 			})
 			if err != nil {
 				return idempotentMutationResult{}, err

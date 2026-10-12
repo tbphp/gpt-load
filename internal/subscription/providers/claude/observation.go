@@ -27,6 +27,27 @@ func NormalizeObservation(observation AccountObservation) ([]byte, error) {
 		Account:      account,
 		QuotaWindows: make([]quotaWindow, 0, 7+len(observation.Usage.Limits)),
 	}
+	if observation.Usage.ResetGrants != nil {
+		available := int64(0)
+		for _, grant := range observation.Usage.ResetGrants {
+			var expires *int64
+			if grant.ExpiresAt != nil {
+				expires, err = claudeTimeMilliseconds("reset credit expiration", *grant.ExpiresAt)
+				if err != nil {
+					return nil, err
+				}
+			}
+			available += grant.Remaining
+			for range grant.Remaining {
+				result.ResetCredits = append(result.ResetCredits, providerobservation.ResetCredit{ExpiresAtMS: expires})
+			}
+		}
+		result.ResetCreditsAvailable = &available
+		sort.SliceStable(result.ResetCredits, func(i, j int) bool {
+			left, right := result.ResetCredits[i].ExpiresAtMS, result.ResetCredits[j].ExpiresAtMS
+			return left != nil && (right == nil || *left < *right)
+		})
+	}
 	seenWindowIDs := make(map[string]int, cap(result.QuotaWindows))
 
 	for _, candidate := range []struct {

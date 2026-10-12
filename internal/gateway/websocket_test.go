@@ -64,7 +64,8 @@ func websocketCompleted(id, lane string) []byte {
 
 func waitWebsocketLogs(t *testing.T, sink *recordingRequestLogSink, count int) []telemetry.RequestEvent {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	// 日志在连接与 WebRTC 清理完成后才写出，race 模式叠加 CI 并行负载会超过 2s；只放宽失败上限，不影响通过耗时。
+	deadline := time.After(10 * time.Second)
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {

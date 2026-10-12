@@ -256,8 +256,19 @@ export interface AutoDecisionDto {
   receipt: RequestLogPricingReceiptDto | null
 }
 
+export type RequestLogRequestBodyState =
+  'original' | 'truncated' | 'non_json' | 'too_large' | 'queue_full'
+
+export interface RequestLogRequestBodyDto {
+  state: RequestLogRequestBodyState
+  original_bytes: number
+  /** original / truncated 时为已格式化的 JSON 文本，其余状态为 null。 */
+  body: string | null
+}
+
 export interface RequestLogDetailDto extends RequestLogItemDto {
   attempts: RequestLogAttemptDto[]
+  request_body: RequestLogRequestBodyDto | null
 }
 
 export interface RequestLogPageDto {
@@ -796,12 +807,29 @@ export function projectRequestLogItem(value: unknown): RequestLogItemDto {
   return projectItemRecord(record)
 }
 
+const requestBodyStates = ['original', 'truncated', 'non_json', 'too_large', 'queue_full'] as const
+
+function projectRequestBody(value: unknown): RequestLogRequestBodyDto | null {
+  if (value === null || value === undefined) return null
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, ['state', 'original_bytes', 'body'])
+  const state = projectEnum(record.state, requestBodyStates)
+  const hasBody = state === 'original' || state === 'truncated'
+  if (hasBody !== (record.body !== null)) invalidResponse()
+  return {
+    state,
+    original_bytes: projectSafeInteger(record.original_bytes, { minimum: 0 }),
+    body: hasBody ? projectString(record.body, { allowEmpty: true }) : null,
+  }
+}
+
 export function projectRequestLogDetail(value: unknown): RequestLogDetailDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, [...itemFields, 'attempts'])
+  assertNoSecretLikeFields(record, [...itemFields, 'attempts', 'request_body'])
   return {
     ...projectItemRecord(record),
     attempts: projectArray(record.attempts, projectAttempt),
+    request_body: projectRequestBody(record.request_body),
   }
 }
 

@@ -1,3 +1,4 @@
+import { credentialTestMessages } from '@shared/credential-test-messages'
 import { errorRuleMessages } from '@shared/error-rule-messages'
 import { enUS as proxies } from '@shared/proxies/messages'
 import { enUS as concurrency } from './concurrency'
@@ -25,6 +26,7 @@ import { enUS as autoModel } from './auto-model'
 import { enUS as subscriptions } from './subscriptions'
 
 export default {
+  credentialBatchTest: credentialTestMessages['en-US'],
   errorRules: errorRuleMessages['en-US'],
   proxies,
   concurrency,
@@ -58,6 +60,10 @@ export default {
   shell: {
     refresh: 'Refresh',
     refreshedAt: 'Updated {time}',
+    autoRefresh: 'Auto refresh',
+    autoRefreshOff: 'Off',
+    autoRefreshSeconds: '{count}s',
+    autoRefreshMinutes: '{count} min',
     importCredentials: 'Import credentials',
     goHome: 'GPT-Load overview',
     mascotHint:
@@ -98,6 +104,8 @@ export default {
     readOnly: 'Access key · Read-only',
     readOnlyDescription:
       'View only this key’s overview, models, usage, and request history. System configuration cannot be changed.',
+    requestBodyRecordingNotice:
+      'An administrator has enabled request body recording for this access key. Content you send with it is kept for {days} days and can be viewed by administrators and anyone who holds this key. Do not send anything you do not want recorded with this key.',
     help: {
       title: 'Which key can I use?',
       accessKeyTitle: 'Access key',

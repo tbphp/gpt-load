@@ -12,6 +12,7 @@ const props = defineProps<{
   concurrencyLimit: number | null
   rpmLimit: number
   priceMultiplier: string
+  recordRequestBody: boolean
   disabled: boolean
 }>()
 const emit = defineEmits<{
@@ -20,6 +21,8 @@ const emit = defineEmits<{
   'update:concurrencyLimit': [value: number | null]
   'update:rpmLimit': [value: number]
   'update:priceMultiplier': [value: string]
+  // 只表达切换意图；开启前的确认由抽屉负责。
+  'update:recordRequestBody': [value: boolean]
 }>()
 const { t } = useI18n()
 const nameInput = ref<InstanceType<typeof AppTextInput>>()
@@ -31,6 +34,11 @@ function focusName(): void {
 function toggleStatus(): void {
   if (props.disabled) return
   emit('update:status', props.status === 'active' ? 'disabled' : 'active')
+}
+
+function toggleRecordRequestBody(): void {
+  if (props.disabled) return
+  emit('update:recordRequestBody', !props.recordRequestBody)
 }
 
 function updateRpm(value: string): void {
@@ -126,6 +134,28 @@ defineExpose({ focusName })
         :aria-label="t('accessKeys.drawer.enabled')"
         :disabled="disabled"
         @click="toggleStatus"
+      >
+        <span aria-hidden="true" />
+      </button>
+    </div>
+
+    <div class="access-key-setting-row">
+      <div class="access-key-setting-row__label">
+        <strong>{{ t('accessKeys.recordRequestBody.label') }}</strong>
+        <p id="access-key-record-request-body-description">
+          {{ t('accessKeys.recordRequestBody.description') }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="access-key-status-switch"
+        :class="{ 'access-key-status-switch--on': recordRequestBody }"
+        role="switch"
+        :aria-checked="recordRequestBody"
+        :aria-label="t('accessKeys.recordRequestBody.label')"
+        aria-describedby="access-key-record-request-body-description"
+        :disabled="disabled"
+        @click="toggleRecordRequestBody"
       >
         <span aria-hidden="true" />
       </button>

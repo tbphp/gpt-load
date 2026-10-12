@@ -1,3 +1,4 @@
+import { credentialTestMessages } from '@shared/credential-test-messages'
 import { errorRuleMessages } from '@shared/error-rule-messages'
 import { jaJP as proxies } from '@shared/proxies/messages'
 import { jaJP as concurrency } from './concurrency'
@@ -25,6 +26,7 @@ import { jaJP as autoModel } from './auto-model'
 import { jaJP as subscriptions } from './subscriptions'
 
 export default {
+  credentialBatchTest: credentialTestMessages['ja-JP'],
   errorRules: errorRuleMessages['ja-JP'],
   proxies,
   concurrency,
@@ -58,6 +60,10 @@ export default {
   shell: {
     refresh: '更新',
     refreshedAt: '{time} 更新',
+    autoRefresh: '自動更新',
+    autoRefreshOff: 'オフ',
+    autoRefreshSeconds: '{count} 秒',
+    autoRefreshMinutes: '{count} 分',
     importCredentials: 'キーをインポート',
     goHome: 'GPT-Load の概要',
     mascotHint:
@@ -98,6 +104,8 @@ export default {
     readOnly: 'アクセスキー · 閲覧専用',
     readOnlyDescription:
       'このキーの概要、モデル、使用量、リクエスト履歴のみ閲覧でき、システム設定は変更できません。',
+    requestBodyRecordingNotice:
+      '管理者がこのアクセスキーのリクエスト内容の記録を有効にしました。このキーで送信した内容は {days} 日間保存され、管理者とこのキーを持つ人が閲覧できます。記録されたくない内容は、このキーで送信しないでください。',
     help: {
       title: 'どのキーを使えますか？',
       accessKeyTitle: 'アクセスキー',
