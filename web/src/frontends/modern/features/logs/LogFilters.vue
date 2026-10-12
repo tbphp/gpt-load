@@ -248,11 +248,6 @@ const sections = computed(() =>
     }))
     .filter((section) => section.fields.length || (section.id === 'routing' && props.admin)),
 )
-const hasAdvancedFilters = computed(
-  () =>
-    sections.value.some((section) => section.fields.some((field) => props.filters[field.key])) ||
-    Boolean(props.admin && props.filters.credential_id),
-)
 const loadCredentials = computed(() => {
   const groupID = Number(draft.value.group_id)
   return async (q: string, signal: AbortSignal) => {
@@ -362,7 +357,7 @@ const loadCredentials = computed(() => {
             <AppIconButton
               :icon="SlidersHorizontal"
               :label="t('logs.moreFilters')"
-              :variant="more || hasAdvancedFilters ? 'brand' : 'ghost'"
+              :variant="more ? 'brand' : 'ghost'"
             />
           </PopoverTrigger>
           <PopoverPortal>
