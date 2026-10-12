@@ -100,7 +100,7 @@ const proxyOptions = computed(() => [
   { value: 'custom', label: t('settingsForm.proxy.custom') },
 ])
 function failure(): string {
-  if (!item.value.failures) return '—'
+  if (item.value.lastStatusCode === null && item.value.failureCategory === 'ambiguous') return '—'
   const key = 'credentialCards.failures.' + item.value.failureCategory
   return [te(key) ? t(key) : item.value.failureCategory, item.value.lastStatusCode]
     .filter(Boolean)
