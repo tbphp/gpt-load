@@ -316,6 +316,85 @@ func TestCompilerRejectsInvalidOrDuplicateChannelNotice(t *testing.T) {
 	}
 }
 
+func TestCompilerProjectsPartnerTierAndSignupURL(t *testing.T) {
+	t.Parallel()
+
+	const signupURL = "https://partner.example/sign-up?utm_source=gptload&utm_campaign=gptload"
+	wafer := findModule(t, builtInModules(), Wafer)
+	wafer.Definition.Partner = spec.Partner{Tier: spec.PartnerFeatured, SignupURL: signupURL}
+	parasail := findModule(t, builtInModules(), Parasail)
+
+	definitions, err := compileBuiltInModules([]spec.Module{wafer, parasail})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &PartnerDescriptor{Tier: PartnerFeatured, SignupURL: signupURL}
+	if got := definitions[0].descriptor.Partner; !reflect.DeepEqual(got, want) {
+		t.Fatalf("compiled partner = %#v, want %#v", got, want)
+	}
+	if got := definitions[1].descriptor.Partner; got != nil {
+		t.Fatalf("non-partner channel compiled partner = %#v", got)
+	}
+}
+
+func TestCompilerRejectsInvalidPartner(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		channel ID
+		partner spec.Partner
+	}{
+		{name: "unknown tier", channel: Wafer, partner: spec.Partner{Tier: "gold", SignupURL: "https://partner.example/sign-up"}},
+		{name: "missing signup URL", channel: Wafer, partner: spec.Partner{Tier: spec.PartnerStandard}},
+		{name: "plain HTTP", channel: Wafer, partner: spec.Partner{Tier: spec.PartnerStandard, SignupURL: "http://partner.example/sign-up"}},
+		{name: "relative URL", channel: Wafer, partner: spec.Partner{Tier: spec.PartnerStandard, SignupURL: "/sign-up"}},
+		{name: "embedded credentials", channel: Wafer, partner: spec.Partner{Tier: spec.PartnerStandard, SignupURL: "https://user:pass@partner.example/sign-up"}},
+		{name: "signup URL without tier", channel: Wafer, partner: spec.Partner{SignupURL: "https://partner.example/sign-up"}},
+		{name: "subscription channel", channel: Codex, partner: spec.Partner{Tier: spec.PartnerStandard, SignupURL: "https://partner.example/sign-up"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			module := findModule(t, builtInModules(), test.channel)
+			module.Definition.Partner = test.partner
+			if _, err := compileBuiltInModules([]spec.Module{module}); err == nil {
+				t.Fatal("compileBuiltInModules() accepted an invalid partner")
+			}
+		})
+	}
+}
+
+func TestCompilerLimitsPartnerSeats(t *testing.T) {
+	t.Parallel()
+
+	withTiers := func(tiers ...spec.PartnerTier) []spec.Module {
+		ids := []ID{Wafer, Parasail, Nebius, Mistral, Cerebras, Groq}
+		modules := make([]spec.Module, 0, len(tiers))
+		for index, tier := range tiers {
+			module := findModule(t, builtInModules(), ids[index])
+			module.Definition.Partner = spec.Partner{Tier: tier, SignupURL: "https://partner.example/sign-up"}
+			modules = append(modules, module)
+		}
+		return modules
+	}
+
+	if _, err := compileBuiltInModules(withTiers(spec.PartnerPrincipal, spec.PartnerPrincipal)); err == nil {
+		t.Fatal("compileBuiltInModules() accepted two principal partners")
+	}
+	if _, err := compileBuiltInModules(withTiers(
+		spec.PartnerFeatured, spec.PartnerFeatured, spec.PartnerFeatured, spec.PartnerFeatured,
+	)); err == nil {
+		t.Fatal("compileBuiltInModules() accepted four featured partners")
+	}
+	if _, err := compileBuiltInModules(withTiers(
+		spec.PartnerPrincipal, spec.PartnerFeatured, spec.PartnerFeatured, spec.PartnerFeatured,
+		spec.PartnerStandard, spec.PartnerStandard,
+	)); err != nil {
+		t.Fatalf("compileBuiltInModules() rejected seats within limits: %v", err)
+	}
+}
+
 func TestResolvedTargetRejectsRouteResolverModeOutsideDeclaredSet(t *testing.T) {
 	t.Parallel()
 

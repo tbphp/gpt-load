@@ -14,6 +14,9 @@ export default {
       loadFailed: 'Unable to load channels',
       channelRequired: 'Select a channel',
       connectionType: 'Credential type',
+      partners: 'Partner picks',
+      principalPartner: 'Principal partner',
+      featuredPartner: 'Featured partner',
     },
     mode: {
       label: 'Import destination',
@@ -281,6 +284,8 @@ export default {
       required: 'Enter at least one credential first',
       channelCredentialNotice:
         'These are channel API keys; create client credentials on the Access Keys page',
+      partnerSignup: '{name} is a GPT-Load partner channel. No API key yet?',
+      partnerSignupLink: 'Sign up at {name}',
       result: 'Added {added} credentials and skipped {duplicated} duplicates',
       validation: 'Credential {entry}, field {field}: {reason}',
       validationReasons: {

@@ -48,6 +48,7 @@ const (
 	Cohere           ID = "cohere"
 	OpenCodeGo       ID = "opencode_go"
 	OpenCodeZen      ID = "opencode_zen"
+	Modelflare       ID = "modelflare"
 )
 
 // ProviderKind is the single dispatch key used to resolve a ProviderAdapter.
@@ -101,6 +102,28 @@ func (tone NoticeTone) Valid() bool {
 type Notice struct {
 	ID   NoticeID
 	Tone NoticeTone
+}
+
+// PartnerTier 是渠道预设的商业合作档位，只决定管理界面选择渠道时的位置与标识，
+// 不参与调度、健康、计费或搜索排序。
+type PartnerTier string
+
+const (
+	PartnerPrincipal PartnerTier = "principal"
+	PartnerFeatured  PartnerTier = "featured"
+	PartnerStandard  PartnerTier = "standard"
+)
+
+// Valid reports whether the partner tier is part of the public channel contract.
+func (tier PartnerTier) Valid() bool {
+	return tier == PartnerPrincipal || tier == PartnerFeatured || tier == PartnerStandard
+}
+
+// Partner 声明合作档位与注册链接；零值表示非合作渠道。合作到期时清空即可，
+// 预设本身保留。
+type Partner struct {
+	Tier      PartnerTier
+	SignupURL string
 }
 
 // Valid reports whether the provider adapter key is recognized.
@@ -317,6 +340,7 @@ type Definition struct {
 	SearchTerms         []string
 	Description         string
 	Notices             []Notice
+	Partner             Partner
 	Connection          Connection
 	Params              []Field
 	ParamsNormalizer    ParamsNormalizerID

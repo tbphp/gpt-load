@@ -17,6 +17,8 @@ const props = withDefaults(
     storageDescription?: string
     duplicateLabel?: string
     showCredentialNotice?: boolean
+    // 只在新建分组选渠道时展示合作渠道的注册链接
+    showPartnerSignup?: boolean
     hideHeader?: boolean
     compact?: boolean
     rows?: number
@@ -28,6 +30,7 @@ const props = withDefaults(
     storageDescription: undefined,
     duplicateLabel: undefined,
     showCredentialNotice: true,
+    showPartnerSignup: false,
     hideHeader: false,
     compact: false,
     rows: 6,
@@ -100,6 +103,24 @@ const hasInput = computed(() => props.modelValue.trim().length > 0)
       <h2 id="channel-credentials-heading">{{ title }}</h2>
       <p v-if="showHeaderDescription">{{ description }}</p>
     </header>
+
+    <InlineFeedback
+      v-if="showPartnerSignup && channel?.partner"
+      class="credential-entry__partner"
+      tone="info"
+      appearance="ledger-hint"
+      glyph="i"
+    >
+      {{ t('import.credentials.partnerSignup', { name: channel.name }) }}
+      <a
+        class="credential-entry__partner-link"
+        :href="channel.partner.signup_url"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {{ t('import.credentials.partnerSignupLink', { name: channel.name }) }} ↗
+      </a>
+    </InlineFeedback>
 
     <FormField
       id="channel-credentials"
@@ -255,5 +276,16 @@ const hasInput = computed(() => props.modelValue.trim().length > 0)
 
 .credential-entry__note {
   margin-top: 18px;
+}
+
+.credential-entry__partner {
+  margin-bottom: 12px;
+}
+
+.credential-entry__partner-link {
+  margin-left: 4px;
+  color: var(--color-info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 </style>
