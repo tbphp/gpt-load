@@ -174,7 +174,7 @@ func TestImportCodexOAuthJSONRejectsInvalidInput(t *testing.T) {
 	fixture := newServiceFixture(t)
 	for _, raw := range [][]byte{
 		[]byte(`{"type":"codex","access_token":"a"}`),
-		[]byte(`{"type":"codex","access_token":"a","refresh_token":"r","account_id":"id","proxy_url":"http://127.0.0.1"}`),
+		[]byte(`{"type":"codex","access_token":42,"refresh_token":"r","account_id":"id","proxy_url":"http://127.0.0.1"}`),
 		make([]byte, 64*1024+1),
 	} {
 		if _, err := fixture.service.ImportCredentialStage(t.Context(), channel.Codex, raw); !errors.Is(err, app_errors.ErrOAuthFileInvalid) &&
