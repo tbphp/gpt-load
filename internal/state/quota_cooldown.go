@@ -17,6 +17,10 @@ func (r *CredentialRegistry) SetQuotaCooldown(ref CredentialRef, model string, u
 		entry.QuotaCooldownGeneration != ref.QuotaCooldownGeneration {
 		return false, false
 	}
+	// 未延长截止时间的拒绝也是新证据，不能让更早的缓冲样本解除冷却。
+	if now.After(entry.lastQuotaRejectedAt) {
+		entry.lastQuotaRejectedAt = now
+	}
 	if model == "" {
 		if !until.After(entry.QuotaCooldownUntil) {
 			return true, false
@@ -38,10 +42,22 @@ func (r *CredentialRegistry) SetQuotaCooldown(ref CredentialRef, model string, u
 
 // RestoreQuotaCooldowns 只解除限额冷却，保留其他健康状态。
 func (r *CredentialRegistry) RestoreQuotaCooldowns(credentialID uint) bool {
+	return r.restoreQuotaCooldowns(credentialID, time.Time{})
+}
+
+// RestoreObservedQuotaCooldowns 仅在额度样本严格晚于最近拒绝时恢复两级冷却。
+func (r *CredentialRegistry) RestoreObservedQuotaCooldowns(credentialID uint, observedAtMS int64) bool {
+	if observedAtMS <= 0 {
+		return false
+	}
+	return r.restoreQuotaCooldowns(credentialID, time.UnixMilli(observedAtMS))
+}
+
+func (r *CredentialRegistry) restoreQuotaCooldowns(credentialID uint, observedAt time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
-	if !ok {
+	if !ok || !observedAt.IsZero() && !observedAt.After(entry.lastQuotaRejectedAt) {
 		return false
 	}
 	entry.QuotaCooldownUntil = time.Time{}

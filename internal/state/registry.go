@@ -52,6 +52,7 @@ type CredentialEntry struct {
 	ProxyFingerprint        string
 	quotaRemaining          *float64
 	quotaResetAt            time.Time
+	lastQuotaRejectedAt     time.Time
 }
 
 type CredentialMeta struct {

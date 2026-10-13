@@ -37,6 +37,40 @@ func TestQuotaRecoveryWithoutCooldownStillAdvancesGeneration(t *testing.T) {
 	}
 }
 
+func TestObservedQuotaRecoveryPreservesRejectionAcrossRegistryRebuilds(t *testing.T) {
+	r, _, now := modelCooldownFixture(t)
+	ref, _ := r.CredentialRef(1)
+	r.SetQuotaCooldown(ref, "", now.Add(time.Hour), now)
+	r.SetQuotaCooldown(ref, "model", now.Add(time.Hour), now)
+	entries := []CredentialEntry{{ID: 1, GroupID: 10, Version: 2, IdentityGeneration: 1,
+		Status: CredentialStatusActive, AuthState: CredentialAuthStateReady,
+		Fingerprint: "rotated", EncryptedValue: "rotated"}}
+	for _, rebuild := range []func() error{
+		func() error { _, err := r.ReconcileGroup(10, entries); return err },
+		func() error { return r.ReplaceCredentials(entries) },
+	} {
+		if err := rebuild(); err != nil {
+			t.Fatal(err)
+		}
+		if r.RestoreObservedQuotaCooldowns(1, now.UnixMilli()) {
+			t.Fatal("registry rebuild lost the rejection time or accepted a same-millisecond sample")
+		}
+		view := r.Snapshot()[0]
+		after, _ := r.CredentialRef(1)
+		if view.CooldownUntil.IsZero() || view.ModelCooldowns["model"].IsZero() ||
+			after.QuotaCooldownGeneration != ref.QuotaCooldownGeneration {
+			t.Fatal("rejected recovery changed quota cooldown state")
+		}
+	}
+	entries[0].IdentityGeneration = 2
+	if _, err := r.ReconcileGroup(10, entries); err != nil {
+		t.Fatal(err)
+	}
+	if !r.RestoreObservedQuotaCooldowns(1, now.UnixMilli()) {
+		t.Fatal("new target inherited the old target's rejection time")
+	}
+}
+
 func TestQuotaCooldownRecoveryPreservesCheckpointIdentityAndOtherCauses(t *testing.T) {
 	r, _, now := modelCooldownFixture(t)
 	before, _ := r.CredentialRef(1)

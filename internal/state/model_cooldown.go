@@ -96,10 +96,12 @@ func preserveModelCooldowns(next *CredentialEntry, previous *CredentialEntry) {
 		next.ModelCooldowns = cloneModelCooldowns(previous.ModelCooldowns)
 		next.QuotaModelCooldowns = cloneModelCooldowns(previous.QuotaModelCooldowns)
 		next.QuotaCooldownUntil = previous.QuotaCooldownUntil
+		next.lastQuotaRejectedAt = previous.lastQuotaRejectedAt
 	} else {
 		next.ModelCooldowns = nil
 		next.QuotaModelCooldowns = nil
 		next.QuotaCooldownUntil = time.Time{}
+		next.lastQuotaRejectedAt = time.Time{}
 		next.QuotaCooldownGeneration++
 		next.ModelCooldownGeneration++
 	}
