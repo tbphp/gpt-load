@@ -838,8 +838,18 @@ func (r *CredentialRegistry) CredentialCooldownUntil(credentialID uint) (time.Ti
 	return effectiveCooldownUntil(entry), true
 }
 
-// ClearCooldownIfMatch clears only the runtime cooldown observed by a caller.
-// A newer concurrent cooldown is preserved.
+// CredentialNonQuotaCooldownUntil 返回令牌刷新可以恢复的非额度类账号冷却。
+func (r *CredentialRegistry) CredentialNonQuotaCooldownUntil(credentialID uint) (time.Time, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entry, ok := r.entryLocked(credentialID)
+	if !ok {
+		return time.Time{}, false
+	}
+	return entry.CooldownUntil, true
+}
+
+// ClearCooldownIfMatch 只清除调用方记录的非额度类账号冷却，保留并发更新和额度冷却。
 func (r *CredentialRegistry) ClearCooldownIfMatch(credentialID uint, expected time.Time) bool {
 	if expected.IsZero() {
 		return false
@@ -847,12 +857,10 @@ func (r *CredentialRegistry) ClearCooldownIfMatch(credentialID uint, expected ti
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
-	if !ok || !effectiveCooldownUntil(entry).Equal(expected) {
+	if !ok || !entry.CooldownUntil.Equal(expected) {
 		return false
 	}
 	entry.CooldownUntil = time.Time{}
-	entry.QuotaCooldownUntil = time.Time{}
-	entry.QuotaCooldownGeneration++
 	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }

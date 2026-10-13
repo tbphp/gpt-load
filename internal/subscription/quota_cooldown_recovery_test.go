@@ -40,3 +40,39 @@ func TestPassiveQuotaRecoveryClearsBothLevelsOnce(t *testing.T) {
 		t.Fatal("old account rejection was accepted")
 	}
 }
+
+func TestPassiveQuotaRecoveryComparesPersistedAndFinalSamples(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		precedingUsed float64
+		finalUsed     float64
+		wantRecovered bool
+	}{
+		{name: "accumulated decrease", precedingUsed: 77, finalUsed: 74, wantRecovered: true},
+		{name: "intermediate recovery consumed", precedingUsed: 20, finalUsed: 79, wantRecovered: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			storedAt, period := int64(1000), int64(18000)
+			window := func(used float64) []providerobservation.QuotaWindow {
+				utilization := used / 100
+				return []providerobservation.QuotaWindow{{ID: "primary", SourceID: "codex", WindowSeconds: &period, Unit: "percent", State: "available", Used: &used, Utilization: &utilization}}
+			}
+			merged, observedAt, err := mergePassiveQuotaSamples(
+				[]byte(`{"quota_windows":[{"id":"primary","source_id":"codex","scope":"account","unit":"percent","state":"available","used":80,"window_seconds":18000}]}`),
+				&storedAt, PassiveQuotaObservation{
+					Preceding:    &PassiveQuotaSample{ObservedAtMS: 2000, Windows: window(test.precedingUsed)},
+					ObservedAtMS: 3000, Windows: window(test.finalUsed),
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !merged.Matched || !merged.Changed || observedAt != 3000 || len(merged.Windows) != 1 ||
+				merged.Windows[0].Used == nil || *merged.Windows[0].Used != test.finalUsed {
+				t.Fatalf("merged quota = %#v, observed at %d", merged, observedAt)
+			}
+			if merged.Recovered != test.wantRecovered {
+				t.Fatalf("recovered = %t, want %t for 80 -> %g -> %g", merged.Recovered, test.wantRecovered, test.precedingUsed, test.finalUsed)
+			}
+		})
+	}
+}

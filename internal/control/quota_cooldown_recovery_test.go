@@ -47,8 +47,14 @@ func TestQuotaObservationRecoversBothCooldownLevels(t *testing.T) {
 				t.Fatal(err)
 			}
 			view := fixture.registry.Snapshot()[0]
-			if recovered := view.CooldownUntil.IsZero() && view.ModelCooldowns["a"].IsZero() && view.ModelCooldowns["b"].IsZero(); recovered != test.want {
-				t.Fatalf("recovered = %t, want %t; view=%#v", recovered, test.want, view)
+			for name, recovered := range map[string]bool{
+				"account": view.CooldownUntil.IsZero(),
+				"model a": view.ModelCooldowns["a"].IsZero(),
+				"model b": view.ModelCooldowns["b"].IsZero(),
+			} {
+				if recovered != test.want {
+					t.Errorf("%s recovered = %t, want %t", name, recovered, test.want)
+				}
 			}
 			if view.ModelCooldowns["other"].IsZero() {
 				t.Fatal("non-quota model cooldown was cleared")

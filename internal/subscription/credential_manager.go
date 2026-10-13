@@ -215,7 +215,7 @@ func (manager *CredentialManager) refreshCredentialLocked(
 			return subscriptionruntime.Credential{}, evidence
 		}
 	} else {
-		bypassedCooldown, _ = manager.registry.CredentialCooldownUntil(row.ID)
+		bypassedCooldown, _ = manager.registry.CredentialNonQuotaCooldownUntil(row.ID)
 	}
 	if err := manager.transitionAuthState(ctx, row, row.SecretVersion, models.CredentialAuthStateRefreshing, ""); err != nil {
 		finalizeContext, cancel := refreshFinalizeContext(ctx)

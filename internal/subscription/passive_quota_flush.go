@@ -144,7 +144,8 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		observedAtMS = *storedAtMS
 	}
 	var snapshot struct {
-		Credits *providerobservation.CreditSummary `json:"credits"`
+		Credits      *providerobservation.CreditSummary `json:"credits"`
+		QuotaWindows []providerobservation.QuotaWindow  `json:"quota_windows"`
 	}
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		return passiveQuotaMerge{}, 0, fmt.Errorf("decode credential observation snapshot: %w", err)
@@ -190,8 +191,11 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		}
 		merged.Matched = merged.Matched || result.Matched
 		merged.Changed = merged.Changed || result.Changed
-		merged.Recovered = merged.Recovered || result.Recovered
 		result = merged
+	}
+	if result.Changed {
+		// 同次落盘只比较原始基线与最终窗口，不将中间样本视为一次独立恢复。
+		result.Recovered = providerobservation.QuotaRecovered(snapshot.QuotaWindows, result.Windows)
 	}
 	return result, observedAtMS, nil
 }
@@ -321,7 +325,6 @@ func mergePassiveQuotaSnapshot(
 		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation snapshot: %w", err)
 	}
 	outcome.Encoded, outcome.Windows = encoded, merged
-	outcome.Recovered = providerobservation.QuotaRecovered(existing, merged)
 	return outcome, nil
 }
 
