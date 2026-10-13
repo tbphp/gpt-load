@@ -74,18 +74,60 @@ func TestParseMapsSupportedExports(t *testing.T) {
 	}
 }
 
-func TestParsePreservesCPAValidationBoundary(t *testing.T) {
-	raw := `{"type":"codex","access_token":"access","refresh_token":"refresh","account_id":"account","base_url":"https://rejected.invalid","disabled":"invalid"}`
-	entry := parseOne(t, raw)
-	if entry.Format != "cpa" || entry.ErrorCode != "" {
-		t.Fatalf("entry = %#v", entry)
+func TestParseFiltersCPAImportFields(t *testing.T) {
+	for _, test := range []struct {
+		provider, fields, clientID string
+		channel                    channel.ID
+	}{
+		{"codex", `"id_token":"id","account_id":"account","plan_type":"plus"`, "app_EMoamEEZ73f0CkXaXp7hrann", channel.Codex},
+		{"claude", `"id_token":"id","account_uuid":"account","organization_uuid":"org","organization_name":"name","claude_device_ids":["device"]`, "9d1c250a-e61b-44d9-88ed-5944d1962f5e", channel.Claude},
+		{"antigravity", `"account_id":"account","project_id":"project","expires_in":3600,"timestamp":1800000000000`, "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com", channel.Antigravity},
+		{"xai", `"id_token":"id","account_id":"account","sub":"account","token_type":"Bearer","expires_in":3600,"token_endpoint":"https://auth.x.ai/oauth2/token","auth_kind":"oauth"`, "b1a00492-073a-47ea-816f-4c329264a828", channel.Grok},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			base := `{"type":"` + test.provider + `","access_token":"access","refresh_token":"refresh","email":"sample@example.invalid","expired":"2035-01-01T00:00:00Z","last_refresh":"2034-12-31T23:00:00Z",` + test.fields + `}`
+			var want map[string]any
+			if err := json.Unmarshal([]byte(base), &want); err != nil {
+				t.Fatal(err)
+			}
+			for _, extra := range []string{
+				`"client_id":"` + test.clientID + `","headers":{"Authorization":"untrusted"},"proxy_url":"http://untrusted.invalid","base_url":"https://untrusted.invalid","redirect_uri":"https://untrusted.invalid","disabled":{},"note":[],"prefix":null,"websockets":"changed","priority":100,"future_metadata":{"version":2},"antigravity_capability_hints":{"model_ids":["model"]},"ACCESS_TOKEN":"overridden"`,
+				`"accounts":[],"platform":"other","credentials":{},"tokens":{},"claudeAiOauth":{}`,
+			} {
+				entry := parseOne(t, strings.TrimSuffix(base, "}")+","+extra+"}")
+				if entry.Format != "cpa" || entry.ChannelID != test.channel || entry.ErrorCode != "" {
+					t.Fatalf("CPA format/channel/error = %s/%s/%s", entry.Format, entry.ChannelID, entry.ErrorCode)
+				}
+				var got map[string]any
+				if err := json.Unmarshal(entry.Credential, &got); err != nil {
+					t.Fatal(err)
+				}
+				wantJSON, _ := json.Marshal(want)
+				gotJSON, _ := json.Marshal(got)
+				if string(gotJSON) != string(wantJSON) {
+					t.Fatal("CPA projection changed credential fields or retained source metadata")
+				}
+			}
+		})
 	}
-	var got map[string]any
-	if err := json.Unmarshal(entry.Credential, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["base_url"] != "https://rejected.invalid" || got["disabled"] != "invalid" {
-		t.Fatal("CPA validation fields were stripped")
+}
+
+func TestParseCPAImportPreservesValidationBoundary(t *testing.T) {
+	for _, provider := range []string{"codex", "claude", "antigravity", "grok"} {
+		t.Run(provider, func(t *testing.T) {
+			base := `{"type":"` + provider + `","refresh_token":"refresh"`
+			for _, client := range []string{`null`, `42`, `""`, `"different-client"`} {
+				if entry := parseOne(t, base+`,"client_id":`+client+`}`); entry.ErrorCode == "" {
+					t.Fatal("accepted an invalid OAuth client")
+				}
+			}
+			if entry := parseOne(t, base+`,"future_metadata":"`+strings.Repeat("x", MaxCredentialBytes)+`"}`); entry.ErrorCode != "credential_too_large" {
+				t.Fatalf("oversized source error = %s", entry.ErrorCode)
+			}
+			if entry := parseOne(t, `{"type":"`+provider+`","REFRESH_TOKEN":"refresh"}`); entry.ErrorCode != "missing_refresh_token" {
+				t.Fatal("case-insensitive field supplied a required token")
+			}
+		})
 	}
 }
 

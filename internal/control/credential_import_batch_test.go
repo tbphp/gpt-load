@@ -25,6 +25,60 @@ import (
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
+func TestCPAImportFiltersMetadataBeforeSingleAndBatchValidation(t *testing.T) {
+	t.Parallel()
+	for _, provider := range []string{"codex", "claude"} {
+		for _, endpoint := range []string{"import", "import-batch"} {
+			t.Run(provider+"/"+endpoint, func(t *testing.T) {
+				t.Parallel()
+				fixture := newServiceFixture(t)
+				server := NewServer(&config.Config{AuthKey: "batch-test-auth"}, fixture.service)
+				engine := gin.New()
+				server.RegisterRoutes(engine)
+				identity := "account_id"
+				if provider == "claude" {
+					identity = "account_uuid"
+				}
+				raw := fmt.Sprintf(`{"type":%q,"access_token":"source-access","refresh_token":"source-refresh",%q:"source-account","expired":"2035-01-01T00:00:00Z","headers":{"Authorization":"metadata-marker"},"proxy_url":"http://metadata-marker.invalid","note":{"future":"metadata-marker"},"ACCESS_TOKEN":"metadata-marker"}`, provider, identity)
+				response := serveCredentialImportBatch(t, engine, "/api/credential-stages/"+endpoint, provider, raw, "")
+				if response.Code != http.StatusOK {
+					t.Fatalf("import status = %d", response.Code)
+				}
+				var result struct {
+					Data struct {
+						CredentialStageResult
+						Items []CredentialImportBatchItem `json:"items"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				stage := result.Data.CredentialStageResult
+				if endpoint == "import-batch" {
+					if len(result.Data.Items) != 1 || result.Data.Items[0].Stage == nil {
+						t.Fatal("CPA batch did not stage the credential")
+					}
+					stage = *result.Data.Items[0].Stage
+				}
+				if stage.StageID == "" || stage.Status != "ready" {
+					t.Fatal("CPA import did not produce a ready stage")
+				}
+				var row models.CredentialStage
+				if err := fixture.db.Take(&row, "id = ?", stage.StageID).Error; err != nil {
+					t.Fatal(err)
+				}
+				plaintext, err := fixture.encryption.Decrypt(row.EncryptedPayload)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(plaintext, "source-access") || strings.Contains(plaintext, "metadata-marker") {
+					t.Fatal("staged credential lost its token or retained source metadata")
+				}
+			})
+		}
+	}
+}
+
 // 同一账号来自不同格式时仍只暂存一次，其他条目的错误不阻止有效账号。
 func TestCredentialImportBatchKeepsPartialResultsAndDeduplicatesIdentity(t *testing.T) {
 	t.Parallel()

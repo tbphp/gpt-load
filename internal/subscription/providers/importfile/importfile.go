@@ -62,6 +62,10 @@ func Parse(raw []byte) (Document, error) {
 		values = root
 	case map[string]any:
 		kind, _ := root["type"].(string)
+		if cpaChannel(strings.TrimSpace(kind)) != "" {
+			values = []any{root}
+			break
+		}
 		_, hasAccounts := root["accounts"]
 		if kind == "sub2api-data" || kind == "sub2api-bundle" || hasAccounts {
 			if _, exists := root["type"]; exists {
@@ -173,22 +177,19 @@ func parseEntry(value any, format string) Entry {
 	_, hasCodexTokens := object["tokens"]
 	_, hasClaudeTokens := object["claudeAiOauth"]
 	_, hasOpenAIKey := object["OPENAI_API_KEY"]
-	if hasClaudeTokens && (hasCodexTokens || hasOpenAIKey) {
+	cpaChannelID := cpaChannel(stringValue(object["type"]))
+	if cpaChannelID == "" && hasClaudeTokens && (hasCodexTokens || hasOpenAIKey) {
 		entry.ErrorCode = "unsupported_format"
 		return entry
 	}
 	var mapped map[string]any
-	if format == "sub2api" || object["platform"] != nil && object["credentials"] != nil {
+	if format != "sub2api" && cpaChannelID != "" {
+		entry.Format, entry.ChannelID = "cpa", cpaChannelID
+		mapped, entry.ErrorCode = mapCPA(object, cpaChannelID)
+	} else if format == "sub2api" || object["platform"] != nil && object["credentials"] != nil {
 		entry.Format = "sub2api"
 		entry.ChannelID = subscriptionChannel(stringValue(object["platform"]))
 		mapped, entry.ErrorCode = mapSub2API(object, entry.ChannelID)
-	} else if channelID := cpaChannel(stringValue(object["type"])); channelID != "" {
-		entry.Format, entry.ChannelID = "cpa", channelID
-		// 保留全部字段，不能绕开现有 CPA 解析器的字段与控制元数据校验。
-		mapped = object
-		if _, ok := object["refresh_token"].(string); !ok || strings.TrimSpace(stringValue(object["refresh_token"])) == "" {
-			entry.ErrorCode = "missing_refresh_token"
-		}
 	} else if _, exists := object["claudeAiOauth"]; exists {
 		entry.Format, entry.ChannelID = "claude-code", channel.Claude
 		mapped, entry.ErrorCode = mapClaudeCode(object)
