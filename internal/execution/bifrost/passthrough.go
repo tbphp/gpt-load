@@ -406,8 +406,7 @@ complete:
 		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
 	}
 	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)
-	switch spec.ClientProtocol {
-	case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini:
+	if responsemodel.IsConversation(spec.ClientProtocol, spec.Operation) {
 		modelObserver := responsemodel.New(spec.ClientProtocol, spec.UpstreamModel)
 		modelObserver.ObserveJSON(bodyBytes)
 		model = modelObserver.Model

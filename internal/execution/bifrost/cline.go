@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/responsemodel"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
@@ -151,7 +152,11 @@ func (r *Runtime) executeCline(parent context.Context, spec execution.AttemptSpe
 		result.Error = passthroughHTTPError(status, result.Header, result.Body, prepared.secrets)
 		return result
 	}
-	result.Model = openAIResponseModel(body, "")
+	fallbackModel := spec.UpstreamModel
+	if responsemodel.IsConversation(spec.ClientProtocol, spec.Operation) {
+		fallbackModel = ""
+	}
+	result.Model = openAIResponseModel(body, fallbackModel)
 	result.Usage, err = usageEvidenceFromPassthrough(openai.ExtractOpenAIPassthroughUsage(
 		http.MethodPost, openAIChatPath, prepared.passthrough.Body, body,
 	))

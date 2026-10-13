@@ -269,8 +269,7 @@ func unaryProviderSuccess(
 		statusCode = http.StatusOK
 	}
 	model := responseModel(body, spec.UpstreamModel)
-	switch spec.ClientProtocol {
-	case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini:
+	if responsemodel.IsConversation(spec.ClientProtocol, spec.Operation) {
 		model = responseModel(body, "")
 	}
 	return execution.AttemptResult{

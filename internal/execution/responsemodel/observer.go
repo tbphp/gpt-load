@@ -25,6 +25,18 @@ type Observer struct {
 	stopped    bool
 }
 
+// IsConversation 限定模型观测修复的操作范围，不改变计数、探测和资源接口的合同。
+func IsConversation(p protocol.Protocol, operation execution.Operation) bool {
+	switch operation {
+	case execution.OperationChatCompletion:
+		return p == protocol.OpenAICompletions || p == protocol.Anthropic || p == protocol.Gemini
+	case execution.OperationResponsesCreate, execution.OperationResponsesCompact:
+		return p == protocol.OpenAIResponses
+	default:
+		return false
+	}
+}
+
 func New(p protocol.Protocol, expected string) *Observer {
 	var selected dialect.Dialect
 	switch p {

@@ -1948,3 +1948,43 @@ func TestStreamErrorFailureHintDoesNotTreatGenericForbiddenAsInvalidCredential(t
 		})
 	}
 }
+
+func TestExecutionForwarderObservesDecodedModelWithoutReplacingExecutorEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		encoding            contentcoding.Encoding
+		mode                execution.RouteMode
+		executorModel, want string
+	}{
+		{"gzip", contentcoding.Gzip, execution.RouteNative, "", "reported"},
+		{"brotli", contentcoding.Brotli, execution.RouteNative, "", "reported"},
+		{"deflate", contentcoding.Deflate, execution.RouteNative, "", "reported"},
+		{"zstd", contentcoding.Zstd, execution.RouteNative, "", "reported"},
+		{"preserve executor model", contentcoding.Gzip, execution.RouteNative, "original", "original"},
+		{"identity may already be aliased", contentcoding.Identity, execution.RouteNative, "", ""},
+		{"converted body is not upstream evidence", contentcoding.Gzip, execution.RouteConverted, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plain := []byte(`{"model":"reported","choices":[]}`)
+			body := plain
+			if tc.encoding != contentcoding.Identity {
+				body = encodeContentCodingForGatewayTest(t, tc.encoding, plain)
+			}
+			executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+				return execution.AttemptResult{DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}, "Content-Encoding": {string(tc.encoding)}}, Body: body, Model: tc.executorModel}
+			}}
+			input := executionForwardInput()
+			input.RouteMode = tc.mode
+			result := NewExecutionForwarder(executor).Forward(t.Context(), input)
+			if result.Err != nil || result.StatusCode != 200 {
+				t.Fatalf("error=%v status=%d", result.Err, result.StatusCode)
+			}
+			if result.UpstreamReportedModel != tc.want || result.ResponseModelObserved != (tc.want != "") {
+				t.Fatalf("reported=%q observed=%t want=%q", result.UpstreamReportedModel, result.ResponseModelObserved, tc.want)
+			}
+			if !bytes.Contains(result.Body, []byte(`"model":"public"`)) {
+				t.Fatalf("alias rewrite changed: %s", result.Body)
+			}
+		})
+	}
+}

@@ -151,3 +151,39 @@ func TestCLIProxyAPIReportedModelsPreserveWire(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIProxyAPICountTokensKeepsModelObservationContract(t *testing.T) {
+	for _, tc := range []struct {
+		p                    protocol.Protocol
+		operation            execution.Operation
+		path, body, response string
+	}{
+		{protocol.Anthropic, execution.OperationCountTokens, "/v1/messages/count_tokens", `{"model":"upstream-model","messages":[{"role":"user","content":"hi"}]}`, `{"input_tokens":3}`},
+		{protocol.Gemini, execution.OperationCountTokens, "/v1beta/models/upstream-model:countTokens", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, `{"totalTokens":3}`},
+	} {
+		t.Run(string(tc.p), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.response)
+			}))
+			defer server.Close()
+			manager, resolved := newCLIProxyAPIManagerForTest(t, server.URL)
+			spec := compatibleSpec(server.URL)
+			spec.ChannelID = string(channel.CLIProxyAPI)
+			spec.TargetConfig = resolved.TargetConfig
+			spec.ClientProtocol = tc.p
+			spec.Operation = tc.operation
+			spec.Path = tc.path
+			spec.ClientModel = spec.UpstreamModel
+			spec.Body = []byte(tc.body)
+			spec = freezeTestAttempt(spec)
+			result := manager.Execute(t.Context(), spec)
+			if result.Error != nil || result.StatusCode != 200 {
+				t.Fatalf("result=%+v error=%+v", result, result.Error)
+			}
+			if result.Model != spec.UpstreamModel || string(result.Body) != tc.response {
+				t.Fatalf("model=%q body=%s", result.Model, result.Body)
+			}
+		})
+	}
+}

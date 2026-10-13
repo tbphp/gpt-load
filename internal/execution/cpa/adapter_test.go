@@ -1646,3 +1646,12 @@ func TestAdapterDoesNotInventMissingUnaryModel(t *testing.T) {
 		t.Fatalf("result=%+v", result)
 	}
 }
+
+func TestUnaryProviderSuccessKeepsTokenCountModelContract(t *testing.T) {
+	spec := execution.AttemptSpec{ClientProtocol: protocol.Anthropic, Operation: execution.OperationCountTokens, UpstreamModel: "requested"}
+	response := providerResponse{UpstreamProtocol: protocol.Anthropic, Payload: []byte(`{"input_tokens":3}`)}
+	result := unaryProviderSuccess(nil, spec, response)
+	if result.Model != "requested" || result.Error != nil {
+		t.Fatalf("result=%+v", result)
+	}
+}
