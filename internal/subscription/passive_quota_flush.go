@@ -123,6 +123,9 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 			manager.passiveQuota.ack(observation.CredentialID, observation.Version)
 			if row.State == models.CredentialObservationFresh {
 				manager.registry.ApplyQuotaWindows(observation.CredentialID, merge.Windows)
+				if merge.Recovered {
+					manager.registry.RestoreQuotaCooldowns(observation.CredentialID)
+				}
 			}
 			return nil
 		}
@@ -187,6 +190,7 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		}
 		merged.Matched = merged.Matched || result.Matched
 		merged.Changed = merged.Changed || result.Changed
+		merged.Recovered = merged.Recovered || result.Recovered
 		result = merged
 	}
 	return result, observedAtMS, nil
@@ -198,10 +202,11 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 // observation of that credential, while a response naming no tracked window
 // is no observation of this snapshot at all.
 type passiveQuotaMerge struct {
-	Encoded []byte
-	Windows []providerobservation.QuotaWindow
-	Matched bool
-	Changed bool
+	Encoded   []byte
+	Windows   []providerobservation.QuotaWindow
+	Matched   bool
+	Changed   bool
+	Recovered bool
 }
 
 // mergePassiveQuotaSnapshot 更新已有且唯一匹配的窗口及已通过时间校验的点数。
@@ -316,6 +321,7 @@ func mergePassiveQuotaSnapshot(
 		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation snapshot: %w", err)
 	}
 	outcome.Encoded, outcome.Windows = encoded, merged
+	outcome.Recovered = providerobservation.QuotaRecovered(existing, merged)
 	return outcome, nil
 }
 

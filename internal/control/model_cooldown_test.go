@@ -50,13 +50,21 @@ func TestRestoreAllAndQuotaResetClearModelCooldowns(t *testing.T) {
 	for _, row := range rows {
 		ref, _ := fixture.registry.CredentialRef(row.ID)
 		fixture.registry.SetModelCooldown(ref, "a", now.Add(time.Hour), now)
+		fixture.registry.SetQuotaCooldown(ref, "", now.Add(time.Hour), now)
+		fixture.registry.SetQuotaCooldown(ref, "quota", now.Add(time.Hour), now)
 	}
 	result, err := fixture.service.BatchGroupCredentials(t.Context(), groupID, CredentialBatchRequest{Action: CredentialBatchRestore, Scope: CredentialBatchScopeAll})
 	if err != nil || len(result.AffectedCredentialIDs) != 2 {
 		t.Fatalf("restore all = %#v, %v", result, err)
 	}
+	for _, view := range fixture.registry.Snapshot() {
+		if !view.CooldownUntil.IsZero() || len(view.ModelCooldowns) != 0 {
+			t.Fatal("restore all left quota cooldowns")
+		}
+	}
 	ref, _ := fixture.registry.CredentialRef(rows[0].ID)
 	fixture.registry.SetModelCooldown(ref, "a", now.Add(time.Hour), now)
+	fixture.registry.SetQuotaCooldown(ref, "quota", now.Add(time.Hour), now)
 	if !fixture.service.restoreCredentialRuntimeAfterReset(rows[0].ID) || len(fixture.registry.ModelCooldowns(rows[0].ID, now)) != 0 {
 		t.Fatal("quota reset retained model limits")
 	}

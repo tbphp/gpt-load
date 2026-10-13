@@ -36,7 +36,8 @@ func (r *CredentialRegistry) ModelCooldowns(credentialID uint, now time.Time) ma
 		return nil
 	}
 	pruneModelCooldowns(entry.ModelCooldowns, now)
-	return cloneModelCooldowns(entry.ModelCooldowns)
+	pruneModelCooldowns(entry.QuotaModelCooldowns, now)
+	return effectiveModelCooldowns(entry)
 }
 
 // ClearModelCooldowns 属于显式恢复；不由普通成功、token 刷新或额度同步调用。
@@ -48,6 +49,8 @@ func (r *CredentialRegistry) ClearModelCooldowns(credentialID uint) bool {
 		return false
 	}
 	entry.ModelCooldowns = nil
+	entry.QuotaModelCooldowns = nil
+	entry.QuotaCooldownGeneration++
 	entry.ModelCooldownGeneration++
 	return true
 }
@@ -59,6 +62,7 @@ func (r *CredentialRegistry) ExpireModelCooldowns(now time.Time) {
 	for _, bucket := range r.buckets {
 		for _, entry := range bucket {
 			pruneModelCooldowns(entry.ModelCooldowns, now)
+			pruneModelCooldowns(entry.QuotaModelCooldowns, now)
 		}
 	}
 }
@@ -87,10 +91,16 @@ func preserveModelCooldowns(next *CredentialEntry, previous *CredentialEntry) {
 		return
 	}
 	next.ModelCooldownGeneration = previous.ModelCooldownGeneration
+	next.QuotaCooldownGeneration = previous.QuotaCooldownGeneration
 	if next.ID == previous.ID && next.GroupID == previous.GroupID && next.IdentityGeneration == previous.IdentityGeneration {
 		next.ModelCooldowns = cloneModelCooldowns(previous.ModelCooldowns)
+		next.QuotaModelCooldowns = cloneModelCooldowns(previous.QuotaModelCooldowns)
+		next.QuotaCooldownUntil = previous.QuotaCooldownUntil
 	} else {
 		next.ModelCooldowns = nil
+		next.QuotaModelCooldowns = nil
+		next.QuotaCooldownUntil = time.Time{}
+		next.QuotaCooldownGeneration++
 		next.ModelCooldownGeneration++
 	}
 }

@@ -28,18 +28,22 @@ const (
 )
 
 type CredentialEntry struct {
-	Name                    string // 管理面展示别名，不参与调度或身份比较。
-	ID                      uint
-	GroupID                 uint
-	Version                 uint64
-	IdentityGeneration      uint64
-	Fingerprint             string
-	WeightManual            *int
-	Status                  CredentialStatus
-	AuthState               CredentialAuthState
+	Name               string // 管理面展示别名，不参与调度或身份比较。
+	ID                 uint
+	GroupID            uint
+	Version            uint64
+	IdentityGeneration uint64
+	Fingerprint        string
+	WeightManual       *int
+	Status             CredentialStatus
+	AuthState          CredentialAuthState
+	// 原字段保留其他原因和未分类的历史冷却，额度恢复不猜测历史原因。
 	CooldownUntil           time.Time
 	ModelCooldowns          map[string]time.Time
 	ModelCooldownGeneration uint64
+	QuotaCooldownUntil      time.Time
+	QuotaModelCooldowns     map[string]time.Time
+	QuotaCooldownGeneration uint64
 	Blacklisted             bool
 	FailureCount            int
 	FailureGeneration       uint64
@@ -71,6 +75,7 @@ type CredentialRef struct {
 	ProxyFingerprint        string
 	FailureGeneration       uint64
 	ModelCooldownGeneration uint64
+	QuotaCooldownGeneration uint64
 }
 
 type CredentialRegistry struct {
@@ -618,6 +623,7 @@ func (r *CredentialRegistry) CaptureActiveCredentialRefs(groupIDs []uint) []Cred
 				EncryptedProxy: entry.EncryptedProxy, ProxyFingerprint: entry.ProxyFingerprint,
 				FailureGeneration:       entry.FailureGeneration,
 				ModelCooldownGeneration: entry.ModelCooldownGeneration,
+				QuotaCooldownGeneration: entry.QuotaCooldownGeneration,
 			})
 		}
 	}
@@ -687,6 +693,7 @@ func (r *CredentialRegistry) CredentialRef(credentialID uint) (CredentialRef, bo
 		EncryptedValue: entry.EncryptedValue, EncryptedProxy: entry.EncryptedProxy,
 		ProxyFingerprint: entry.ProxyFingerprint, FailureGeneration: entry.FailureGeneration,
 		ModelCooldownGeneration: entry.ModelCooldownGeneration,
+		QuotaCooldownGeneration: entry.QuotaCooldownGeneration,
 	}, true
 }
 
@@ -828,7 +835,7 @@ func (r *CredentialRegistry) CredentialCooldownUntil(credentialID uint) (time.Ti
 	if !ok {
 		return time.Time{}, false
 	}
-	return entry.CooldownUntil, true
+	return effectiveCooldownUntil(entry), true
 }
 
 // ClearCooldownIfMatch clears only the runtime cooldown observed by a caller.
@@ -840,10 +847,12 @@ func (r *CredentialRegistry) ClearCooldownIfMatch(credentialID uint, expected ti
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry, ok := r.entryLocked(credentialID)
-	if !ok || !entry.CooldownUntil.Equal(expected) {
+	if !ok || !effectiveCooldownUntil(entry).Equal(expected) {
 		return false
 	}
 	entry.CooldownUntil = time.Time{}
+	entry.QuotaCooldownUntil = time.Time{}
+	entry.QuotaCooldownGeneration++
 	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
@@ -908,6 +917,8 @@ func (r *CredentialRegistry) RestoreRuntimeState(credentialID uint) bool {
 		return false
 	}
 	entry.CooldownUntil = time.Time{}
+	entry.QuotaCooldownUntil = time.Time{}
+	entry.QuotaCooldownGeneration++
 	entry.Blacklisted = false
 	entry.FailureCount = 0
 	entry.FailureGeneration++
@@ -992,11 +1003,13 @@ func (r *CredentialRegistry) restoreRuntimeStateIfMatch(
 		entry.Fingerprint != ref.Fingerprint || entry.EncryptedValue != ref.EncryptedValue ||
 		entry.EncryptedProxy != ref.EncryptedProxy || entry.ProxyFingerprint != ref.ProxyFingerprint ||
 		entry.FailureGeneration != ref.FailureGeneration ||
-		cooldownUntil != nil && !entry.CooldownUntil.Equal(*cooldownUntil) {
+		cooldownUntil != nil && !effectiveCooldownUntil(entry).Equal(*cooldownUntil) {
 		return false
 	}
 	if cooldownUntil != nil {
 		entry.CooldownUntil = time.Time{}
+		entry.QuotaCooldownUntil = time.Time{}
+		entry.QuotaCooldownGeneration++
 	}
 	entry.Blacklisted = false
 	entry.FailureCount = 0
@@ -1021,6 +1034,7 @@ func (r *CredentialRegistry) BlacklistedCredentials() []CredentialRef {
 				EncryptedProxy: entry.EncryptedProxy, ProxyFingerprint: entry.ProxyFingerprint,
 				FailureGeneration:       entry.FailureGeneration,
 				ModelCooldownGeneration: entry.ModelCooldownGeneration,
+				QuotaCooldownGeneration: entry.QuotaCooldownGeneration,
 			})
 		}
 	}
@@ -1048,6 +1062,7 @@ func cloneCredentialEntry(entry CredentialEntry) CredentialEntry {
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.FailureGeneration = 0
 	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)
+	entry.QuotaModelCooldowns = cloneModelCooldowns(entry.QuotaModelCooldowns)
 	return entry
 }
 
@@ -1072,6 +1087,7 @@ func detachCredentialEntryExact(entry CredentialEntry) CredentialEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
 	entry.quotaRemaining = cloneFloat(entry.quotaRemaining)
 	entry.ModelCooldowns = cloneModelCooldowns(entry.ModelCooldowns)
+	entry.QuotaModelCooldowns = cloneModelCooldowns(entry.QuotaModelCooldowns)
 	return entry
 }
 
