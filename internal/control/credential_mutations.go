@@ -729,12 +729,9 @@ func (s *Service) restoreCredentialBatchRuntime(group models.Group, entries []st
 	now := s.now().UTC()
 	restored := make([]uint, 0, len(entries))
 	for _, entry := range entries {
-		view := state.CredentialRuntimeView{
-			Status: entry.Status, AuthState: entry.AuthState, WeightManual: entry.WeightManual,
-			CooldownUntil: entry.CooldownUntil, Blacklisted: entry.Blacklisted,
-		}
+		view := entry.RuntimeView()
 		bucket := classifyHealthKey(groupView, view, now)
-		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted && !hasModelCooldown(entry.ModelCooldowns, now) {
+		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted && !hasModelCooldown(view.ModelCooldowns, now) {
 			continue
 		}
 		if !s.registry.ClearModelCooldowns(entry.ID) {

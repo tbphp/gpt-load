@@ -39,6 +39,7 @@ func TestJudgeExecutionProducesIndependentRetryAndEffect(t *testing.T) {
 		Effect:        EffectCooldownCredential,
 		CooldownUntil: now.Add(10 * time.Minute),
 		RuleID:        RuleID("rate_limit.credential.default_cooldown"),
+		QuotaCooldown: true,
 	}
 	if decision != want {
 		t.Fatalf("JudgeExecution() = %#v, want %#v", decision, want)

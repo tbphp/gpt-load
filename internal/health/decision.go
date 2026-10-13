@@ -75,6 +75,8 @@ type Decision struct {
 	Effect        Effect
 	CooldownUntil time.Time
 	RuleID        RuleID
+	// QuotaCooldown 标记可随额度恢复解除的内置限额冷却，不依赖 RuleID。
+	QuotaCooldown bool
 }
 
 func (decision Decision) ShouldRetry() bool {

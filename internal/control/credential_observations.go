@@ -263,6 +263,8 @@ func (s *Service) refreshCredentialObservationOnce(
 	if err != nil {
 		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
+	// 恢复不得覆盖本次额度请求在途期间产生的新拒绝。
+	observationStartedMS := s.now().UTC().UnixMilli()
 	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	authRefreshVersion := previous.LastAuthRefreshSecretVersion
 	if subscriptionUpstreamHTTPStatus(observeErr) == http.StatusUnauthorized &&
@@ -302,7 +304,13 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 		version := refreshed.SecretVersion
 		authRefreshVersion = &version
+		observationStartedMS = s.now().UTC().UnixMilli()
 		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
+	}
+	// 额度证据时间取最终响应返回时刻，不能把后续等待锁的时间算入观测时间。
+	completedMS := s.now().UTC().UnixMilli()
+	if completedMS < attemptMS {
+		completedMS = attemptMS
 	}
 	// 网络请求期间允许编辑分组；迟到结果不得写入新目标的观测或运行态。
 	s.writeMu.Lock()
@@ -336,98 +344,119 @@ func (s *Service) refreshCredentialObservationOnce(
 			"observation_upstream_failed", "refresh subscription information", nil,
 		)
 	}
-	var snapshot CredentialObservationSnapshot
-	if err := json.Unmarshal(observation.Payload, &snapshot); err != nil || snapshot.QuotaWindows == nil {
-		return s.recordCredentialObservationFailure(
-			ctx, credential, previous, attemptMS,
-			"observation_payload_invalid", "normalize subscription information", nil,
-		)
-	}
-	version := previous.ObservationVersion + 1
-	if previous.ObservationVersion == 0 {
-		version = 1
-	}
-	state := models.CredentialObservationFresh
-	lastErrorCode := ""
-	var previousSnapshot CredentialObservationSnapshot
-	previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
-		json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
-	previousQuotaFresh := previousSnapshotOK && previous.State == models.CredentialObservationFresh
-	if observation.Partial {
-		lastErrorCode = "observation_partial"
-		if previousSnapshotOK {
-			if observation.AccountObserved {
-				snapshot.Plan = mergeObservationPlanSummary(previousSnapshot.Plan, snapshot.Plan)
-				snapshot.Account = mergeObservationAccountSummary(previousSnapshot.Account, snapshot.Account)
-			} else {
-				snapshot.Plan = previousSnapshot.Plan
-				snapshot.Account = previousSnapshot.Account
+	// 与被动写入共用凭据锁，比较落盘前最新的窗口，避免重复恢复或使用过时基线。
+	finish := func() (CredentialObservationResponse, error) {
+		var latest models.CredentialObservation
+		if err := s.db.WithContext(ctx).Take(&latest, "credential_id = ?", credentialID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return CredentialObservationResponse{}, err
+		}
+		previous = latest
+		var snapshot CredentialObservationSnapshot
+		if err := json.Unmarshal(observation.Payload, &snapshot); err != nil || snapshot.QuotaWindows == nil {
+			return s.recordCredentialObservationFailure(
+				ctx, credential, previous, attemptMS,
+				"observation_payload_invalid", "normalize subscription information", nil,
+			)
+		}
+		freshWindows := providerQuotaWindows(snapshot.QuotaWindows)
+		if len(observation.ObservedQuotaScopes) > 0 {
+			covered, _ := mergeObservationQuotaWindows(nil, snapshot.QuotaWindows, observation.ObservedQuotaScopes)
+			freshWindows = providerQuotaWindows(covered)
+		} else if observation.Partial && !observation.QuotaObserved {
+			freshWindows = nil
+		}
+		version := previous.ObservationVersion + 1
+		if previous.ObservationVersion == 0 {
+			version = 1
+		}
+		state := models.CredentialObservationFresh
+		lastErrorCode := ""
+		var previousSnapshot CredentialObservationSnapshot
+		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
+			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
+		previousQuotaFresh := previousSnapshotOK && previous.State == models.CredentialObservationFresh
+		if observation.Partial {
+			lastErrorCode = "observation_partial"
+			if previousSnapshotOK {
+				if observation.AccountObserved {
+					snapshot.Plan = mergeObservationPlanSummary(previousSnapshot.Plan, snapshot.Plan)
+					snapshot.Account = mergeObservationAccountSummary(previousSnapshot.Account, snapshot.Account)
+				} else {
+					snapshot.Plan = previousSnapshot.Plan
+					snapshot.Account = previousSnapshot.Account
+				}
 			}
 		}
-	}
-	switch {
-	case len(observation.ObservedQuotaScopes) > 0:
-		currentQuotaData := observation.QuotaObserved || len(snapshot.QuotaWindows) > 0
-		var previousQuotaWindows []ObservationQuotaWindow
-		if previousQuotaFresh {
-			previousQuotaWindows = previousSnapshot.QuotaWindows
-		}
-		var preservedPrevious bool
-		snapshot.QuotaWindows, preservedPrevious = mergeObservationQuotaWindows(
-			previousQuotaWindows,
-			snapshot.QuotaWindows,
-			observation.ObservedQuotaScopes,
-		)
 		switch {
-		case preservedPrevious:
-		case !observation.Partial || currentQuotaData:
-		default:
+		case len(observation.ObservedQuotaScopes) > 0:
+			currentQuotaData := observation.QuotaObserved || len(snapshot.QuotaWindows) > 0
+			var previousQuotaWindows []ObservationQuotaWindow
+			if previousQuotaFresh {
+				previousQuotaWindows = previousSnapshot.QuotaWindows
+			}
+			var preservedPrevious bool
+			snapshot.QuotaWindows, preservedPrevious = mergeObservationQuotaWindows(
+				previousQuotaWindows,
+				snapshot.QuotaWindows,
+				observation.ObservedQuotaScopes,
+			)
+			switch {
+			case preservedPrevious:
+			case !observation.Partial || currentQuotaData:
+			default:
+				state = models.CredentialObservationStale
+			}
+		case observation.Partial && !observation.QuotaObserved && previousQuotaFresh:
+			snapshot.QuotaWindows = previousSnapshot.QuotaWindows
+			snapshot.Credits = previousSnapshot.Credits
+			snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
+			snapshot.ResetCredits = previousSnapshot.ResetCredits
+		case observation.Partial && !observation.QuotaObserved:
 			state = models.CredentialObservationStale
 		}
-	case observation.Partial && !observation.QuotaObserved && previousQuotaFresh:
-		snapshot.QuotaWindows = previousSnapshot.QuotaWindows
-		snapshot.Credits = previousSnapshot.Credits
-		snapshot.ResetCreditsAvailable = previousSnapshot.ResetCreditsAvailable
-		snapshot.ResetCredits = previousSnapshot.ResetCredits
-	case observation.Partial && !observation.QuotaObserved:
-		state = models.CredentialObservationStale
-	}
-	// The observation time is when this result was actually obtained, not when
-	// the attempt started: a slow refresh would otherwise be stamped older
-	// than passive samples captured while it was still in flight, letting them
-	// overwrite it. Keeping updated_at_ms on the same instant also guarantees
-	// the passive writer's compare-and-set token changes on every active write.
-	completedMS := s.now().UTC().UnixMilli()
-	if completedMS < attemptMS {
-		completedMS = attemptMS
-	}
-	if !observation.Partial || observation.QuotaObserved {
-		if snapshot.Credits == nil && channelID == channel.Codex {
-			// 点数缺失也保留时间，阻止较早请求恢复本次刷新已清除的余额。
-			snapshot.Credits = &providerobservation.CreditSummary{}
+		if !observation.Partial || observation.QuotaObserved {
+			if snapshot.Credits == nil && channelID == channel.Codex {
+				// 点数缺失也保留时间，阻止较早请求恢复本次刷新已清除的余额。
+				snapshot.Credits = &providerobservation.CreditSummary{}
+			}
+			if snapshot.Credits != nil {
+				snapshot.Credits.ObservedAtMS = &completedMS
+			}
 		}
-		if snapshot.Credits != nil {
-			snapshot.Credits.ObservedAtMS = &completedMS
+		encoded, err := json.Marshal(snapshot)
+		if err != nil {
+			return CredentialObservationResponse{}, app_errors.ErrInternalServer
 		}
+		row := models.CredentialObservation{
+			CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
+			SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
+			State: state, ObservedAtMS: &completedMS,
+			LastAttemptAtMS: &attemptMS,
+			LastErrorCode:   lastErrorCode, UpdatedAtMS: completedMS,
+		}
+		if err := s.upsertCredentialObservation(ctx, row); err != nil {
+			return CredentialObservationResponse{}, err
+		}
+		response := mapCredentialObservation(row)
+		s.applyCredentialQuotaObservation(credentialID, &response)
+		if mode != observationRefreshAfterReset && previousQuotaFresh &&
+			previous.IdentityFingerprint == credential.IdentityFingerprint &&
+			providerobservation.QuotaRecovered(providerQuotaWindows(previousSnapshot.QuotaWindows), freshWindows) {
+			s.registry.RestoreObservedQuotaCooldowns(credentialID, observationStartedMS)
+		}
+		return response, nil
 	}
-	encoded, err := json.Marshal(snapshot)
-	if err != nil {
-		return CredentialObservationResponse{}, app_errors.ErrInternalServer
+	var response CredentialObservationResponse
+	var finishErr error
+	if s.mutations == nil {
+		response, finishErr = finish()
+	} else {
+		s.mutations.Do(credentialID, func() { response, finishErr = finish() })
 	}
-	row := models.CredentialObservation{
-		CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
-		SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
-		State: state, ObservedAtMS: &completedMS,
-		LastAttemptAtMS: &attemptMS,
-		LastErrorCode:   lastErrorCode, UpdatedAtMS: completedMS,
+	if finishErr == nil {
+		s.enrichCredentialObservationUsage(ctx, credentialID, &response)
 	}
-	if err := s.upsertCredentialObservation(ctx, row); err != nil {
-		return CredentialObservationResponse{}, err
-	}
-	response := mapCredentialObservation(row)
-	s.applyCredentialQuotaObservation(credentialID, &response)
-	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
-	return response, nil
+	return response, finishErr
 }
 
 func mergeObservationPlanSummary(previous, current ObservationPlanSummary) ObservationPlanSummary {

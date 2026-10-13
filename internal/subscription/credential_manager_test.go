@@ -243,6 +243,56 @@ func TestCredentialManagerControlRefreshBypassesDataPlaneCooldown(t *testing.T) 
 	}
 }
 
+func TestCredentialManagerControlRefreshPreservesQuotaCooldowns(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		ordinaryCooldown time.Duration
+	}{
+		{"quota only", 0},
+		{"shorter ordinary cooldown", 30 * time.Minute},
+		{"longer ordinary cooldown", 2 * time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+			manager, _, registry, keyService, row := newCredentialManagerFixture(
+				t, credentialJSON("old-access", "old-refresh", now.Add(time.Minute)),
+			)
+			manager.now = func() time.Time { return now }
+			manager.refresh = adaptCodexRefresh(func(_ context.Context, current codex.Credential) (codex.Credential, error) {
+				current.AccessToken = "new-access"
+				current.Expire = now.Add(time.Hour).Format(time.RFC3339)
+				return current, nil
+			})
+			before, _ := registry.CredentialRef(row.ID)
+			registry.SetQuotaCooldown(before, "", now.Add(time.Hour), now)
+			registry.SetQuotaCooldown(before, "model", now.Add(2*time.Hour), now)
+			if test.ordinaryCooldown > 0 {
+				registry.SetCooldown(row.ID, now.Add(test.ordinaryCooldown))
+			}
+
+			credential, evidence := manager.PrepareForControl(t.Context(), channel.Codex, credentialSnapshot(t, row, keyService), false)
+			if evidence != nil || mustCodexCredential(t, credential).AccessToken != "new-access" {
+				t.Fatal("control token refresh failed")
+			}
+			view := registry.Snapshot()[0]
+			if !view.CooldownUntil.Equal(now.Add(time.Hour)) {
+				t.Errorf("account cooldown = %v, want %v", view.CooldownUntil, now.Add(time.Hour))
+			}
+			if !view.ModelCooldowns["model"].Equal(now.Add(2 * time.Hour)) {
+				t.Error("token refresh changed model quota cooldown")
+			}
+			after, _ := registry.CredentialRef(row.ID)
+			if after.QuotaCooldownGeneration != before.QuotaCooldownGeneration {
+				t.Error("token refresh advanced quota recovery generation")
+			}
+			registry.RestoreQuotaCooldowns(row.ID)
+			if !registry.Snapshot()[0].CooldownUntil.IsZero() {
+				t.Error("successful token refresh retained the observed ordinary cooldown")
+			}
+		})
+	}
+}
+
 func TestCredentialManagerControlRefreshPreservesNewerCooldown(t *testing.T) {
 	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
 	manager, _, registry, keyService, row := newCredentialManagerFixture(

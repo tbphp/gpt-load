@@ -9,13 +9,15 @@ import (
 // carry across a process restart. Persisted key configuration remains owned by
 // SQLite and is matched by ID plus group ID during restore.
 type CredentialRuntimeCheckpoint struct {
-	ID                 uint                 `json:"id"`
-	GroupID            uint                 `json:"group_id"`
-	CooldownUntil      time.Time            `json:"cooldown_until"`
-	Blacklisted        bool                 `json:"blacklisted"`
-	FailureCount       int                  `json:"failure_count"`
-	IdentityGeneration uint64               `json:"identity_generation,omitempty"`
-	ModelCooldowns     map[string]time.Time `json:"model_cooldowns,omitempty"`
+	ID                  uint                 `json:"id"`
+	GroupID             uint                 `json:"group_id"`
+	CooldownUntil       time.Time            `json:"cooldown_until"`
+	Blacklisted         bool                 `json:"blacklisted"`
+	FailureCount        int                  `json:"failure_count"`
+	IdentityGeneration  uint64               `json:"identity_generation,omitempty"`
+	ModelCooldowns      map[string]time.Time `json:"model_cooldowns,omitempty"`
+	QuotaCooldownUntil  time.Time            `json:"quota_cooldown_until,omitempty"`
+	QuotaModelCooldowns map[string]time.Time `json:"quota_model_cooldowns,omitempty"`
 }
 
 // CaptureRuntimeCheckpoint returns detached runtime health state in stable
@@ -27,13 +29,15 @@ func (r *CredentialRegistry) CaptureRuntimeCheckpoint() []CredentialRuntimeCheck
 	for _, bucket := range r.buckets {
 		for _, entry := range bucket {
 			checkpoints = append(checkpoints, CredentialRuntimeCheckpoint{
-				ID:                 entry.ID,
-				GroupID:            entry.GroupID,
-				CooldownUntil:      entry.CooldownUntil,
-				Blacklisted:        entry.Blacklisted,
-				FailureCount:       entry.FailureCount,
-				IdentityGeneration: entry.IdentityGeneration,
-				ModelCooldowns:     cloneModelCooldowns(entry.ModelCooldowns),
+				ID:                  entry.ID,
+				GroupID:             entry.GroupID,
+				CooldownUntil:       entry.CooldownUntil,
+				Blacklisted:         entry.Blacklisted,
+				FailureCount:        entry.FailureCount,
+				IdentityGeneration:  entry.IdentityGeneration,
+				ModelCooldowns:      cloneModelCooldowns(entry.ModelCooldowns),
+				QuotaCooldownUntil:  entry.QuotaCooldownUntil,
+				QuotaModelCooldowns: cloneModelCooldowns(entry.QuotaModelCooldowns),
 			})
 		}
 	}
@@ -72,6 +76,9 @@ func (r *CredentialRegistry) RestoreRuntimeCheckpoint(checkpoints []CredentialRu
 		entry.FailureCount = checkpoint.FailureCount
 		if checkpoint.IdentityGeneration == entry.IdentityGeneration {
 			entry.ModelCooldowns = cloneModelCooldowns(checkpoint.ModelCooldowns)
+			entry.QuotaCooldownUntil = checkpoint.QuotaCooldownUntil
+			entry.QuotaModelCooldowns = cloneModelCooldowns(checkpoint.QuotaModelCooldowns)
+			pruneModelCooldowns(entry.QuotaModelCooldowns, time.Now())
 			pruneModelCooldowns(entry.ModelCooldowns, time.Now())
 		}
 		r.scheduling.SyncCredential(runtimeView(entry))
