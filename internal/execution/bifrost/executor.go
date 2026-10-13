@@ -24,6 +24,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/geminiembedding"
 	"gpt-load/internal/execution/geminiimage"
+	"gpt-load/internal/execution/responsemodel"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 )
@@ -288,6 +289,7 @@ func (r *Runtime) ExecuteStream(
 	}
 
 	sequence := uint64(1)
+	modelObserver := responsemodel.New(prepared.upstreamProtocol, spec.UpstreamModel)
 	model := ""
 	var usageEvidence *execution.UsageEvidence
 	idleTimer := newIdleTimer(spec.Timeouts.StreamIdle)
@@ -347,7 +349,8 @@ func (r *Runtime) ExecuteStream(
 			response := chunk.BifrostChatResponse
 			captureAppliedReasoning(&response.ExtraFields.RawRequest, &appliedReasoning)
 			if response.Model != "" {
-				model = response.Model
+				modelObserver.ObserveModel(response.Model)
+				model = modelObserver.Model
 			}
 			payload, chunkUsage, err := encodeChatResponse(response)
 			if err != nil {

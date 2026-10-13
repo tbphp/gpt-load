@@ -465,7 +465,8 @@ func TestClineDiscoveryAndProbe(t *testing.T) {
 		if request.URL.Path != "/api/v1/chat/completions" {
 			t.Errorf("unexpected probe: %s", request.URL.Path)
 		}
-		_, _ = io.WriteString(w, `{"success":true,"data":`+clineCompletionFixture+`}`)
+		body := strings.ReplaceAll(clineCompletionFixture, `"model":"deepseek/deepseek-v4.1-flash",`, "")
+		_, _ = io.WriteString(w, `{"success":true,"data":`+body+`}`)
 	}))
 	defer server.Close()
 	runtime := newRuntimeForTest(t, testRuntimeOptions{allowPrivateNetwork: true})
@@ -480,8 +481,8 @@ func TestClineDiscoveryAndProbe(t *testing.T) {
 		probe.Method, probe.Path, probe.RawQuery = "", "", ""
 		probe.Body, probe.Query = nil, nil
 		probe = freezeTestAttempt(probe)
-		if result := runtime.Execute(t.Context(), probe); result.Error != nil {
-			t.Errorf("%s probe = %+v", value, result.Error)
+		if result := runtime.Execute(t.Context(), probe); result.Error != nil || result.Model != probe.UpstreamModel {
+			t.Errorf("%s probe error=%+v model=%q", value, result.Error, result.Model)
 		}
 	}
 }

@@ -13,7 +13,9 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/execution/responsemodel"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
@@ -815,6 +817,14 @@ func (forwarder *ExecutionForwarder) prepareBufferedResult(
 		)
 		if err != nil {
 			return executionRepresentationFailure(result, err)
+		}
+		// 仅补回原生压缩正文的观测；普通正文可能已在执行层改写为客户端别名。
+		if !result.ResponseModelObserved && input.RouteMode == execution.RouteNative &&
+			responsemodel.IsConversation(input.ClientProtocol, input.Operation) {
+			encoding, err := contentcoding.ParseContentEncoding(headerFieldValues(result.Header, "Content-Encoding"))
+			if err == nil && encoding != contentcoding.Identity {
+				applyResponseModelObservation(&result, prepared.modelObservation)
+			}
 		}
 		result.Header = prepared.headers
 		result.Body = prepared.downstream

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gpt-load/internal/channel"
@@ -201,5 +202,33 @@ func TestConvertedAnthropicPreservesNamespaceTools(t *testing.T) {
 	if len(response.Output) != 1 || response.Output[0].Type != "function_call" ||
 		response.Output[0].Name != "clock" || response.Output[0].Namespace != "demo" {
 		t.Fatalf("namespace tool response not restored: %s", result.Body)
+	}
+}
+
+func TestConvertedResponsesStreamRetainsReportedModelMismatch(t *testing.T) {
+	wire := strings.ReplaceAll(openAIResponsesStreamFixture, "gpt-upstream", "upstream-model")
+	wire = strings.Replace(wire, `"model":"upstream-model"`, `"model":"different"`, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, wire)
+	}))
+	defer server.Close()
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true, openAIBaseURL: server.URL})
+	spec := convertedSpec(channel.OpenAI, protocol.Anthropic, execution.OperationChatCompletion, "/v1/messages", []byte(`{"model":"client-model","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`))
+	var downstream strings.Builder
+	result := runtime.ExecuteStream(t.Context(), spec, func(e execution.StreamEvent) error {
+		if e.Kind == execution.StreamEventData {
+			downstream.Write(e.Data)
+		}
+		return nil
+	})
+	if result.Error != nil {
+		t.Fatalf("execution error %+v", result.Error)
+	}
+	if result.Model != "different" {
+		t.Fatalf("reported=%q want=different", result.Model)
+	}
+	if !strings.Contains(downstream.String(), "client-model") || !strings.Contains(downstream.String(), "hello") {
+		t.Fatalf("unexpected response %s", downstream.String())
 	}
 }

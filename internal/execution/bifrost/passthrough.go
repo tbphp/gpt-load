@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/geminiembedding"
 	"gpt-load/internal/execution/geminiimage"
+	"gpt-load/internal/execution/responsemodel"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 )
@@ -405,6 +406,11 @@ complete:
 		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
 	}
 	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)
+	if responsemodel.IsConversation(spec.ClientProtocol, spec.Operation) {
+		modelObserver := responsemodel.New(spec.ClientProtocol, spec.UpstreamModel)
+		modelObserver.ObserveJSON(bodyBytes)
+		model = modelObserver.Model
+	}
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
 		if prepared.mode == channel.RouteConverted && spec.ClientProtocol == protocol.OpenAIImages {
 			var err error
@@ -575,7 +581,8 @@ func (r *Runtime) executeNativeStream(
 	status := 0
 	var headers http.Header
 	requestID := ""
-	model := spec.UpstreamModel
+	modelObserver := responsemodel.New(spec.ClientProtocol, spec.UpstreamModel)
+	model := ""
 	var usageEvidence *execution.UsageEvidence
 	var errorBody bytes.Buffer
 	firstData := execution.NewFirstResponseSSEObserver(parent)
@@ -635,7 +642,8 @@ func (r *Runtime) executeNativeStream(
 						}
 					}
 				}
-				return finishNativeStream(status, headers, requestID, model, usageEvidence, errorBody.Bytes(), prepared.secrets)
+				modelObserver.FinishSSE()
+				return finishNativeStream(status, headers, requestID, modelObserver.Model, usageEvidence, errorBody.Bytes(), prepared.secrets)
 			}
 			if chunk == nil {
 				cancelCall()
@@ -674,6 +682,8 @@ func (r *Runtime) executeNativeStream(
 				} else {
 					var err error
 					firstData(data)
+					modelObserver.ObserveSSE(data)
+					model = modelObserver.Model
 					data, err = firstEventGate.push(data)
 					if err != nil {
 						cancelCall()
