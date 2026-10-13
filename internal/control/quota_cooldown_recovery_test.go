@@ -77,6 +77,62 @@ func TestQuotaObservationRecoversBothCooldownLevels(t *testing.T) {
 	}
 }
 
+type quotaObservationMutationFunc func(uint, func())
+
+func (fn quotaObservationMutationFunc) Do(id uint, apply func()) { fn(id, apply) }
+
+func TestQuotaObservationPreservesRejectionBeforeCommit(t *testing.T) {
+	for _, delay := range []time.Duration{0, time.Millisecond} {
+		t.Run(delay.String(), func(t *testing.T) {
+			fixture, groupID, id := newSubscriptionCredentialFixture(t)
+			start := time.Now().UTC().Truncate(time.Millisecond)
+			now, used := start, 100.0
+			fixture.service.now = func() time.Time { return now }
+			setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+				return codex.AccountObservation{Payload: []byte(fmt.Sprintf(`{"rate_limit":{"primary_window":{"used_percent":%g,"limit_window_seconds":604800,"reset_at":1800000000}}}`, used))}, nil
+			})
+			if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, id); err != nil {
+				t.Fatal(err)
+			}
+			ref, _ := fixture.registry.CredentialRef(id)
+			until := start.Add(time.Hour)
+			fixture.registry.SetQuotaCooldown(ref, "", until, start)
+			fixture.registry.SetQuotaCooldown(ref, "model", until, start)
+			observedAt := start.Add(time.Second)
+			now, used = observedAt, 95
+			coordinator := fixture.service.mutations
+			fixture.service.mutations = quotaObservationMutationFunc(func(credentialID uint, finish func()) {
+				// 响应已返回，模拟业务请求先取得同一凭据锁并写入新的拒绝。
+				coordinator.Do(credentialID, func() {
+					for _, model := range []string{"", "model"} {
+						accepted, changed := fixture.registry.SetQuotaCooldown(ref, model, until, observedAt.Add(delay))
+						if !accepted || changed {
+							t.Fatalf("same-deadline rejection = (%t, %t)", accepted, changed)
+						}
+					}
+				})
+				now = observedAt.Add(time.Second)
+				coordinator.Do(credentialID, finish)
+			})
+			response, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.ObservedAtMS == nil || *response.ObservedAtMS != observedAt.UnixMilli() {
+				t.Errorf("observation time = %v, want the response time %d", response.ObservedAtMS, observedAt.UnixMilli())
+			}
+			view := fixture.registry.Snapshot()[0]
+			if !view.CooldownUntil.Equal(until) || !view.ModelCooldowns["model"].Equal(until) {
+				t.Error("active observation cleared a rejection recorded after the response")
+			}
+			after, _ := fixture.registry.CredentialRef(id)
+			if after.QuotaCooldownGeneration != ref.QuotaCooldownGeneration {
+				t.Error("stale active observation advanced the quota recovery generation")
+			}
+		})
+	}
+}
+
 func TestQuotaObservationRecoveryIgnoresFailurePartialAndConcurrentBaseline(t *testing.T) {
 	for _, mode := range []string{"failure", "partial", "concurrent"} {
 		t.Run(mode, func(t *testing.T) {

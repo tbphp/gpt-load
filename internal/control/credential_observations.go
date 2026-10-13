@@ -304,6 +304,11 @@ func (s *Service) refreshCredentialObservationOnce(
 		authRefreshVersion = &version
 		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	}
+	// 额度证据时间取最终响应返回时刻，不能把后续等待锁的时间算入观测时间。
+	completedMS := s.now().UTC().UnixMilli()
+	if completedMS < attemptMS {
+		completedMS = attemptMS
+	}
 	// 网络请求期间允许编辑分组；迟到结果不得写入新目标的观测或运行态。
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -406,15 +411,6 @@ func (s *Service) refreshCredentialObservationOnce(
 		case observation.Partial && !observation.QuotaObserved:
 			state = models.CredentialObservationStale
 		}
-		// The observation time is when this result was actually obtained, not when
-		// the attempt started: a slow refresh would otherwise be stamped older
-		// than passive samples captured while it was still in flight, letting them
-		// overwrite it. Keeping updated_at_ms on the same instant also guarantees
-		// the passive writer's compare-and-set token changes on every active write.
-		completedMS := s.now().UTC().UnixMilli()
-		if completedMS < attemptMS {
-			completedMS = attemptMS
-		}
 		if !observation.Partial || observation.QuotaObserved {
 			if snapshot.Credits == nil && channelID == channel.Codex {
 				// 点数缺失也保留时间，阻止较早请求恢复本次刷新已清除的余额。
@@ -443,7 +439,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		if mode != observationRefreshAfterReset && previousQuotaFresh &&
 			previous.IdentityFingerprint == credential.IdentityFingerprint &&
 			providerobservation.QuotaRecovered(providerQuotaWindows(previousSnapshot.QuotaWindows), freshWindows) {
-			s.registry.RestoreQuotaCooldowns(credentialID)
+			s.registry.RestoreObservedQuotaCooldowns(credentialID, completedMS)
 		}
 		return response, nil
 	}
