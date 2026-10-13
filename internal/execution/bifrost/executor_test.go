@@ -251,7 +251,7 @@ func TestNativePassthroughRewritesModelAliasInUnaryAndStreamResponses(t *testing
 		runtime := newTestRuntime(t)
 		spec := compatibleSpec(server.URL)
 		spec.ClientModel = "public-model"
-		spec.UpstreamModel = "provider-model"
+		spec.UpstreamModel = "requested-model"
 		result := runtime.Execute(context.Background(), spec)
 		if err := result.Validate(); err != nil {
 			t.Fatalf("result validation: %v; result=%+v", err, result)
@@ -276,7 +276,7 @@ func TestNativePassthroughRewritesModelAliasInUnaryAndStreamResponses(t *testing
 		runtime := newTestRuntime(t)
 		spec := compatibleSpec(server.URL)
 		spec.ClientModel = "public-model"
-		spec.UpstreamModel = "provider-model"
+		spec.UpstreamModel = "requested-model"
 		var data bytes.Buffer
 		result := runtime.ExecuteStream(context.Background(), spec, func(event execution.StreamEvent) error {
 			if event.Kind == execution.StreamEventData {

@@ -1078,7 +1078,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 				return err
 			}
 		}
-		if response.Model != "" {
+		if response.Model != "" && (!result.ResponseModelMismatch || response.Model != input.UpstreamModelID) {
 			result.UpstreamReportedModel = response.Model
 			result.ResponseModelObserved = true
 			result.ResponseModelMismatch = response.Model != input.UpstreamModelID

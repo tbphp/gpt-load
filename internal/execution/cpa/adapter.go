@@ -21,6 +21,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
+	"gpt-load/internal/execution/responsemodel"
 	platformredact "gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
@@ -267,10 +268,15 @@ func unaryProviderSuccess(
 	if statusCode == 0 {
 		statusCode = http.StatusOK
 	}
+	model := responseModel(body, spec.UpstreamModel)
+	switch spec.ClientProtocol {
+	case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini:
+		model = responseModel(body, "")
+	}
 	return execution.AttemptResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 		UpstreamProtocol: effectiveUpstreamProtocol(provider, response.UpstreamProtocol), AppliedReasoning: appliedReasoning(response.AppliedReasoningEffort, response.AppliedReasoningMode, response.AppliedReasoningBudgetTokens), StatusCode: statusCode,
-		Header: headers, Body: body, Model: responseModel(body, spec.UpstreamModel),
+		Header: headers, Body: body, Model: model,
 		UpstreamRequestID: upstreamRequestID(headers), Usage: observedUsage,
 	}
 }
@@ -382,6 +388,7 @@ func (a *Adapter) ExecuteStream(
 	sequence := uint64(1)
 	ready := false
 	upstreamStarted := false
+	modelObserver := responsemodel.New(spec.ClientProtocol, spec.UpstreamModel)
 	openAIDone := false
 	geminiTerminal := false
 	var nativeResponsesAssembler *nativeResponsesSSEAssembler
@@ -398,6 +405,7 @@ func (a *Adapter) ExecuteStream(
 					return &failure
 				}
 			}
+			modelObserver.ObserveSSE(payload)
 			payload, rewriteErr := rewriteStreamModelAlias(spec, payload)
 			if rewriteErr != nil {
 				failure := streamInternalError(upstreamProtocol, headers, applied, "rewrite subscription response model", ready)
@@ -461,7 +469,8 @@ func (a *Adapter) ExecuteStream(
 					return streamConsumerStopped(upstreamProtocol, headers, applied, ready)
 				}
 			}
-			return successfulStreamTerminal(upstreamProtocol, spec, headers, applied)
+			modelObserver.FinishSSE()
+			return successfulStreamTerminal(upstreamProtocol, modelObserver.Model, headers, applied)
 		}
 		if chunk.Err != nil {
 			return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, chunk.Err, credential, applied, ready)
@@ -882,14 +891,14 @@ func notSentEvidence(kind execution.ErrorKind, summary, code string) *execution.
 
 func successfulStreamTerminal(
 	upstreamProtocol protocol.Protocol,
-	spec execution.AttemptSpec,
+	model string,
 	headers http.Header,
 	applied *reasoning.Config,
 ) execution.StreamResult {
 	return execution.StreamResult{
 		DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 		UpstreamProtocol: upstreamProtocol, AppliedReasoning: applied, StatusCode: http.StatusOK,
-		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Model: spec.UpstreamModel,
+		Header: headers, UpstreamRequestID: upstreamRequestID(headers), Model: model,
 	}
 }
 

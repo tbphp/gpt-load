@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gpt-load/internal/channel"
@@ -64,4 +66,88 @@ func newCLIProxyAPIManagerForTest(t *testing.T, baseURL string) (*RuntimeManager
 		t.Fatal(err)
 	}
 	return manager, resolved
+}
+
+func TestCLIProxyAPIReportedModelsPreserveWire(t *testing.T) {
+	for _, shape := range []struct {
+		name                         string
+		protocol                     protocol.Protocol
+		operation                    execution.Operation
+		path, request, unary, stream string
+	}{
+		{"chat", protocol.OpenAICompletions, execution.OperationChatCompletion, "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`, `{"id":"c","model":"reported","choices":[]}`, "data: {\"model\":\"reported\",\"choices\":[]}\n\ndata: [DONE]\n\n"},
+		{"responses", protocol.OpenAIResponses, execution.OperationResponsesCreate, "/v1/responses", `{"input":"hi"}`, `{"id":"r","object":"response","model":"reported","output":[]}`, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"reported\"}}\n\n"},
+		{"anthropic", protocol.Anthropic, execution.OperationChatCompletion, "/v1/messages", `{"messages":[{"role":"user","content":"hi"}],"max_tokens":8}`, `{"id":"m","type":"message","model":"reported","content":[]}`, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"model\":\"reported\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"},
+		{"gemini", protocol.Gemini, execution.OperationChatCompletion, "/v1beta/models/requested:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, `{"modelVersion":"reported","candidates":[]}`, "data: {\"modelVersion\":\"reported\",\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n"},
+	} {
+		for _, stream := range []bool{false, true} {
+			for _, missing := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/stream=%t/missing=%t", shape.name, stream, missing), func(t *testing.T) {
+					wire := shape.unary
+					if stream {
+						wire = shape.stream
+					}
+					wantModel := "reported"
+					if missing {
+						wire = strings.ReplaceAll(wire, `"model":"reported",`, "")
+						wire = strings.ReplaceAll(wire, `,"model":"reported"`, "")
+						wire = strings.ReplaceAll(wire, `"modelVersion":"reported",`, "")
+						wantModel = ""
+					}
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						contentType := "application/json"
+						if stream {
+							contentType = "text/event-stream"
+						}
+						w.Header().Set("Content-Type", contentType)
+						_, _ = io.WriteString(w, wire)
+					}))
+					defer server.Close()
+					manager, resolved := newCLIProxyAPIManagerForTest(t, server.URL)
+					spec := compatibleSpec(server.URL)
+					spec.ChannelID = string(channel.CLIProxyAPI)
+					spec.TargetConfig = resolved.TargetConfig
+					spec.ClientProtocol = shape.protocol
+					spec.Operation = shape.operation
+					spec.Path = shape.path
+					if stream && shape.protocol == protocol.Gemini {
+						spec.Path = strings.ReplaceAll(spec.Path, ":generateContent", ":streamGenerateContent")
+					}
+					spec.Body = []byte(shape.request)
+					spec.ClientModel = "requested"
+					spec.UpstreamModel = "requested"
+					spec = freezeTestAttempt(spec)
+					var model string
+					var body []byte
+					if stream {
+						var output bytes.Buffer
+						result := manager.ExecuteStream(t.Context(), spec, func(e execution.StreamEvent) error {
+							if e.Kind == execution.StreamEventData {
+								output.Write(e.Data)
+							}
+							return nil
+						})
+						if err := result.Validate(); err != nil || result.Error != nil || result.StatusCode != 200 {
+							t.Fatalf("execution=%+v validation=%v", result, err)
+						}
+						model = result.Model
+						body = output.Bytes()
+					} else {
+						result := manager.Execute(t.Context(), spec)
+						if err := result.Validate(); err != nil || result.Error != nil || result.StatusCode != 200 {
+							t.Fatalf("execution=%+v validation=%v", result, err)
+						}
+						model = result.Model
+						body = result.Body
+					}
+					if string(body) != wire {
+						t.Fatalf("wire changed: %s", body)
+					}
+					if model != wantModel {
+						t.Fatalf("reported model=%q want=%q", model, wantModel)
+					}
+				})
+			}
+		}
+	}
 }

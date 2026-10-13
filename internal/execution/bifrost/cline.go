@@ -151,7 +151,7 @@ func (r *Runtime) executeCline(parent context.Context, spec execution.AttemptSpe
 		result.Error = passthroughHTTPError(status, result.Header, result.Body, prepared.secrets)
 		return result
 	}
-	result.Model = openAIResponseModel(body, spec.UpstreamModel)
+	result.Model = openAIResponseModel(body, "")
 	result.Usage, err = usageEvidenceFromPassthrough(openai.ExtractOpenAIPassthroughUsage(
 		http.MethodPost, openAIChatPath, prepared.passthrough.Body, body,
 	))

@@ -1202,3 +1202,76 @@ func TestWebsocketCacheAffinityAndConnectionBindingKinds(t *testing.T) {
 		t.Fatal("WebSocket affinity kind mismatch")
 	}
 }
+
+func TestWebsocketReportedModelConsistency(t *testing.T) {
+	for _, tc := range []struct {
+		name, first, last string
+		want              telemetry.ModelConsistency
+	}{
+		{"match", "", "upstream", telemetry.ModelConsistencyMatch},
+		{"mismatch", "", "actual-other", telemetry.ModelConsistencyMismatch},
+		{"missing", "", "", telemetry.ModelConsistencyUnknown},
+		{"earlier_mismatch", "actual-other", "upstream", telemetry.ModelConsistencyMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer c.Close()
+				if _, _, err = c.ReadMessage(); err != nil {
+					return
+				}
+				if tc.first != "" {
+					_ = c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"response.created","response":{"id":"resp_model","object":"response","status":"in_progress","model":%q}}`, tc.first)))
+				}
+				_ = c.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_model","object":"response","status":"completed","model":%q,"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`, tc.last)))
+
+				if _, _, err = c.ReadMessage(); err != nil {
+					return
+				}
+				_ = c.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"resp_next","object":"response","status":"completed","usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`))
+				_, _, _ = c.ReadMessage()
+			}))
+			defer upstream.Close()
+			h, engine, _ := websocketTestHandler(t, upstream.URL, channel.CLIProxyAPI)
+			sink := &recordingRequestLogSink{}
+			h.requestLogSink = sink
+			server := httptest.NewServer(engine)
+			defer server.Close()
+			c := dialGatewayWebsocket(t, server.URL)
+			defer c.Close()
+			if err := c.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","input":"hello"}`)); err != nil {
+				t.Fatal(err)
+			}
+			count := 1
+			if tc.first != "" {
+				count++
+			}
+			for i := 0; i < count; i++ {
+				if _, _, err := c.ReadMessage(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e := waitWebsocketLogs(t, sink, 1)[0]
+			if e.Status != telemetry.RequestStatusSuccess {
+				t.Fatalf("unexpected status %s", e.Status)
+			}
+			if e.ModelConsistency != tc.want {
+				t.Fatalf("consistency=%s want=%s", e.ModelConsistency, tc.want)
+			}
+			if err := c.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"public","input":"next"}`)); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := c.ReadMessage(); err != nil {
+				t.Fatal(err)
+			}
+			next := waitWebsocketLogs(t, sink, 2)[1]
+			if next.Status != telemetry.RequestStatusSuccess || next.UpstreamReportedModel != "" || next.ModelConsistency != telemetry.ModelConsistencyUnknown {
+				t.Fatalf("next turn status=%s model=%q consistency=%s", next.Status, next.UpstreamReportedModel, next.ModelConsistency)
+			}
+
+		})
+	}
+}
