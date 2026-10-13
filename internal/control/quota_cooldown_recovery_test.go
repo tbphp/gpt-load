@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/execution"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription/providers/codex"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
@@ -128,6 +129,68 @@ func TestQuotaObservationPreservesRejectionBeforeCommit(t *testing.T) {
 			after, _ := fixture.registry.CredentialRef(id)
 			if after.QuotaCooldownGeneration != ref.QuotaCooldownGeneration {
 				t.Error("stale active observation advanced the quota recovery generation")
+			}
+		})
+	}
+}
+
+func TestQuotaObservationProtectsRejectionsDuringFinalRequest(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		retry         bool
+		rejectOnCall  int
+		wantRecovered bool
+	}{
+		{"initial request", false, 1, false},
+		{"before fresh retry", true, 1, true},
+		{"during retry", true, 2, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, groupID, id := newSubscriptionCredentialFixture(t)
+			now := time.Now().UTC().Truncate(time.Millisecond)
+			fixture.service.now = func() time.Time { return now }
+			setCodexAccountObservation(fixture.service, func(context.Context, codex.Credential) (codex.AccountObservation, error) {
+				return codex.AccountObservation{Payload: []byte(`{"rate_limit":{"primary_window":{"used_percent":100,"limit_window_seconds":604800,"reset_at":1800000000}}}`)}, nil
+			})
+			if _, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, id); err != nil {
+				t.Fatal(err)
+			}
+			ref, _ := fixture.registry.CredentialRef(id)
+			until := now.Add(time.Hour)
+			fixture.registry.SetQuotaCooldown(ref, "", until, now)
+			fixture.registry.SetQuotaCooldown(ref, "model", until, now)
+			originalPrepare := fixture.service.prepareSubscriptionCredential
+			fixture.service.prepareSubscriptionCredential = func(ctx context.Context, channelID channel.ID, snapshot execution.CredentialSnapshot, _ bool) (subscriptionruntime.Credential, *execution.ErrorEvidence) {
+				return originalPrepare(ctx, channelID, snapshot, false)
+			}
+			calls := 0
+			fixture.service.observeSubscriptionAccount = func(context.Context, channel.ID, subscriptionruntime.Credential, subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
+				calls++
+				// 额度快照已生成，但响应还在途，此时业务请求收到新的拒绝。
+				now = now.Add(time.Second)
+				if calls == test.rejectOnCall {
+					fixture.mutations.Do(id, func() {
+						fixture.registry.SetQuotaCooldown(ref, "", until, now)
+						fixture.registry.SetQuotaCooldown(ref, "model", until, now)
+					})
+				}
+				now = now.Add(time.Second)
+				if test.retry && calls == 1 {
+					return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: 401}
+				}
+				return subscriptionruntime.Observation{Payload: []byte(`{"quota_windows":[{"id":"primary","source_id":"codex","scope":"account","unit":"percent","state":"available","used":0,"window_seconds":604800}]}`)}, nil
+			}
+			now = now.Add(time.Second)
+			response, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.ObservedAtMS == nil || *response.ObservedAtMS != now.UnixMilli() {
+				t.Fatal("stored observation time no longer uses response completion")
+			}
+			view := fixture.registry.Snapshot()[0]
+			if view.CooldownUntil.IsZero() != test.wantRecovered || view.ModelCooldowns["model"].IsZero() != test.wantRecovered {
+				t.Fatalf("account/model recovered = %t/%t, want %t", view.CooldownUntil.IsZero(), view.ModelCooldowns["model"].IsZero(), test.wantRecovered)
 			}
 		})
 	}

@@ -263,6 +263,8 @@ func (s *Service) refreshCredentialObservationOnce(
 	if err != nil {
 		return CredentialObservationResponse{}, app_errors.ErrInternalServer
 	}
+	// 恢复不得覆盖本次额度请求在途期间产生的新拒绝。
+	observationStartedMS := s.now().UTC().UnixMilli()
 	observation, observeErr := s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	authRefreshVersion := previous.LastAuthRefreshSecretVersion
 	if subscriptionUpstreamHTTPStatus(observeErr) == http.StatusUnauthorized &&
@@ -302,6 +304,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 		version := refreshed.SecretVersion
 		authRefreshVersion = &version
+		observationStartedMS = s.now().UTC().UnixMilli()
 		observation, observeErr = s.observeSubscriptionAccount(observeContext, channelID, preparedCredential, target)
 	}
 	// 额度证据时间取最终响应返回时刻，不能把后续等待锁的时间算入观测时间。
@@ -439,7 +442,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		if mode != observationRefreshAfterReset && previousQuotaFresh &&
 			previous.IdentityFingerprint == credential.IdentityFingerprint &&
 			providerobservation.QuotaRecovered(providerQuotaWindows(previousSnapshot.QuotaWindows), freshWindows) {
-			s.registry.RestoreObservedQuotaCooldowns(credentialID, completedMS)
+			s.registry.RestoreObservedQuotaCooldowns(credentialID, observationStartedMS)
 		}
 		return response, nil
 	}

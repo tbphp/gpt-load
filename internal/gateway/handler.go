@@ -327,13 +327,11 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 	model string,
 ) {
 	credentialID := ref.ID
-	quotaLimited := decision.Category == health.FailureCategoryRateLimited &&
-		!strings.HasPrefix(string(decision.RuleID), "auth.") && !strings.HasPrefix(string(decision.RuleID), "custom.")
 	switch decision.Effect {
 	case health.EffectCooldownModel:
 		handler.mutateCredentialForTarget(ref, func() {
 			var accepted, changed bool
-			if quotaLimited && model != "" {
+			if decision.QuotaCooldown && model != "" {
 				accepted, changed = handler.registry.SetQuotaCooldown(ref, model, decision.CooldownUntil, attemptNow)
 			} else {
 				accepted, changed = handler.registry.SetModelCooldown(ref, model, decision.CooldownUntil, attemptNow)
@@ -351,7 +349,7 @@ func (handler *Handler) applyDecisionEffectWithBlacklistPolicy(
 		handler.mutateCredentialForTarget(ref, func() {
 			until := decision.CooldownUntil
 			exists, changed := false, false
-			if quotaLimited && credentialVersion == 0 {
+			if decision.QuotaCooldown && credentialVersion == 0 {
 				exists, changed = handler.registry.SetQuotaCooldown(ref, "", until, attemptNow)
 			} else if credentialVersion == 0 {
 				exists, changed = handler.registry.SetCooldownWithChange(credentialID, until)

@@ -130,6 +130,7 @@ func (rules ErrorRules) apply(base Decision, attempt ExecutionAttempt, ctx Decis
 		if !matched {
 			continue
 		}
+		// 自定义动作使用独立冷却，不继承内置额度恢复标记。
 		result := decision(base.Category, base.Origin, base.Scope, rule.Retry, rule.Effect,
 			RuleID(fmt.Sprintf("custom.%s.%d", rules.source, index+1)))
 		switch rule.Effect {
