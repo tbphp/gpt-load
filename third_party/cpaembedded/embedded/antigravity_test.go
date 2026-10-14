@@ -129,14 +129,14 @@ func TestDiscoverAntigravityProjectUsesCPAControlPlaneHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/load":
-			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityRequestUserAgent("") ||
+			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityRequestUserAgent("antigravity/hub/2.23.0 darwin/arm64") ||
 				request.Header.Get("X-Goog-Api-Client") != "" {
 				t.Fatalf("loadCodeAssist headers = %#v", request.Header)
 			}
 			writer.Header().Set("Content-Type", "application/json")
 			_, _ = writer.Write([]byte(`{"allowedTiers":[{"id":"free-tier","isDefault":true}]}`))
 		case "/onboard":
-			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityOnboardUserUserAgent("") ||
+			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityOnboardUserUserAgent("antigravity/hub/2.23.0 darwin/arm64") ||
 				request.Header.Get("X-Goog-Api-Client") != misc.AntigravityGoogAPIClientUA {
 				t.Fatalf("onboardUser headers = %#v", request.Header)
 			}
@@ -144,7 +144,7 @@ func TestDiscoverAntigravityProjectUsesCPAControlPlaneHeaders(t *testing.T) {
 			err := json.NewDecoder(request.Body).Decode(&body)
 			metadata, metadataOK := body["metadata"].(map[string]any)
 			if err != nil || body["tier_id"] != "free-tier" ||
-				!metadataOK || metadata["ide_version"] != misc.AntigravityVersionFromUserAgent(misc.AntigravityOnboardUserUserAgent("")) {
+				!metadataOK || metadata["ide_version"] != misc.AntigravityVersionFromUserAgent(misc.AntigravityOnboardUserUserAgent("antigravity/hub/2.23.0 darwin/arm64")) {
 				t.Fatalf("onboardUser body = %#v, error = %v", body, err)
 			}
 			writer.Header().Set("Content-Type", "application/json")
@@ -905,8 +905,8 @@ func TestAntigravityExecutionOnlyBridgeNeverRefreshesPreparedNearExpiryToken(t *
 
 func TestAntigravityExecutionOnlyBridgeConvertsDeclaredUnaryProtocols(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("") {
-			t.Errorf("execution identity = %q; want the shared CPA version source", got)
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.23.0 darwin/arm64") {
+			t.Errorf("execution identity = %q; want the pinned client version", got)
 		}
 		if request.URL.Path != "/v1internal:generateContent" {
 			http.NotFound(writer, request)
@@ -962,8 +962,8 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredUnaryProtocols(t *testing
 
 func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("") {
-			t.Errorf("stream identity = %q; want the shared CPA version source", got)
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.23.0 darwin/arm64") {
+			t.Errorf("stream identity = %q; want the pinned client version", got)
 		}
 		if request.URL.Path != "/v1internal:streamGenerateContent" {
 			http.NotFound(writer, request)
@@ -1029,8 +1029,8 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *tes
 func TestAntigravityExecutionOnlyBridgeCountsTokensUpstreamForDeclaredProtocols(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("") {
-			t.Errorf("token-count identity = %q; want the shared CPA version source", got)
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.23.0 darwin/arm64") {
+			t.Errorf("token-count identity = %q; want the pinned client version", got)
 		}
 		calls++
 		if request.URL.Path != "/v1internal:countTokens" {

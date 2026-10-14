@@ -137,7 +137,8 @@ func NewAntigravityAuth(_ string, credential AntigravityCredential, baseURL stri
 	return &cliproxyauth.Auth{
 		Provider: ProviderAntigravity,
 		Attributes: map[string]string{
-			"base_url": strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+			"base_url":   strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+			"user_agent": antigravityUserAgent,
 		},
 		Metadata: map[string]any{
 			"type":         ProviderAntigravity,

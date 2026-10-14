@@ -7,12 +7,12 @@ import (
 )
 
 // ClientVersion identifies the official Codex contract shared by the gateway and CPA.
-const ClientVersion = "0.159.2"
-const ClientSHA256 = "fd219bd9f061278275f528939f82f54d2eb97df4b25c23b022adbe48813d920b"
+const ClientVersion = "0.162.1"
+const ClientSHA256 = "943ca7fe1d19ed019054158303f0dbbd80b3bef43b3aa425a71aa7cb3fb52c2b"
 
-// Source: openai/codex rust-v0.159.2, codex-rs/models-manager/models.json.
+// Source: openai/codex rust-v0.162.1, codex-rs/models-manager/models.json.
 //
-//go:embed codex_client_models_0.159.2.json
+//go:embed codex_client_models_0.162.1.json
 var clientSnapshot []byte
 
 // ClientJSON returns an independent copy of the pinned client template snapshot.

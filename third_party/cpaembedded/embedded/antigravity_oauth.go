@@ -439,13 +439,13 @@ func fetchAntigravityJSON(
 	}
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", misc.AntigravityRequestUserAgent(""))
+	request.Header.Set("User-Agent", misc.AntigravityRequestUserAgent(antigravityUserAgent))
 	switch operation {
 	case "loadCodeAssist":
 		request.Header.Set("Accept", "*/*")
 	case "onboardUser":
 		request.Header.Set("Accept", "*/*")
-		request.Header.Set("User-Agent", misc.AntigravityOnboardUserUserAgent(""))
+		request.Header.Set("User-Agent", misc.AntigravityOnboardUserUserAgent(antigravityUserAgent))
 		request.Header.Set("X-Goog-Api-Client", misc.AntigravityGoogAPIClientUA)
 	}
 	if payload != nil {
@@ -477,7 +477,7 @@ func onboardAntigravityUser(
 	if endpoint == "" {
 		endpoint = antigravityauth.DailyAPIEndpoint + "/" + antigravityauth.APIVersion + ":onboardUser"
 	}
-	userAgent := misc.AntigravityOnboardUserUserAgent("")
+	userAgent := misc.AntigravityOnboardUserUserAgent(antigravityUserAgent)
 	payload, err := json.Marshal(map[string]any{
 		"tier_id": tierID,
 		"metadata": map[string]string{

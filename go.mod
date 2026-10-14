@@ -18,7 +18,7 @@ require (
 	github.com/pion/sdp/v3 v3.0.20
 	github.com/pion/stun/v3 v3.1.7
 	github.com/pion/webrtc/v4 v4.2.23
-	github.com/router-for-me/CLIProxyAPI/v8 v8.0.23
+	github.com/router-for-me/CLIProxyAPI/v8 v8.0.28
 	github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded v0.0.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.20.0
