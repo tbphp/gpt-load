@@ -153,6 +153,8 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
 
+Responses のコンテキスト復旧は、アップストリームが履歴項目の所属、履歴 item 参照、または暗号化された継続状態を明示的に拒否し、応答がクライアントにコミットされる前にのみ実行します。再送可能な項目の旧 ID と暗号化状態を除去し、本文とツール呼び出しの関連を保ったまま現在の認証情報で一度再試行します。その後の認証情報切り替えでも、既存のリトライ方針に従い復旧したコンテキストを使用します。正常なリクエストは変更しません。サーバー側の item 参照だけの履歴は再構築できず、復号できない compaction の除去では可読形式で残っていない履歴が失われます。
+
 ### 組み込みチャネル
 
 - **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI

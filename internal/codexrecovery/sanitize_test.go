@@ -1,6 +1,7 @@
 package codexrecovery
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -47,6 +48,52 @@ func TestSanitizeStripsEncryptedReasoningAndKeepsRest(t *testing.T) {
 	// The rest of the request is untouched.
 	if decoded["model"] != "gpt-6.1-sol" || decoded["stream"] != true {
 		t.Fatalf("unrelated fields were modified: %+v", decoded)
+	}
+}
+
+func TestSanitizeRebuildsInlineHistoryWithoutChangingSemanticFields(t *testing.T) {
+	body := []byte(`{
+		"model":"model-a","store":false,"vendor_number":9007199254740993,
+		"input":[
+			{"type":"message","id":"msg_old","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"checking"}]},
+			{"type":"function_call","id":"fc_old","call_id":"call_keep","name":"lookup","arguments":"{\"id\":9007199254740993}"},
+			{"type":"function_call_output","id":"fco_old","call_id":"call_keep","output":"result"},
+			{"type":"reasoning","id":"rs_old","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"keep summary"}]},
+			{"type":"message","role":"user","content":[{"type":"input_file","file_id":"file_keep"}]},
+			{"type":"vendor_item","id":"vendor_keep","container_id":"container_keep"}
+		]
+	}`)
+	cleaned, _, ok := Sanitize(body)
+	if !ok {
+		t.Fatal("expected inline history recovery")
+	}
+	for _, old := range []string{"msg_old", "fc_old", "fco_old", "rs_old", "opaque"} {
+		if bytes.Contains(cleaned, []byte(old)) {
+			t.Fatalf("rejected state %q survived: %s", old, cleaned)
+		}
+	}
+	for _, kept := range []string{"call_keep", "lookup", "result", "keep summary", "commentary", "file_keep", "vendor_keep", "container_keep", "9007199254740993"} {
+		if !bytes.Contains(cleaned, []byte(kept)) {
+			t.Fatalf("semantic field %q was lost: %s", kept, cleaned)
+		}
+	}
+	if _, _, changed := Sanitize(cleaned); changed {
+		t.Fatal("recovery should be idempotent")
+	}
+}
+
+func TestSanitizeRecoversHistoryIDsWithoutEncryptedContent(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","id":"msg_old","role":"assistant","content":[{"type":"output_text","text":"history"}]}]}`)
+	cleaned, _, ok := Sanitize(body)
+	if !ok || bytes.Contains(cleaned, []byte("msg_old")) || !bytes.Contains(cleaned, []byte("history")) {
+		t.Fatalf("inline ID recovery = %t %s", ok, cleaned)
+	}
+}
+
+func TestSanitizePreservesServerSideContextReferences(t *testing.T) {
+	body := []byte(`{"previous_response_id":"resp_keep","conversation":"conv_keep","input":[{"type":"item_reference","id":"msg_keep"}]}`)
+	if cleaned, _, changed := Sanitize(body); changed {
+		t.Fatalf("reference-only history cannot be rebuilt: %s", cleaned)
 	}
 }
 

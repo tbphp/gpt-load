@@ -80,3 +80,37 @@ func TestClassifyPartsPrefersExactCode(t *testing.T) {
 		t.Fatalf("unrelated parts = %q, want empty", got)
 	}
 }
+
+func TestClassifyRecognizesResponseItemScopeErrors(t *testing.T) {
+	message := "OpenAI Responses bad request: The requested item was created under a different Azure OpenAI resource. Use the same resource that created the item to access it."
+	for _, value := range []string{
+		message,
+		`{"error":{"code":"invalid_request_error","message":"` + message + `"}}`,
+		"event: response.failed\ndata: {\"response\":{\"error\":{\"message\":\"" + message + "\"}}}\n\n",
+	} {
+		if signal := Classify(value); signal == "" {
+			t.Fatalf("item resource mismatch was not classified: %s", value)
+		}
+	}
+	for _, value := range []string{
+		"Item with id 'rs_previous' not found. Items are not persisted when store is set to false.",
+		`{"error":{"message":"No item found with id 'msg_previous'."}}`,
+	} {
+		if signal := Classify(value); signal == "" {
+			t.Fatalf("missing history item was not classified: %s", value)
+		}
+	}
+	for _, value := range []string{
+		"invalid_request: please check the request parameters",
+		"File with id 'file_missing' not found",
+		"The model belongs to a different project",
+		`{"output":[{"type":"message","content":"encrypted content could not be verified"}]}`,
+	} {
+		if signal := Classify(value); signal != "" {
+			t.Fatalf("unrelated payload was classified as %q: %s", signal, value)
+		}
+	}
+	if signal := ClassifyParts("invalid_request", message); signal == "" {
+		t.Fatal("decoded item scope error was not classified")
+	}
+}

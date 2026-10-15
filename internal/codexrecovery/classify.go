@@ -8,8 +8,8 @@ import (
 	"unicode"
 )
 
-// Signal identifies the upstream rejection that asks for the encrypted-content
-// compatibility recovery. Empty means the error is unrelated.
+// Signal identifies an upstream rejection of Responses continuation state.
+// Empty means the error is unrelated.
 type Signal string
 
 const (
@@ -19,6 +19,8 @@ const (
 	// SignalEncryptedContextInvalid covers sessions carrying encrypted context
 	// from a previous turn that a non-authoring upstream refuses to validate.
 	SignalEncryptedContextInvalid Signal = "encrypted_context_invalid"
+	SignalItemResourceMismatch    Signal = "response_item_resource_mismatch"
+	SignalItemNotFound            Signal = "response_item_not_found"
 )
 
 // Classify maps an upstream error body (or error text) to a recovery signal.
@@ -28,16 +30,16 @@ func Classify(upstreamErrorText string) Signal {
 	if exact := signalForExactErrorCode(upstreamErrorText); exact != "" {
 		return exact
 	}
-	for _, payload := range structuredErrorPayloads(upstreamErrorText) {
+	payloads := structuredErrorPayloads(upstreamErrorText)
+	for _, payload := range payloads {
 		if signal := signalForStructuredErrorPayload(payload); signal != "" {
 			return signal
 		}
 	}
-	// Some upstreams return the rejection as a bare message rather than a
-	// JSON error object, e.g. "The encrypted content ... could not be
-	// verified. Reason: Encrypted content could not be decrypted or parsed."
-	if looksLikeEncryptedContentDecryptionFailure(upstreamErrorText) {
-		return SignalEncryptedContentDecryptionFailed
+	// Only bare messages use this fallback. Text inside a successful response
+	// or another non-error JSON object is not evidence of a rejection.
+	if len(payloads) == 0 {
+		return signalForErrorMessage(upstreamErrorText)
 	}
 	return ""
 }
@@ -48,10 +50,7 @@ func ClassifyParts(errorCode, errorMessage string) Signal {
 	if exact := signalForExactErrorCode(errorCode); exact != "" {
 		return exact
 	}
-	if looksLikeEncryptedContentDecryptionFailure(errorMessage) {
-		return SignalEncryptedContentDecryptionFailed
-	}
-	return ""
+	return signalForErrorMessage(errorMessage)
 }
 
 func signalForExactErrorCode(value string) Signal {
@@ -64,6 +63,10 @@ func signalForExactErrorCode(value string) Signal {
 		return SignalEncryptedContentDecryptionFailed
 	case string(SignalEncryptedContextInvalid):
 		return SignalEncryptedContextInvalid
+	case string(SignalItemResourceMismatch):
+		return SignalItemResourceMismatch
+	case string(SignalItemNotFound), "item_not_found":
+		return SignalItemNotFound
 	default:
 		return ""
 	}
@@ -138,11 +141,29 @@ func signalForStructuredErrorPayload(payload map[string]any) Signal {
 			}() ||
 			hasNestedError
 		if errorPayload {
-			if message, isString := candidate["message"].(string); isString &&
-				looksLikeEncryptedContentDecryptionFailure(message) {
-				return SignalEncryptedContentDecryptionFailed
+			if message, isString := candidate["message"].(string); isString {
+				if signal := signalForErrorMessage(message); signal != "" {
+					return signal
+				}
 			}
 		}
+	}
+	return ""
+}
+
+func signalForErrorMessage(value string) Signal {
+	normalized := strings.ToLower(value)
+	if strings.Contains(normalized, "requested item was created under a different") &&
+		strings.Contains(normalized, "openai resource") {
+		return SignalItemResourceMismatch
+	}
+	if strings.Contains(normalized, "no item found with id") ||
+		(strings.Contains(normalized, "item with id") && strings.Contains(normalized, "not found")) ||
+		(strings.Contains(normalized, "items are not persisted") && strings.Contains(normalized, "store")) {
+		return SignalItemNotFound
+	}
+	if looksLikeEncryptedContentDecryptionFailure(value) {
+		return SignalEncryptedContentDecryptionFailed
 	}
 	return ""
 }

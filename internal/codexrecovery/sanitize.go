@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Removals counts the encrypted-content items stripped from a request body.
+// Removals counts the upstream-bound state stripped from a request body.
 // The counts feed audit metadata; they are never sent upstream.
 type Removals struct {
 	ReasoningEncryptedContent      int
@@ -17,6 +17,7 @@ type Removals struct {
 	ReasoningItem                  int
 	AgentMessageItem               int
 	CompactionItem                 int
+	HistoryItemID                  int
 }
 
 // Empty reports whether nothing was removed.
@@ -24,28 +25,26 @@ func (r Removals) Empty() bool {
 	return r.ReasoningEncryptedContent == 0 &&
 		r.FunctionOutputEncryptedContent == 0 &&
 		r.AgentMessageEncryptedContent == 0 &&
-		r.CompactionEncryptedContent == 0
+		r.CompactionEncryptedContent == 0 &&
+		r.HistoryItemID == 0
 }
 
-// Total returns the number of encrypted-content entries removed across all
-// categories.
+// Total returns the number of removed encrypted entries and history IDs.
 func (r Removals) Total() int {
 	return r.ReasoningEncryptedContent +
 		r.FunctionOutputEncryptedContent +
 		r.AgentMessageEncryptedContent +
-		r.CompactionEncryptedContent
+		r.CompactionEncryptedContent + r.HistoryItemID
 }
 
-// Sanitize removes the account-bound encrypted state an upstream refused to
-// validate: reasoning, tool output, agent message, and compaction
-// `encrypted_content` entries. It returns the rewritten body and the removal
-// counts. The boolean result is false when the body is not a JSON object or
-// carries no removable encrypted content, in which case the caller keeps the
-// original body.
+// Sanitize rebuilds self-contained inline history after an upstream rejects
+// continuation state. It removes replayable items' upstream IDs and opaque
+// reasoning, tool output, agent message, and compaction encrypted_content.
+// Server-side references cannot be reconstructed here and are left alone.
 //
-// The rewrite is intentionally structural: only the encrypted opaque fields
-// are dropped, and items that become empty are removed. No other field of the
-// client request is touched.
+// Message contents, tool call_id/name/arguments/output, and other resource
+// identifiers are preserved. The caller keeps the original body when there
+// is nothing to remove or the history requires server-side item references.
 func Sanitize(body []byte) ([]byte, Removals, bool) {
 	object, ok := decodeJSONObject(body)
 	if !ok {
@@ -54,6 +53,11 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 	inputItems, originalIsArray := responseInputItems(object["input"])
 	if inputItems == nil {
 		return nil, Removals{}, false
+	}
+	for _, item := range inputItems {
+		if record, ok := item.(map[string]any); ok && record["type"] == "item_reference" {
+			return nil, Removals{}, false
+		}
 	}
 
 	var removals Removals
@@ -66,6 +70,11 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 		}
 
 		itemType, _ := record["type"].(string)
+		if _, hasID := record["id"]; hasID && replayableHistoryItem(record) {
+			record = cloneJSONMap(record)
+			delete(record, "id")
+			removals.HistoryItemID++
+		}
 		if itemType == "reasoning" {
 			if _, isString := record["encrypted_content"].(string); isString {
 				copy := cloneJSONMap(record)
@@ -111,7 +120,7 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 				continue
 			}
 		}
-		kept = append(kept, item)
+		kept = append(kept, record)
 	}
 
 	if removals.Empty() {
@@ -143,6 +152,40 @@ func responseInputItems(value any) ([]any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// Only known, self-contained input items can be replayed without their
+// upstream identity. Unknown extensions and resource-only items keep IDs.
+func replayableHistoryItem(item map[string]any) bool {
+	hasString := func(key string) bool {
+		_, ok := item[key].(string)
+		return ok
+	}
+	hasContent := func(key string) bool {
+		switch value := item[key].(type) {
+		case string:
+			return value != ""
+		case []any:
+			return len(value) > 0
+		}
+		return false
+	}
+	switch item["type"] {
+	case "message":
+		return hasString("role") && hasContent("content")
+	case "reasoning":
+		return hasContent("summary") || hasContent("content") || hasContent("encrypted_content")
+	case "function_call":
+		return hasString("call_id") && hasString("name") && hasString("arguments")
+	case "custom_tool_call":
+		return hasString("call_id") && hasString("name") && hasString("input")
+	case "function_call_output", "custom_tool_call_output":
+		_, hasOutput := item["output"]
+		return hasString("call_id") && hasOutput
+	case "agent_message":
+		return hasString("author") && hasString("recipient") && hasContent("content")
+	}
+	return false
 }
 
 func isCompactionItemWithEncryptedContent(item map[string]any) bool {
@@ -228,6 +271,7 @@ func cloneJSONMap(source map[string]any) map[string]any {
 
 func decodeJSONObject(body []byte) (map[string]any, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
 	var parsed any
 	if err := decoder.Decode(&parsed); err != nil {
 		return nil, false

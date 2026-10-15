@@ -1191,12 +1191,20 @@ func (handler *Handler) executeAttempts(
 		}
 		recorder.startTiming()
 		prepared := prepareRequest(selection)
-		if encryptedRetry != nil {
-			// The replay carries the sanitized body. prepareRequest rebuilds
-			// from the original parsed body (parameter overrides included), so
-			// swap in the cleaned variant and re-inspect attempt-local
-			// observations against it.
-			prepared.request = withRequestBody(prepared.request, encryptedRetry.body)
+		if encryptedRetry != nil || encryptedReplayUsed {
+			// Keep the recovery active for later candidate failover. Rebuild from
+			// that candidate's prepared body so another group's model/parameter
+			// overrides are not inherited from the failed candidate.
+			var recoveryBody []byte
+			if encryptedRetry != nil {
+				recoveryBody = encryptedRetry.body
+				encryptedRetry = nil
+			} else if cleaned, _, ok := codexrecovery.Sanitize(prepared.request.Body); ok {
+				recoveryBody = cleaned
+			}
+			if recoveryBody != nil {
+				prepared.request = withRequestBody(prepared.request, recoveryBody)
+			}
 			prepared.observations = originalMetadata
 			prepared.observationsAvailable = false
 			if metadata, inspectErr := selectedDialect.InspectRequest(prepared.request); inspectErr == nil {
@@ -1208,7 +1216,6 @@ func (handler *Handler) executeAttempts(
 				}
 				prepared.observationsAvailable = true
 			}
-			encryptedRetry = nil
 		}
 		if prepared.err != nil {
 			if errors.Is(prepared.err, requestredact.ErrContent) {
@@ -1515,11 +1522,10 @@ func (handler *Handler) executeAttempts(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
-		// Encrypted-content compatibility recovery: the upstream refused
-		// account-bound encrypted continuation state. Replaying the same
-		// request on another credential cannot succeed — the opaque state is
-		// only decryptable by the credential that authored it — so instead
-		// strip the rejected state and replay once on the same credential.
+		// Recover rejected continuation state before ordinary account failover:
+		// rebuild inline history without upstream-bound IDs/encrypted content
+		// and replay once on the current credential. Later candidate retries
+		// keep using recovered history rather than restoring the rejected state.
 		if signal := encryptedContentRecoverySignal(result); signal != "" &&
 			encryptedContentRecoveryApplies(selectedDialect.Protocol(), result.Committed) {
 			if encryptedReplayUsed {
@@ -1545,8 +1551,9 @@ func (handler *Handler) executeAttempts(
 						"credential_id": selection.CredentialID,
 						"group_id":      selection.GroupID,
 						"removed":       removals.Total(),
+						"history_ids":   removals.HistoryItemID,
 					},
-					"Replaying the request on the same credential with rejected encrypted content removed",
+					"Replaying the request on the same credential with rejected continuation state removed",
 				)
 				encryptedRetry = &encryptedContentRecoveryRetry{
 					selection: selection,
@@ -1554,6 +1561,21 @@ func (handler *Handler) executeAttempts(
 					body:      sanitized,
 				}
 				encryptedReplayUsed = true
+				// Keep the first rejection if the replay loses its eligible
+				// credential and the ordinary attempt budget is exhausted.
+				deferred := &deferredAttempt{
+					result: result, decision: decision,
+					upstreamModel: optionalModelValue(selection.UpstreamModelID),
+					attemptIndex:  recordedAttempt,
+				}
+				switch {
+				case result.ProviderErrorBeforeCommit:
+					lastProviderError = deferred
+				case result.HasResponse():
+					lastResponse = deferred
+				default:
+					lastTransport = deferred
+				}
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
@@ -1568,7 +1590,7 @@ func (handler *Handler) executeAttempts(
 					"group_id":      selection.GroupID,
 					"reason":        "no_removable_encrypted_content",
 				},
-				"Encrypted content was rejected but no removable state was found",
+				"Continuation state was rejected but no safely removable state was found",
 			)
 		}
 		handler.applyGroupDecisionEffect(

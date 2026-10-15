@@ -153,6 +153,8 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
 
+Responses 请求仅在上游明确拒绝历史条目归属、历史 item 引用或加密上下文，且响应尚未提交给客户端时触发上下文恢复：清理可重放条目的旧 ID 和加密状态，保留正文与工具调用关联，在当前凭据重试一次；后续按现有策略换凭据时继续使用恢复后的上下文。正常请求不做此清理。仅有服务端 item 引用的历史无法在网关重建；清理无法解密的 compaction 会丢失其中未保留为可读内容的历史。
+
 ### 内置渠道
 
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI

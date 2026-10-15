@@ -50,7 +50,7 @@ var (
 	reasonEncryptedContentRecoveryExhausted = reason{
 		Status:  http.StatusBadRequest,
 		Code:    "encrypted_content_recovery_exhausted",
-		Message: "Upstream rejected the encrypted continuation context and the gateway already retried once without it. Start a new conversation, or resend without the previous turn's encrypted reasoning, tool output, or compaction.",
+		Message: "Upstream rejected the continuation context after the gateway rebuilt inline history and retried once. Resend with readable conversation history or start a new conversation.",
 	}
 	reasonUnsupportedContentEncoding = reason{
 		Status:  http.StatusUnsupportedMediaType,
