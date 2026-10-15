@@ -70,6 +70,7 @@ const footerLinks = computed(() => [
       </div>
     </nav>
     <div class="modern-sidebar-footer">
+      <slot name="actions" />
       <div v-if="!collapsed" class="modern-footer-links">
         <AppExternalLink
           v-for="link in footerLinks"

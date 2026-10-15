@@ -110,4 +110,10 @@ const { t, n } = useI18n()
 .modern-connect-step code {
   font: inherit;
 }
+@media (max-width: 760px) {
+  .modern-connect-step pre {
+    max-height: 320px;
+    overflow: auto;
+  }
+}
 </style>

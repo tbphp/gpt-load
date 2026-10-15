@@ -263,38 +263,42 @@ useLoadingActivity(() => filtering.value || props.loading)
       </p>
       <div v-else class="modern-create-model-rows">
         <div v-for="model in rows" :key="model.key" class="modern-create-model-row">
-          <AppTextField
-            :ref="(element) => fieldRef(model.key, element)"
-            :model-value="model.id"
-            :label="t('groupCreate.modelID')"
-            label-hidden
-            :disabled="disabled"
-            :error="
-              attempted && errors.get(model.key) === 'id'
-                ? t('groupCreate.modelIDRequired')
-                : undefined
-            "
-            autocomplete="off"
-            spellcheck="false"
-            size="sm"
-            @update:model-value="update(model.key, 'id', $event)"
-          />
-          <AppTextField
-            :model-value="model.alias"
-            :label="t('groupCreate.alias')"
-            label-hidden
-            :placeholder="t('groupCreate.aliasOptional')"
-            :disabled="disabled"
-            :error="
-              attempted && errors.get(model.key) === 'duplicate'
-                ? t('groupCreate.modelConflict')
-                : undefined
-            "
-            autocomplete="off"
-            spellcheck="false"
-            size="sm"
-            @update:model-value="update(model.key, 'alias', $event)"
-          />
+          <div class="modern-create-model-field" :data-label="t('groupCreate.modelID')">
+            <AppTextField
+              :ref="(element) => fieldRef(model.key, element)"
+              :model-value="model.id"
+              :label="t('groupCreate.modelID')"
+              label-hidden
+              :disabled="disabled"
+              :error="
+                attempted && errors.get(model.key) === 'id'
+                  ? t('groupCreate.modelIDRequired')
+                  : undefined
+              "
+              autocomplete="off"
+              spellcheck="false"
+              size="sm"
+              @update:model-value="update(model.key, 'id', $event)"
+            />
+          </div>
+          <div class="modern-create-model-field" :data-label="t('groupCreate.alias')">
+            <AppTextField
+              :model-value="model.alias"
+              :label="t('groupCreate.alias')"
+              label-hidden
+              :placeholder="t('groupCreate.aliasOptional')"
+              :disabled="disabled"
+              :error="
+                attempted && errors.get(model.key) === 'duplicate'
+                  ? t('groupCreate.modelConflict')
+                  : undefined
+              "
+              autocomplete="off"
+              spellcheck="false"
+              size="sm"
+              @update:model-value="update(model.key, 'alias', $event)"
+            />
+          </div>
           <AppIconButton
             :icon="Trash2"
             :label="t('groupCreate.removeModel', { name: model.id || t('groupCreate.modelID') })"
@@ -436,6 +440,9 @@ useLoadingActivity(() => filtering.value || props.loading)
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
 }
+.modern-create-model-field {
+  display: contents;
+}
 .modern-create-models--list .modern-create-model-labels {
   border-bottom: var(--modern-line-width) solid var(--modern-border);
 }
@@ -449,9 +456,27 @@ useLoadingActivity(() => filtering.value || props.loading)
   row-gap: var(--modern-space-1-5);
 }
 @media (max-width: 760px) {
-  .modern-create-model-labels,
+  .modern-create-model-labels {
+    display: none;
+  }
   .modern-create-model-row {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) var(--modern-touch-target);
+    grid-template-columns: minmax(0, 1fr) var(--modern-touch-target);
+  }
+  .modern-create-model-field {
+    display: grid;
+    min-width: 0;
+    gap: var(--modern-space-1);
+    grid-column: 1;
+  }
+  .modern-create-model-field::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
+  }
+  .modern-create-model-row > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: center;
   }
 }
 </style>

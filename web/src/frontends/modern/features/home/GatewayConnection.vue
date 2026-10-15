@@ -417,4 +417,17 @@ async function importClient(): Promise<void> {
     border-block-end: var(--modern-line-width) solid var(--modern-border);
   }
 }
+@media (max-width: 760px) {
+  .modern-connect {
+    height: auto;
+  }
+  .modern-connect-content {
+    overflow: visible;
+  }
+}
+@media (max-width: 420px) {
+  .modern-connect-field {
+    flex-basis: 100%;
+  }
+}
 </style>

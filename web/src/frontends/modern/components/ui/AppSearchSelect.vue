@@ -215,7 +215,11 @@ onScopeDispose(cancelRequest)
 </script>
 
 <template>
-  <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
+  <AppField
+    v-slot="{ id, describedBy, invalid }"
+    v-bind="{ ...props, ...layoutAttrs($attrs) }"
+    class="modern-search-select"
+  >
     <ComboboxRoot
       ref="combobox"
       v-model="selected"
@@ -366,8 +370,16 @@ onScopeDispose(cancelRequest)
   font-size: var(--modern-font-size-secondary);
 }
 @media (max-width: 760px) {
+  .modern-search-select {
+    container: modern-search-select / inline-size;
+  }
   .modern-search-select-input {
     font-size: var(--modern-font-size-input-mobile);
+  }
+  @container modern-search-select (max-width: 160px) {
+    .modern-search-select-hint {
+      display: none;
+    }
   }
 }
 </style>

@@ -468,13 +468,15 @@ defineExpose({ refresh, pending, updatedAt })
                   />
                 </div>
               </div>
-              <div role="cell"><AppOverflowText :text="group.model ?? '—'" /></div>
-              <div role="cell">
+              <div role="cell" :data-label="t('inspector.upstream')">
+                <AppOverflowText :text="group.model ?? '—'" />
+              </div>
+              <div role="cell" :data-label="t('inspector.mode')">
                 <AppBadge size="xs" :tone="group.mode === 'native' ? 'info' : 'neutral'">{{
                   t('inspector.' + group.mode)
                 }}</AppBadge>
               </div>
-              <div class="modern-inspector-status" role="cell">
+              <div class="modern-inspector-status" role="cell" :data-label="t('inspector.status')">
                 <AppBadge
                   size="xs"
                   variant="plain"
@@ -489,11 +491,11 @@ defineExpose({ refresh, pending, updatedAt })
                   >{{ t('inspector.' + status(group)) }}</AppBadge
                 ><AppOverflowText v-if="group.reason" :text="reasonLabel(group.reason, t)" />
               </div>
-              <span role="cell"
+              <span role="cell" :data-label="t('inspector.credentials')"
                 >{{ n(group.credentials.filter((row) => row.available).length) }} /
                 {{ n(group.credentials.length) }}</span
               >
-              <div class="modern-inspector-share" role="cell">
+              <div class="modern-inspector-share" role="cell" :data-label="t('inspector.share')">
                 <span>{{ active(group) ? percentage(share(group), locale) : '—' }}</span
                 ><AppProgressBar
                   :label="t('inspector.share')"
@@ -673,6 +675,45 @@ defineExpose({ refresh, pending, updatedAt })
   }
   .modern-inspector-form > :last-child {
     justify-self: end;
+  }
+}
+@media (max-width: 760px) {
+  .modern-inspector-head {
+    display: none;
+  }
+  .modern-inspector-row,
+  .modern-inspector-columns {
+    min-width: 0;
+  }
+  .modern-inspector-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--modern-space-3);
+    padding-block: var(--modern-space-4);
+  }
+  .modern-inspector-identity {
+    grid-column: 1 / -1;
+  }
+  .modern-inspector-columns > [data-label] {
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: var(--modern-space-1);
+  }
+  .modern-inspector-columns > [data-label]::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
+  }
+  .modern-inspector-columns > :last-child {
+    justify-self: end;
+  }
+}
+@media (max-width: 420px) {
+  .modern-inspector-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modern-inspector-form > :last-child {
+    width: 100%;
   }
 }
 </style>

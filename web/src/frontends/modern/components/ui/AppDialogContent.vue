@@ -87,7 +87,23 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
 }
 @media (max-width: 760px) {
   .modern-dialog--dialog {
-    --modern-dialog-top: 12dvh;
+    --modern-dialog-top: max(var(--modern-space-2), env(safe-area-inset-top));
+    width: calc(100% - var(--modern-space-4));
+    max-height: calc(
+      100dvh - var(--modern-dialog-top) - max(var(--modern-space-2), env(safe-area-inset-bottom))
+    );
+  }
+  .modern-dialog--confirm {
+    max-height: calc(100dvh - var(--modern-space-8));
+  }
+  .modern-dialog--editor {
+    width: 100%;
+    border-left: 0;
+  }
+  .modern-dialog--editor,
+  .modern-dialog--sidebar {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 </style>

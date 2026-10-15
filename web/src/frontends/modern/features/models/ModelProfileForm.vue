@@ -390,8 +390,9 @@ function defaultReasoning(value: string): void {
 }
 @media (max-width: 760px) {
   .modern-model-profile-fields {
-    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
+  .modern-model-profile-start,
   .modern-model-profile-end {
     grid-column: 1 / -1;
   }

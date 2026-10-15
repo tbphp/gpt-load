@@ -137,5 +137,19 @@ defineExpose({ addRule })
   .modern-settings-headers {
     --modern-settings-header-action-size: var(--modern-touch-target);
   }
+  .modern-settings-header-row {
+    grid-template-columns: minmax(0, 1fr) var(--modern-touch-target);
+  }
+  .modern-settings-header-row > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .modern-settings-header-row > :nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .modern-settings-header-row > :last-child {
+    grid-column: 2;
+  }
 }
 </style>

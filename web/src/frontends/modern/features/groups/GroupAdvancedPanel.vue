@@ -684,9 +684,20 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
   }
 }
 @media (max-width: 760px) {
-  .modern-advanced-header-labels,
+  .modern-advanced-header-labels {
+    display: none;
+  }
   .modern-advanced-header-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) var(--modern-touch-target);
+    grid-template-columns: minmax(0, 1fr) var(--modern-touch-target);
+  }
+  .modern-advanced-header-row > :nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .modern-advanced-header-row > :last-child {
+    grid-column: 2;
+    grid-row: 1 / 3;
+    align-self: center;
   }
 }
 </style>

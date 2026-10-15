@@ -318,6 +318,7 @@ useMessageSource(() =>
     </div>
     <AppListFrame
       ref="frame"
+      mobile-flow
       class="modern-log-table"
       role="table"
       :aria-colcount="columns.cells.value.length + 1"
@@ -380,7 +381,15 @@ useMessageSource(() =>
           :aria-colspan="cell.span > 1 ? cell.span : undefined"
           class="modern-log-cell"
           :class="{ 'is-numeric': cell.numeric }"
-          :style="cell.span > 1 ? { gridColumn: 'span ' + cell.span } : undefined"
+          :data-label="
+            t(
+              cell.error
+                ? 'logs.columns.error_summary'
+                : (cell.fields.length > 1 ? 'logs.columnGroups.' : 'logs.columns.') +
+                    cell.fields[0],
+            )
+          "
+          :style="cell.span > 1 ? { '--modern-log-cell-span': cell.span } : undefined"
         >
           <div v-if="cell.error" class="modern-log-error-summary">
             <LogFilterLink
@@ -541,6 +550,8 @@ useMessageSource(() =>
   box-shadow: inset var(--modern-focus-width) 0 0 var(--modern-accent);
 }
 .modern-log-cell {
+  --modern-log-cell-span: 1;
+  grid-column: span var(--modern-log-cell-span);
   min-width: 0;
   overflow: hidden;
 }
@@ -603,12 +614,41 @@ useMessageSource(() =>
 }
 @media (max-width: 760px) {
   .modern-logs-workspace {
-    --modern-log-action-width: calc(
-      var(--modern-touch-target) + var(--modern-space-4) + var(--modern-line-width)
-    );
+    flex: none;
   }
-  .modern-log-action-heading {
-    width: var(--modern-touch-target);
+  .modern-log-table-head {
+    display: none;
+  }
+  .modern-log-record {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    gap: var(--modern-space-3);
+    padding: var(--modern-space-4) var(--modern-space-3);
+  }
+  .modern-log-cell {
+    display: grid;
+    grid-column: auto;
+    align-content: start;
+    gap: var(--modern-space-1);
+  }
+  .modern-log-cell::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-caption);
+  }
+  .modern-log-cell.is-numeric,
+  .modern-log-cell.is-numeric :deep(.modern-log-cell-stack) {
+    justify-items: start;
+    text-align: left;
+  }
+  .modern-log-cell:has(.modern-log-error-summary) {
+    grid-column: 1 / -1;
+  }
+  .modern-log-row-action {
+    position: static;
+    justify-content: flex-end;
+    padding: 0;
+    border: 0;
   }
 }
 </style>

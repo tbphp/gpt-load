@@ -78,4 +78,12 @@ const titleId = useId()
 .modern-panel--flush .modern-panel-body {
   padding: 0;
 }
+@media (max-width: 760px) {
+  .modern-panel-header > div:first-child {
+    flex-basis: auto;
+  }
+  .modern-panel-actions {
+    flex-shrink: 1;
+  }
+}
 </style>

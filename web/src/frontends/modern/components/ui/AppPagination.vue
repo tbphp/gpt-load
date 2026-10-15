@@ -300,4 +300,35 @@ function selectSize(value: string): void {
     justify-self: end;
   }
 }
+@media (max-width: 760px) {
+  .modern-pagination {
+    padding-block: var(--modern-space-2);
+  }
+  .modern-pagination-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .modern-pagination-navigation {
+    gap: 0;
+  }
+  .modern-pagination-position {
+    min-width: var(--modern-touch-target);
+  }
+  @container modern-pagination (max-width: 320px) {
+    .modern-pagination {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .modern-pagination-controls {
+      display: contents;
+    }
+    .modern-pagination-size {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .modern-pagination-navigation {
+      grid-column: 1 / -1;
+      justify-self: end;
+    }
+  }
+}
 </style>

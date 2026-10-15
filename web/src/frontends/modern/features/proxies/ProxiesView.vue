@@ -522,6 +522,7 @@ onScopeDispose(() => {
       </AppNotice>
     </div>
     <AppListFrame
+      mobile-flow
       :label="t('proxies.title')"
       :loading="Boolean(query.data.value) && query.isFetching.value"
     >
@@ -614,7 +615,7 @@ onScopeDispose(() => {
         <AppBadge :tone="row.enabled ? 'success' : 'neutral'" variant="plain" dot>{{
           t(row.enabled ? 'proxies.enabled' : 'proxies.disabled')
         }}</AppBadge>
-        <div class="modern-proxy-references">
+        <div class="modern-proxy-references" :data-label="t('proxies.references')">
           <span v-if="row.group_count">
             {{ t('proxies.groups', { count: n(row.group_count) }) }}
           </span>
@@ -624,7 +625,7 @@ onScopeDispose(() => {
           <AppBadge v-if="row.global" tone="brand" size="xs">{{ t('proxies.global') }}</AppBadge>
           <span v-if="!row.group_count && !row.credential_count && !row.global">—</span>
         </div>
-        <div class="modern-proxy-result">
+        <div class="modern-proxy-result" :data-label="t('proxies.latestTest')">
           <AppBadge v-if="row.last_test_at_ms === null" dot>{{ t('proxies.untested') }}</AppBadge>
           <template v-else>
             <div class="modern-proxy-result-summary">
@@ -956,13 +957,20 @@ onScopeDispose(() => {
   }
 }
 @media (max-width: 760px) {
+  .modern-proxies {
+    flex: none;
+  }
   .modern-proxy-toolbar {
     gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
   }
   .modern-proxy-filter {
     flex-basis: 120px;
   }
   .modern-proxy-test-target {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--modern-space-1);
     width: 100%;
   }
   .modern-proxy-test-input {
@@ -973,6 +981,50 @@ onScopeDispose(() => {
   .modern-proxy-save-state,
   .modern-proxy-progress {
     min-height: var(--modern-touch-target);
+  }
+  .modern-proxy-test-label {
+    min-height: 0;
+  }
+  .modern-proxy-batch {
+    flex-wrap: wrap;
+    padding-inline: 0;
+    white-space: normal;
+  }
+  .modern-proxy-heading {
+    display: none;
+  }
+  .modern-proxy-row {
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--modern-space-3);
+    padding: var(--modern-space-4) var(--modern-space-1);
+  }
+  .modern-proxy-item > :first-child {
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: start;
+  }
+  .modern-proxy-identity {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    padding-left: var(--modern-touch-target);
+  }
+  .modern-proxy-item > [data-label] {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--modern-space-1);
+  }
+  .modern-proxy-item > [data-label]::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
+  }
+  .modern-proxy-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    border-top: var(--modern-line-width) solid var(--modern-border);
+    padding-top: var(--modern-space-2);
   }
 }
 </style>

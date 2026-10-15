@@ -601,4 +601,16 @@ const loadCredentials = computed(() => {
   gap: var(--modern-space-1);
   min-width: 0;
 }
+@media (max-width: 760px) {
+  .modern-log-primary-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-log-filter-date,
+  .modern-log-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
 </style>

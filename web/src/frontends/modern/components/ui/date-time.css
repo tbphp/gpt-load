@@ -55,3 +55,11 @@
   color: var(--modern-danger);
   font-size: var(--modern-font-size-small);
 }
+@media (max-width: 760px) {
+  .modern-date-popover {
+    max-height: min(
+      calc(100dvh - var(--modern-space-8)),
+      var(--reka-popper-available-height, 100dvh)
+    );
+  }
+}

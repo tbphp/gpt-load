@@ -8,6 +8,7 @@ defineProps<{
   label: string
   loading?: boolean
   flow?: boolean
+  mobileFlow?: boolean
 }>()
 const { t } = useI18n()
 const scroller = ref<HTMLElement>()
@@ -21,7 +22,7 @@ defineExpose({
 <template>
   <section
     class="modern-list-frame"
-    :class="{ 'modern-list-frame--flow': flow }"
+    :class="{ 'modern-list-frame--flow': flow, 'modern-list-frame--mobile-flow': mobileFlow }"
     :aria-label="label"
   >
     <div class="modern-list-body">
@@ -114,5 +115,21 @@ defineExpose({
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
   box-shadow: var(--modern-shadow-control);
+}
+/* 手机页面随主内容滚动，避免筛选栏与分页挤掉列表；编辑浮层仍保留独立滚动。 */
+@media (max-width: 760px) {
+  .modern-list-frame--mobile-flow {
+    flex: none;
+  }
+  .modern-list-frame--mobile-flow .modern-list-body {
+    display: block;
+    flex: none;
+  }
+  .modern-list-frame--mobile-flow .modern-list-scroll {
+    overflow: auto;
+  }
+  .modern-list-frame--mobile-flow .modern-list-header {
+    position: static;
+  }
 }
 </style>

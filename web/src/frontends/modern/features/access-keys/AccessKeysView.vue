@@ -445,6 +445,7 @@ onScopeDispose(() => {
     </div>
     <AppListFrame
       ref="frame"
+      mobile-flow
       :label="t('accessKeys.title')"
       :loading="query.isFetching.value && Boolean(query.data.value)"
     >
@@ -495,16 +496,18 @@ onScopeDispose(() => {
             :label="t('accessKeys.copy')"
           />
         </div>
-        <AccessKeyRestrictions :row="row" :groups="groupMap" />
-        <div class="modern-access-rpm">
+        <div class="modern-access-limits" :data-label="t('accessKeys.restrictions')">
+          <AccessKeyRestrictions :row="row" :groups="groupMap" />
+        </div>
+        <div class="modern-access-rpm" :data-label="t('rpm.hourPeakShort')">
           <span v-if="row.rpmPeakHour !== undefined">{{ n(row.rpmPeakHour) }}</span>
         </div>
-        <div>
+        <div :data-label="t('accessKeys.state')">
           <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
             t('accessKeys.' + accessState(row).key)
           }}</AppBadge>
         </div>
-        <div>
+        <div :data-label="t('accessKeys.recordRequestBody.column')">
           <span class="modern-sr-only">{{ t('accessKeys.recordRequestBody.column') }}</span>
           <AppBadge v-if="row.record_request_body" tone="warning" size="xs" dot>{{
             t('accessKeys.recordRequestBody.enabled')
@@ -513,7 +516,7 @@ onScopeDispose(() => {
             t('accessKeys.recordRequestBody.disabled')
           }}</AppBadge>
         </div>
-        <div class="modern-access-expiry">
+        <div class="modern-access-expiry" :data-label="t('accessKeys.expires')">
           <AppTooltip
             :label="row.expires_at_ms === null ? undefined : accessTime(row.expires_at_ms, locale)"
             ><span :tabindex="row.expires_at_ms === null ? undefined : 0">{{
@@ -523,7 +526,7 @@ onScopeDispose(() => {
             }}</span></AppTooltip
           >
         </div>
-        <div class="modern-access-last-request">
+        <div class="modern-access-last-request" :data-label="t('accessKeys.lastRequest')">
           <AppOverflowText
             :text="accessTime(row.last_request_at_ms, locale)"
             :full-text="
@@ -709,15 +712,62 @@ onScopeDispose(() => {
   gap: var(--modern-space-1);
 }
 @media (max-width: 760px) {
-  .modern-access-row {
-    grid-template-columns:
-      minmax(140px, 1.4fr) minmax(140px, 1.2fr) minmax(320px, 2.4fr)
-      112px 96px 96px 104px 148px 148px;
-    min-width: 1376px;
+  .modern-access-workspace {
+    flex: none;
+  }
+  .modern-access-toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-access-search {
+    flex-basis: 100%;
+  }
+  .modern-access-search,
+  .modern-access-toolbar-actions {
+    grid-column: 1 / -1;
+  }
+  .modern-access-filter {
+    flex: 1 1 0;
+  }
+  .modern-access-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    gap: var(--modern-space-3);
+  }
+  .modern-access-head {
+    display: none;
+  }
+  .modern-access-item {
+    padding: var(--modern-space-4) var(--modern-space-1);
+  }
+  .modern-access-name,
+  .modern-access-key,
+  .modern-access-limits,
+  .modern-access-last-request,
+  .modern-access-row-actions {
+    grid-column: 1 / -1;
+  }
+  .modern-access-item > [data-label] {
+    display: grid;
+    justify-items: start;
+    align-content: start;
+    gap: var(--modern-space-1);
+    white-space: normal;
+  }
+  .modern-access-item > [data-label]::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
+    font-weight: var(--modern-weight-regular);
   }
   .modern-access-row-actions {
-    gap: var(--modern-space-0-5);
+    border-top: var(--modern-line-width) solid var(--modern-border);
+    padding-top: var(--modern-space-2);
+  }
+  .modern-access-row-actions > :last-child {
+    margin-left: auto;
   }
 }
 </style>

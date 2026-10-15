@@ -180,4 +180,16 @@ const metrics = computed(() => [
     padding-inline: var(--modern-space-3);
   }
 }
+@media (max-width: 420px) {
+  .modern-health-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--modern-space-3);
+  }
+  .modern-health-metric:nth-child(4) {
+    border-left: 0;
+  }
+  .modern-health-metric-label {
+    flex-wrap: nowrap;
+  }
+}
 </style>

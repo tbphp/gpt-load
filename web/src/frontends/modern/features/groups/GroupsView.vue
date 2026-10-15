@@ -855,6 +855,7 @@ useMessageSource(() =>
     </div>
     <AppListFrame
       ref="listFrame"
+      mobile-flow
       :label="t('groups.list')"
       :loading="
         Boolean(data) &&
@@ -1071,11 +1072,25 @@ useMessageSource(() =>
 }
 @media (max-width: 760px) {
   .modern-groups-workspace {
+    flex: none;
+  }
+  .modern-groups-workspace {
     --modern-inline-number-width: 80px;
     --modern-group-action-columns: 44px repeat(2, var(--modern-inline-number-width));
   }
   .modern-groups-toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-groups-channel,
+  .modern-groups-model {
+    flex: 1 1 0;
+  }
+  .modern-groups-search,
+  .modern-groups-toolbar-actions {
+    grid-column: 1 / -1;
   }
   .modern-group-list-head {
     display: none;

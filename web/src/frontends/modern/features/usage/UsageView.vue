@@ -676,8 +676,22 @@ const bucketLabel = computed(() => {
   }
 }
 @media (max-width: 760px) {
+  .modern-usage-workspace {
+    flex: none;
+  }
+  .modern-usage-report {
+    flex: none;
+    overflow: visible;
+  }
   .modern-usage-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-usage-date,
+  .modern-usage-model {
+    grid-column: 1 / -1;
   }
 }
 /* 排行按实际内容宽度换列，展开侧栏时也能保留足够的名称空间。 */

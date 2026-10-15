@@ -248,6 +248,7 @@ useMessageSource(() =>
     </div>
     <AppListFrame
       ref="frame"
+      mobile-flow
       :label="t('pages.models.title')"
       :loading="Boolean(data) && query.isFetching.value"
     >
@@ -366,8 +367,12 @@ useMessageSource(() =>
   break-inside: avoid;
 }
 @media (max-width: 760px) {
+  .modern-models-workspace {
+    flex: none;
+  }
   .modern-models-toolbar {
     gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
   }
   .modern-models-search {
     flex-basis: 100%;

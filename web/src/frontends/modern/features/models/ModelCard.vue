@@ -78,7 +78,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
         t('modelManager.groupCount', { count: n(groupCount) })
       }}</span>
     </header>
-    <!-- 列宽在窄屏下有下限，超出卡片宽度时横向滚动而不是把标签挤到换行。 -->
+    <!-- 桌面对齐价格列，手机按来源展示带标签的价格摘要。 -->
     <div
       class="modern-model-card-table"
       :class="{ 'is-read-only': !admin }"
@@ -144,6 +144,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
             v-for="field in priceFields"
             :key="field"
             class="r modern-model-source-price"
+            :data-label="t('modelManager.slots.' + field)"
             :class="{ 'is-empty': source.price.prices[field] === null }"
             >{{ price(source, field) }}</span
           >
@@ -163,6 +164,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
             </template>
           </span>
           <AppIconButton
+            class="modern-model-source-open"
             :icon="ChevronRight"
             :label="t('modelManager.details')"
             size="xs"
@@ -362,5 +364,43 @@ function hiddenGroupsLabel(source: ModelSource): string {
 }
 .modern-model-source-method.is-unpriced {
   text-decoration: line-through;
+}
+@media (max-width: 760px) {
+  .modern-model-card-name {
+    flex-basis: 100%;
+  }
+  .modern-model-row,
+  .modern-model-card-table.is-read-only .modern-model-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    gap: var(--modern-space-3);
+    padding-block: var(--modern-space-3);
+  }
+  .modern-model-row--head,
+  .modern-model-card-table.is-read-only .modern-model-row--head {
+    display: none;
+  }
+  .modern-model-source-name,
+  .modern-model-source-groups {
+    grid-column: 1 / -1;
+  }
+  .modern-model-row .modern-model-source-price {
+    display: grid;
+    gap: var(--modern-space-1);
+    overflow: visible;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .modern-model-source-price::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-family: var(--modern-font-sans);
+    font-size: var(--modern-font-size-caption);
+  }
+  .modern-model-source-open {
+    grid-column: 2;
+    justify-self: end;
+  }
 }
 </style>

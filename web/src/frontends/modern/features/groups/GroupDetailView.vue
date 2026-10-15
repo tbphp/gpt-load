@@ -39,6 +39,7 @@ const router = useRouter()
 const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
+const settingsSection = ref<HTMLElement>()
 const id = computed(() => Number(route.params.id))
 const valid = computed(() => Number.isSafeInteger(id.value) && id.value > 0)
 const groups = useQuery({
@@ -291,6 +292,13 @@ useMessageSource(() =>
             </div>
           </div>
         </header>
+        <AppButton
+          class="modern-group-mobile-settings"
+          variant="ghost"
+          :icon="SlidersHorizontal"
+          @click="settingsSection?.scrollIntoView({ block: 'start' })"
+          >{{ t('groupDetail.settings') }}</AppButton
+        >
         <GroupCredentials
           :key="group.id"
           ref="credentials"
@@ -302,7 +310,11 @@ useMessageSource(() =>
           @updated-at="credentialsUpdatedAt = $event"
         />
       </div>
-      <aside class="modern-group-workspace-sidebar" :aria-label="t('groupDetail.settings')">
+      <aside
+        ref="settingsSection"
+        class="modern-group-workspace-sidebar"
+        :aria-label="t('groupDetail.settings')"
+      >
         <GroupBasicsForm
           :key="group.id"
           ref="basics"
@@ -466,6 +478,9 @@ useMessageSource(() =>
   border-left: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-surface);
 }
+.modern-group-mobile-settings {
+  display: none;
+}
 .modern-group-settings-links {
   display: grid;
   gap: var(--modern-space-1);
@@ -518,6 +533,12 @@ useMessageSource(() =>
   }
   .modern-group-workspace-main :deep(.modern-list-scroll) {
     overscroll-behavior-y: auto;
+  }
+}
+@media (max-width: 760px) {
+  .modern-group-mobile-settings {
+    display: inline-flex;
+    align-self: flex-end;
   }
 }
 @container modern-group-workspace (max-width: 420px) {

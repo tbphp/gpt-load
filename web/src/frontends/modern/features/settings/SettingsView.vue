@@ -32,6 +32,7 @@ import {
   AppIcon,
   AppIconButton,
   AppPanel,
+  AppSelect,
   AppSegmentedControl,
   AppSwitch,
   AppTextArea,
@@ -436,6 +437,16 @@ onScopeDispose(() => {
     </AppCollectionState>
     <div v-else-if="draft" class="modern-settings-layout">
       <nav class="modern-settings-navigation" :aria-label="t('settingsForm.categories')">
+        <AppSelect
+          class="modern-settings-mobile-nav"
+          :model-value="active"
+          :label="t('settingsForm.categories')"
+          label-hidden
+          :options="
+            visibleSections.map((id) => ({ value: id, label: t('settingsForm.sections.' + id) }))
+          "
+          @update:model-value="selectSection($event as SectionID)"
+        />
         <p class="modern-settings-nav-caption">{{ t('settingsForm.categories') }}</p>
         <div class="modern-settings-nav-items">
           <AppButton
@@ -1011,6 +1022,9 @@ onScopeDispose(() => {
   display: grid;
   gap: var(--modern-space-1);
 }
+.modern-settings-mobile-nav {
+  display: none;
+}
 .modern-settings-nav-item {
   width: 100%;
   min-width: 0;
@@ -1115,6 +1129,9 @@ onScopeDispose(() => {
   }
 }
 @media (max-width: 760px) {
+  .modern-settings-search {
+    padding-block: var(--modern-space-3) var(--modern-space-2);
+  }
   .modern-settings-layout {
     display: flex;
     flex-direction: column;
@@ -1128,8 +1145,10 @@ onScopeDispose(() => {
     display: none;
   }
   .modern-settings-nav-items {
-    display: flex;
-    width: max-content;
+    display: none;
+  }
+  .modern-settings-mobile-nav {
+    display: grid;
   }
   .modern-settings-nav-item {
     width: auto;

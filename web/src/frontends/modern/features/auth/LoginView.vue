@@ -289,5 +289,9 @@ async function submit(): Promise<void> {
   .modern-login-stage {
     --modern-login-mascot-width: 108px;
   }
+  .modern-login-help summary {
+    min-height: var(--modern-touch-target);
+    align-content: center;
+  }
 }
 </style>

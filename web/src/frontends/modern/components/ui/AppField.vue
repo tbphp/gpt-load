@@ -173,9 +173,24 @@ const describedBy = computed(
   color: var(--modern-warning);
 }
 @media (max-width: 760px) {
+  .modern-field--inline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modern-field--subgrid > :slotted(*),
+  .modern-field--inline .modern-field-description,
+  .modern-field--inline .modern-field-error {
+    grid-column: 1 / -1;
+  }
+  .modern-field--inline > label,
+  .modern-field--inline .modern-field-heading > label {
+    text-align: left;
+  }
   .modern-field--inline .modern-field-label-extra {
     min-width: var(--modern-touch-target);
     min-height: var(--modern-touch-target);
+  }
+  .modern-field--inline .modern-field-label-extra:empty {
+    display: none;
   }
 }
 </style>

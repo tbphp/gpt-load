@@ -152,6 +152,13 @@ function select(value: unknown): void {
   .modern-segmented-option {
     min-height: var(--modern-touch-target);
   }
+  .modern-segmented--filter {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .modern-segmented--filter .modern-segmented-option {
+    flex: none;
+  }
   .modern-segmented--field {
     --modern-segmented-size: var(--modern-touch-target);
     padding: var(--modern-space-0-5);

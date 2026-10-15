@@ -79,7 +79,11 @@ const uptime = computed(() => {
     <div class="modern-home-status-summary">
       <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge>
       <dl class="modern-home-status-facts">
-        <div v-for="fact in facts" :key="fact.key">
+        <div
+          v-for="fact in facts"
+          :key="fact.key"
+          :class="{ 'is-concurrency': fact.key === 'concurrency' }"
+        >
           <dt>{{ t(fact.key === 'concurrency' ? 'concurrency.label' : 'home.' + fact.key) }}</dt>
           <dd>
             <RouterLink v-if="fact.to" :to="fact.to">{{ fact.value }}</RouterLink>
@@ -215,9 +219,22 @@ const uptime = computed(() => {
     margin-inline-start: 0;
   }
   .modern-home-status-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
     border-inline-start: 0;
     padding-inline-start: 0;
+  }
+  .modern-home-status-facts > div {
+    min-width: 0;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  .modern-home-status-facts > .is-concurrency {
+    grid-column: 1 / -1;
+  }
+  .modern-home-status-summary {
+    width: 100%;
   }
 }
 </style>

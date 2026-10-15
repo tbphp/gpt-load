@@ -230,4 +230,16 @@ const display = computed(() =>
   align-items: center;
   gap: var(--modern-space-0-5);
 }
+@media (max-width: 760px) {
+  .modern-credential-display.has-name:not(.is-editing) {
+    flex-wrap: wrap;
+    row-gap: var(--modern-space-1);
+  }
+  .modern-credential-display-name {
+    flex-basis: 100%;
+  }
+  .modern-credential-display-value {
+    max-width: 100%;
+  }
+}
 </style>

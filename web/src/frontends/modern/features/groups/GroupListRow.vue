@@ -302,39 +302,45 @@ const lastActive = computed(() =>
         </span>
       </div>
       <div class="modern-group-actions">
-        <AppSwitch
-          :model-value="enabledOverride ?? group.enabled"
-          :label="t('groups.toggle', { name: group.name })"
-          :loading="pending === 'toggle'"
-          :disabled="Boolean(pending)"
-          @update:model-value="emit('toggle', $event)"
-        />
-        <AppInlineNumber
-          :model-value="group.priority"
-          :label="t('groups.edit.priority')"
-          :min="-2147483648"
-          :max="2147483647"
-          :pending="pending === 'priority'"
-          :disabled="Boolean(pending)"
-          :error="priorityError"
-          @submit="emit('priority', $event)"
-          @editing="emit('priorityEditing', $event)"
-          @dirty="emit('priorityDirty', $event)"
-          @clear-error="emit('clearPriorityError')"
-        />
-        <AppInlineNumber
-          :model-value="group.weight"
-          :label="t('groups.edit.weight')"
-          :min="1"
-          :max="100"
-          :pending="pending === 'weight'"
-          :disabled="Boolean(pending)"
-          :error="weightError"
-          @submit="emit('weight', $event)"
-          @editing="emit('weightEditing', $event)"
-          @dirty="emit('weightDirty', $event)"
-          @clear-error="emit('clearWeightError')"
-        />
+        <div class="modern-group-setting" :data-label="t('groups.row.enabled')">
+          <AppSwitch
+            :model-value="enabledOverride ?? group.enabled"
+            :label="t('groups.toggle', { name: group.name })"
+            :loading="pending === 'toggle'"
+            :disabled="Boolean(pending)"
+            @update:model-value="emit('toggle', $event)"
+          />
+        </div>
+        <div class="modern-group-setting" :data-label="t('groups.edit.priority')">
+          <AppInlineNumber
+            :model-value="group.priority"
+            :label="t('groups.edit.priority')"
+            :min="-2147483648"
+            :max="2147483647"
+            :pending="pending === 'priority'"
+            :disabled="Boolean(pending)"
+            :error="priorityError"
+            @submit="emit('priority', $event)"
+            @editing="emit('priorityEditing', $event)"
+            @dirty="emit('priorityDirty', $event)"
+            @clear-error="emit('clearPriorityError')"
+          />
+        </div>
+        <div class="modern-group-setting" :data-label="t('groups.edit.weight')">
+          <AppInlineNumber
+            :model-value="group.weight"
+            :label="t('groups.edit.weight')"
+            :min="1"
+            :max="100"
+            :pending="pending === 'weight'"
+            :disabled="Boolean(pending)"
+            :error="weightError"
+            @submit="emit('weight', $event)"
+            @editing="emit('weightEditing', $event)"
+            @dirty="emit('weightDirty', $event)"
+            @clear-error="emit('clearWeightError')"
+          />
+        </div>
       </div>
     </div>
     <div v-if="expanded" :id="`${id}-models`" class="modern-group-expanded">
@@ -467,6 +473,9 @@ const lastActive = computed(() =>
   gap: var(--modern-space-2);
   text-align: left;
 }
+.modern-group-setting {
+  display: contents;
+}
 .modern-group-bar-line {
   display: flex;
   min-height: var(--modern-badge-xs);
@@ -523,6 +532,17 @@ const lastActive = computed(() =>
   .modern-group-identity {
     grid-column: 1 / -1;
   }
+  .modern-group-name-line {
+    flex-wrap: wrap;
+    row-gap: var(--modern-space-1);
+  }
+  .modern-group-name-line h2 {
+    flex-basis: 100%;
+  }
+  .modern-group-connection {
+    flex-wrap: wrap;
+    row-gap: var(--modern-space-1);
+  }
   .modern-group-mobile-label {
     display: inline;
   }
@@ -533,6 +553,22 @@ const lastActive = computed(() =>
     grid-column: 1 / -1;
     width: 100%;
     justify-content: start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: var(--modern-line-width) solid var(--modern-border);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-group-setting {
+    display: grid;
+    gap: var(--modern-space-1);
+    min-width: 0;
+  }
+  .modern-group-setting::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
+  }
+  .modern-group-metric {
+    grid-template-rows: auto minmax(var(--modern-control-xs), auto) auto;
   }
   .modern-group-details > :first-child {
     margin-right: 0;

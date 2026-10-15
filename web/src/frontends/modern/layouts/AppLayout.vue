@@ -234,6 +234,44 @@ useMessageSource(() =>
         class="modern-topbar"
         :class="{ 'has-auto-refresh': pageRefresh.autoAvailable.value }"
       >
+        <DialogRoot v-model:open="mobileOpen">
+          <DialogTrigger as-child>
+            <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
+          </DialogTrigger>
+          <AppDialogContent
+            placement="sidebar"
+            :title="t('navigation')"
+            :description="t('shell.mobileNavigationDescription')"
+          >
+            <DialogClose as-child>
+              <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
+            </DialogClose>
+            <SidebarContent @navigate="mobileOpen = false">
+              <template #actions>
+                <div class="modern-mobile-tools">
+                  <AppButton
+                    v-if="session.state.principalType === 'admin'"
+                    variant="brand"
+                    :icon="CirclePlus"
+                    as-child
+                  >
+                    <RouterLink :to="createGroupLocation" @click="mobileOpen = false">
+                      <AppIcon :icon="CirclePlus" />{{ t('groups.create') }}
+                    </RouterLink>
+                  </AppButton>
+                  <AppBadge v-else :icon="KeyRound" tone="info">{{ t('auth.readOnly') }}</AppBadge>
+                  <AppearanceMenu />
+                  <AppIconButton
+                    :icon="LogOut"
+                    :label="t('auth.logout')"
+                    :loading="loggingOut"
+                    @click="logout"
+                  />
+                </div>
+              </template>
+            </SidebarContent>
+          </AppDialogContent>
+        </DialogRoot>
         <h1>{{ pageTitle }}</h1>
         <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
           <span v-if="refreshedAt">{{ refreshedAt }}</span>
@@ -260,21 +298,6 @@ useMessageSource(() =>
           aria-hidden="true"
         ></span>
         <div class="modern-toolbar">
-          <DialogRoot v-model:open="mobileOpen">
-            <DialogTrigger as-child>
-              <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
-            </DialogTrigger>
-            <AppDialogContent
-              placement="sidebar"
-              :title="t('navigation')"
-              :description="t('shell.mobileNavigationDescription')"
-            >
-              <DialogClose as-child>
-                <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
-              </DialogClose>
-              <SidebarContent @navigate="mobileOpen = false" />
-            </AppDialogContent>
-          </DialogRoot>
           <AppTooltip
             v-if="session.state.principalType === 'access_key'"
             :label="t('auth.readOnlyDescription')"
@@ -447,8 +470,17 @@ useMessageSource(() =>
   align-items: center;
   gap: var(--modern-space-1);
 }
-.modern-toolbar .modern-mobile-toggle {
+.modern-mobile-toggle {
   display: none;
+}
+.modern-mobile-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  padding-block: var(--modern-space-2);
+  margin-bottom: var(--modern-space-2);
 }
 .modern-session-scope {
   flex-shrink: 0;
@@ -482,29 +514,30 @@ useMessageSource(() =>
     display: none;
   }
   /* 侧栏不可见时，抽屉入口回到标题行。 */
-  .modern-toolbar .modern-mobile-toggle {
+  .modern-mobile-toggle {
     display: inline-flex;
   }
   .modern-toolbar {
-    gap: 0;
+    display: none;
   }
   .modern-topbar {
-    flex-wrap: wrap;
-    gap: var(--modern-space-2);
-    padding-block: var(--modern-space-2);
+    gap: var(--modern-space-1);
+    padding-inline: var(--modern-space-2);
+    padding-top: env(safe-area-inset-top);
   }
   /* 移动端顶栏只留刷新控件，时间文字和竖线让位给标题。 */
   .modern-topbar-refresh > span,
   .modern-topbar-divider {
     display: none;
   }
-  /* 多出自动刷新按钮的页面，标题独占首行，避免被挤成省略号。 */
-  .modern-topbar.has-auto-refresh h1 {
-    flex: 1 0 100%;
+  .modern-topbar h1 {
+    font-size: var(--modern-font-size-section);
   }
-  .modern-session-scope {
-    order: 1;
-    margin-right: 0;
+  .modern-topbar-refresh {
+    gap: 0;
+  }
+  .modern-content {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 .modern-notices {

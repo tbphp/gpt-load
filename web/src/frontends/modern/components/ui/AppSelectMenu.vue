@@ -114,4 +114,14 @@ function select(value: unknown): void {
 .modern-select-menu-value[aria-expanded='true'] .modern-select-menu-chevron {
   transform: rotate(180deg);
 }
+@media (max-width: 760px) {
+  .modern-select-menu-value {
+    width: var(--modern-touch-target);
+    padding: 0;
+  }
+  .modern-select-menu-value > span,
+  .modern-select-menu-chevron {
+    display: none;
+  }
+}
 </style>

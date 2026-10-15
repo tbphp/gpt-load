@@ -270,6 +270,7 @@ useMessageSource(() =>
     </div>
     <AppListFrame
       ref="frame"
+      mobile-flow
       class="modern-health-list"
       :label="t('health.issues')"
       :loading="pending && Boolean(report)"
@@ -345,14 +346,16 @@ useMessageSource(() =>
               ><AppOverflowText :text="row.groupName ?? t('logs.deleted')" /></AppButton
             ><span v-else class="modern-health-muted">—</span>
           </div>
-          <div class="modern-health-stack">
+          <div class="modern-health-stack" :data-label="t('health.problem')">
             <AppBadge :tone="row.severity" size="xs" dot>{{
               t('health.kinds.' + row.kind)
             }}</AppBadge
             ><AppOverflowText :text="row.reason" class="modern-health-secondary" />
           </div>
-          <AppOverflowText :text="row.impact" class="modern-health-impact" />
-          <div class="modern-health-stack">
+          <div class="modern-health-impact" :data-label="t('health.impact')">
+            <AppOverflowText :text="row.impact" />
+          </div>
+          <div class="modern-health-stack" :data-label="t('health.recoveryColumn')">
             <AppOverflowText :text="row.recovery" /><AppOverflowText
               v-if="row.recoveryAt"
               :text="healthTime(row.recoveryAt, locale)"
@@ -562,34 +565,35 @@ useMessageSource(() =>
     padding-bottom: var(--modern-space-1-5);
   }
   .modern-health-row {
-    grid-template-columns:
-      140px minmax(130px, 0.85fr) minmax(190px, 1.2fr) minmax(180px, 1.1fr)
-      minmax(170px, 1fr) 148px;
-    min-width: 1048px;
-    padding-block: 0;
-    padding-left: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    padding: var(--modern-space-4) var(--modern-space-1);
+    gap: var(--modern-space-3);
   }
-  .modern-health-row > * {
-    padding-block: var(--modern-space-1-5);
+  .modern-health-heading {
+    display: none;
   }
-  .modern-health-row > :first-child {
-    position: sticky;
-    left: 0;
-    z-index: var(--modern-layer-raised);
-    background: var(--modern-canvas);
-    align-self: stretch;
-    display: flex;
-    align-items: center;
-    padding-left: var(--modern-space-3);
+  .modern-health-object,
+  .modern-health-group,
+  .modern-health-impact,
+  .modern-health-actions {
+    grid-column: 1 / -1;
   }
-  .modern-health-record {
-    min-height: 0;
+  .modern-health-record > [data-label] {
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: var(--modern-space-1);
   }
-  .modern-health-record:hover > :first-child {
-    background: var(--modern-control-hover);
+  .modern-health-record > [data-label]::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
   }
-  .modern-health-record.is-selected > :first-child {
-    background: var(--modern-accent-soft);
+  .modern-health-actions {
+    justify-content: flex-end;
+    border-top: var(--modern-line-width) solid var(--modern-border);
+    padding-top: var(--modern-space-2);
   }
 }
 </style>
