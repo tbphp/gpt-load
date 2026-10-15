@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codexrecovery"
 	"gpt-load/internal/connection"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
@@ -951,6 +952,11 @@ func (handler *Handler) executeAttempts(
 	}
 	var refreshRetry *credentialRefreshRetry
 	authRefreshReplayUsed := false
+	// encryptedRetry pins one same-credential replay with the rejected
+	// encrypted continuation state stripped. It is a one-shot budget: the
+	// opaque state is account-bound and does not change between attempts.
+	var encryptedRetry *encryptedContentRecoveryRetry
+	encryptedReplayUsed := false
 	type preparedRequest struct {
 		configuredParameters  []string
 		removedParameterPaths [][]string
@@ -1120,7 +1126,9 @@ func (handler *Handler) executeAttempts(
 		}
 		return decision.Retry != health.RetryNone
 	}
-	for forwardAttempts < forwardAttemptLimit {
+	// The pending encrypted-content replay is a dedicated one-shot budget and
+	// must not be starved by an exhausted candidate-retry budget.
+	for forwardAttempts < forwardAttemptLimit || encryptedRetry != nil {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
@@ -1128,7 +1136,24 @@ func (handler *Handler) executeAttempts(
 		forceCredentialRefresh := false
 		var selection scheduler.Selection
 		var ref state.CredentialRef
-		if refreshRetry != nil {
+		if encryptedRetry != nil {
+			// Replay the same credential with the rejected encrypted state
+			// stripped. Pinning the credential is required: the sanitized
+			// body no longer needs the authoring account, but keeping it
+			// avoids re-routing a continuation turn mid-flight.
+			selection = encryptedRetry.selection
+			currentRef, exists := handler.registry.CredentialRef(selection.CredentialID)
+			if !exists || currentRef.GroupID != selection.GroupID ||
+				currentRef.IdentityGeneration != encryptedRetry.ref.IdentityGeneration {
+				encryptedRetry = nil
+				continue
+			}
+			ref = currentRef
+			if !iterator.ChargeReplay(selection, ref) {
+				encryptedRetry = nil
+				continue
+			}
+		} else if refreshRetry != nil {
 			selection = refreshRetry.selection
 			currentRef, exists := handler.registry.CredentialRef(selection.CredentialID)
 			if !exists || currentRef.GroupID != selection.GroupID ||
@@ -1166,6 +1191,25 @@ func (handler *Handler) executeAttempts(
 		}
 		recorder.startTiming()
 		prepared := prepareRequest(selection)
+		if encryptedRetry != nil {
+			// The replay carries the sanitized body. prepareRequest rebuilds
+			// from the original parsed body (parameter overrides included), so
+			// swap in the cleaned variant and re-inspect attempt-local
+			// observations against it.
+			prepared.request = withRequestBody(prepared.request, encryptedRetry.body)
+			prepared.observations = originalMetadata
+			prepared.observationsAvailable = false
+			if metadata, inspectErr := selectedDialect.InspectRequest(prepared.request); inspectErr == nil {
+				prepared.observations = dialect.RequestMetadata{
+					ObserveUsage:     originalMetadata.ObserveUsage,
+					PricingMode:      metadata.PricingMode,
+					UsageDiagnostics: metadata.UsageDiagnostics,
+					Reasoning:        metadata.Reasoning,
+				}
+				prepared.observationsAvailable = true
+			}
+			encryptedRetry = nil
+		}
 		if prepared.err != nil {
 			if errors.Is(prepared.err, requestredact.ErrContent) {
 				handler.completeReason(ginContext, recorder, reasonRedactionFailed)
@@ -1471,6 +1515,62 @@ func (handler *Handler) executeAttempts(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
+		// Encrypted-content compatibility recovery: the upstream refused
+		// account-bound encrypted continuation state. Replaying the same
+		// request on another credential cannot succeed — the opaque state is
+		// only decryptable by the credential that authored it — so instead
+		// strip the rejected state and replay once on the same credential.
+		if signal := encryptedContentRecoverySignal(result); signal != "" &&
+			encryptedContentRecoveryApplies(selectedDialect.Protocol(), result.Committed) {
+			if encryptedReplayUsed {
+				// The one-time cleanup replay still hit the same rejection.
+				// Retrying again is deterministic, so hand back an explicit
+				// terminal instead of a retryable failure.
+				recorder.completeProviderError(
+					result,
+					optionalModelValue(selection.UpstreamModelID),
+					recordedAttempt,
+				)
+				handler.completeReason(ginContext, recorder, reasonEncryptedContentRecoveryExhausted)
+				return
+			}
+			if sanitized, removals, ok := codexrecovery.Sanitize(prepared.request.Body); ok {
+				utils.LogPlaneBestEffort(
+					handler.logger,
+					logrus.InfoLevel,
+					utils.LogPlaneData,
+					logrus.Fields{
+						"event":         "codex_encrypted_content_recovery_retry",
+						"signal":        string(signal),
+						"credential_id": selection.CredentialID,
+						"group_id":      selection.GroupID,
+						"removed":       removals.Total(),
+					},
+					"Replaying the request on the same credential with rejected encrypted content removed",
+				)
+				encryptedRetry = &encryptedContentRecoveryRetry{
+					selection: selection,
+					ref:       ref,
+					body:      sanitized,
+				}
+				encryptedReplayUsed = true
+				recorder.retryIfAnotherForward(recordedAttempt)
+				continue
+			}
+			utils.LogPlaneBestEffort(
+				handler.logger,
+				logrus.WarnLevel,
+				utils.LogPlaneData,
+				logrus.Fields{
+					"event":         "codex_encrypted_content_recovery_skipped",
+					"signal":        string(signal),
+					"credential_id": selection.CredentialID,
+					"group_id":      selection.GroupID,
+					"reason":        "no_removable_encrypted_content",
+				},
+				"Encrypted content was rejected but no removable state was found",
+			)
+		}
 		handler.applyGroupDecisionEffect(
 			selection.Group,
 			ref,

@@ -43,7 +43,16 @@ var (
 	reasonResponseRedactionFailed       = reason{Status: http.StatusBadGateway, Code: "response_redaction_failed", Message: "Response content could not be restored safely."}
 	reasonProtocolConversionUnsupported = reason{Status: http.StatusUnprocessableEntity, Code: "protocol_conversion_unsupported", Message: "No upstream target could preserve or convert the request."}
 	reasonRequestTooLarge               = reason{Status: http.StatusRequestEntityTooLarge, Code: "request_too_large", Message: "Request body is too large."}
-	reasonUnsupportedContentEncoding    = reason{
+	// reasonEncryptedContentRecoveryExhausted renders after the one-time
+	// same-credential replay with the rejected encrypted state stripped still
+	// failed. Retrying again cannot help: the encrypted continuation context
+	// does not change between attempts.
+	reasonEncryptedContentRecoveryExhausted = reason{
+		Status:  http.StatusBadRequest,
+		Code:    "encrypted_content_recovery_exhausted",
+		Message: "Upstream rejected the encrypted continuation context and the gateway already retried once without it. Start a new conversation, or resend without the previous turn's encrypted reasoning, tool output, or compaction.",
+	}
+	reasonUnsupportedContentEncoding = reason{
 		Status:  http.StatusUnsupportedMediaType,
 		Code:    "unsupported_content_encoding",
 		Message: "Unsupported Content-Encoding.",
