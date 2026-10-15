@@ -9,7 +9,7 @@ import { formatCompactNumber } from '@modern/components/ui/format'
 import { useAuthSession } from '@modern/features/auth/auth-session'
 import { useMessages } from '@modern/app/messages'
 
-const props = defineProps<{ base: HomeBase; admin: boolean; attention: number }>()
+const props = defineProps<{ base: HomeBase; admin: boolean; attention: number; mobile?: boolean }>()
 const { t, n, locale } = useI18n()
 const session = useAuthSession()
 const messages = useMessages()
@@ -75,7 +75,35 @@ const uptime = computed(() => {
 </script>
 
 <template>
-  <section class="modern-home-status" :aria-label="t('home.overview')">
+  <section v-if="mobile" class="modern-home-mobile-status" :aria-label="t('home.overview')">
+    <div class="modern-home-mobile-state">
+      <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge
+      ><span>{{ uptime }}</span>
+    </div>
+    <dl class="modern-home-mobile-facts" :class="{ 'is-read-only': !admin }">
+      <div v-for="fact in facts.filter((item) => item.key !== 'concurrency')" :key="fact.key">
+        <dt>{{ t('home.' + fact.key) }}</dt>
+        <dd>
+          <RouterLink v-if="fact.to" :to="fact.to">{{ fact.value }}</RouterLink
+          ><span v-else>{{ fact.value }}</span>
+        </dd>
+      </div>
+    </dl>
+    <AppCopyValue
+      v-if="!admin && base.currentKey"
+      :value="base.currentKey.masked_key"
+      :resolve-value="session.getAuthKey"
+      :label="t('accessKeys.copy')"
+    />
+    <div
+      v-if="facts.some((item) => item.key === 'concurrency')"
+      class="modern-home-mobile-concurrency"
+    >
+      <span>{{ t('concurrency.label') }}</span
+      ><strong>{{ facts.find((item) => item.key === 'concurrency')?.value }}</strong>
+    </div>
+  </section>
+  <section v-else class="modern-home-status" :aria-label="t('home.overview')">
     <div class="modern-home-status-summary">
       <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge>
       <dl class="modern-home-status-facts">
@@ -128,6 +156,52 @@ const uptime = computed(() => {
 </template>
 
 <style scoped>
+.modern-home-mobile-status {
+  display: grid;
+  gap: var(--modern-space-4);
+}
+.modern-home-mobile-state,
+.modern-home-mobile-concurrency {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-home-mobile-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--modern-space-2);
+  margin: 0;
+}
+.modern-home-mobile-facts.is-read-only {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.modern-home-mobile-facts > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--modern-space-1);
+}
+.modern-home-mobile-facts dt {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-home-mobile-facts dd {
+  margin: 0;
+  color: var(--modern-text);
+  font-weight: var(--modern-weight-semibold);
+  font-size: var(--modern-font-size-title);
+}
+.modern-home-mobile-facts a {
+  display: block;
+  min-height: var(--modern-touch-target);
+}
+.modern-home-mobile-concurrency {
+  padding-bottom: var(--modern-space-3);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+
 .modern-home-status {
   display: flex;
   align-items: center;

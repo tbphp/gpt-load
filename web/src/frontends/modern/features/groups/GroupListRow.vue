@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
-import { ChevronDown, ChevronUp, KeyRound, Plus, UserRound } from '@lucide/vue'
+import { ChevronDown, ChevronUp, ChevronRight, KeyRound, Plus, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, useId } from 'vue'
 import { useURLState } from '@modern/app/url-state'
@@ -25,6 +25,7 @@ import type { SemanticTone } from '@modern/components/ui/types'
 import { useApiClient } from '@shared/http/client-context'
 
 const props = defineProps<{
+  mobile?: boolean
   group: GroupRow
   expanded: boolean
   pending?: 'toggle' | 'priority' | 'weight'
@@ -167,7 +168,33 @@ const lastActive = computed(() =>
 </script>
 
 <template>
-  <article class="modern-group-entry" :aria-labelledby="`${id}-name`">
+  <RouterLink
+    v-if="mobile"
+    class="modern-group-mobile"
+    :to="{ name: 'modern-group-detail', params: { id: group.id }, query: { from: route.fullPath } }"
+  >
+    <AppChannelIcon :icon="group.channelIcon" :mark="group.channelMark" :name="group.channelName" />
+    <div class="modern-group-mobile-content">
+      <div class="modern-group-mobile-title">
+        <strong>{{ group.name }}</strong
+        ><AppIcon :icon="ChevronRight" size="sm" />
+      </div>
+      <div class="modern-group-mobile-meta">
+        <AppBadge :tone="tone" variant="plain" size="xs" dot>{{
+          t(`groups.row.state.${state}`)
+        }}</AppBadge
+        ><span>{{ group.channelName }}</span>
+      </div>
+      <div class="modern-group-mobile-facts">
+        <span
+          >{{ n(group.credentials.available) }}/{{ n(group.credentials.total) }}
+          {{ t('groups.board.credentials') }}</span
+        ><span>{{ n(group.modelCount) }} {{ t('groupDetail.models') }}</span
+        ><span>{{ t('groups.row.successRate', { value: successRate }) }}</span>
+      </div>
+    </div>
+  </RouterLink>
+  <article v-show="!mobile" class="modern-group-entry" :aria-labelledby="`${id}-name`">
     <div class="modern-group-row">
       <div class="modern-group-identity">
         <AppChannelIcon
@@ -375,6 +402,46 @@ const lastActive = computed(() =>
 </template>
 
 <style scoped>
+.modern-group-mobile {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--modern-space-3);
+  padding: var(--modern-space-4) 0;
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-group-mobile-content {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: var(--modern-space-2);
+}
+.modern-group-mobile-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+}
+.modern-group-mobile-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-group-mobile-meta,
+.modern-group-mobile-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-2) var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-group-mobile-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .modern-group-entry {
   min-width: var(--modern-group-list-width);
   border-bottom: var(--modern-line-width) solid var(--modern-border);

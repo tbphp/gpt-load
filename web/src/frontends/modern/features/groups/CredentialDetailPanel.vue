@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -34,6 +35,8 @@ import CredentialTrends from './CredentialTrends.vue'
 import RPMTrend from '../rpm/RPMTrend.vue'
 import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
+const isMobile = useMobileLayout()
+const mobileSection = ref('runtime')
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
 const { t, n, locale, te } = useI18n()
@@ -109,7 +112,10 @@ function failure(): string {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
-  if (weightInvalid.value || proxyInvalid.value) return
+  if (weightInvalid.value || proxyInvalid.value) {
+    if (isMobile.value) mobileSection.value = 'settings'
+    return
+  }
   const patch: Parameters<typeof updateCredential>[3] = {}
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
@@ -183,6 +189,18 @@ useMessageSource(() =>
     @close="emit('close')"
     @save="save"
   >
+    <template v-if="isMobile" #toolbar
+      ><div class="modern-credential-mobile-toolbar">
+        <AppSegmentedControl
+          v-model="mobileSection"
+          :label="t('groupDetail.credentialDetails')"
+          :options="[
+            { value: 'runtime', label: t('credentialCards.runtime') },
+            { value: 'usage', label: t('credentialCards.trends') },
+            { value: 'settings', label: t('credentialCards.settings') },
+          ]"
+        /></div
+    ></template>
     <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
     <AppCollectionState
       v-else-if="query.isError.value && !saved"
@@ -204,6 +222,7 @@ useMessageSource(() =>
         @pending="namePending = $event"
       />
       <CredentialTrends
+        v-show="!isMobile || mobileSection === 'usage'"
         :subscription="group.connectionType === 'subscription'"
         :group="group.id"
         :credential="row.id"
@@ -211,10 +230,17 @@ useMessageSource(() =>
       />
       <CredentialWindowUsage
         v-if="item.observation?.windows.length"
+        v-show="!isMobile || mobileSection === 'usage'"
         :windows="item.observation.windows"
       />
-      <RPMTrend :scope="{ kind: 'credential', id: row.id, group: group.id }" />
-      <section class="modern-credential-detail-section">
+      <RPMTrend
+        v-show="!isMobile || mobileSection === 'usage'"
+        :scope="{ kind: 'credential', id: row.id, group: group.id }"
+      />
+      <section
+        v-show="!isMobile || mobileSection === 'runtime'"
+        class="modern-credential-detail-section"
+      >
         <div class="modern-credential-detail-title">
           <h3>{{ t('credentialCards.runtime') }}</h3>
           <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge>
@@ -270,12 +296,17 @@ useMessageSource(() =>
       </section>
       <section
         v-if="group.connectionType === 'subscription'"
+        v-show="!isMobile || mobileSection === 'runtime'"
         class="modern-credential-detail-section"
       >
         <h3>{{ t('credentialCards.accountInfo') }}</h3>
         <CredentialAccountInfo :row="item" />
       </section>
-      <section v-if="item.modelCooldowns.length" class="modern-credential-detail-section">
+      <section
+        v-if="item.modelCooldowns.length"
+        v-show="!isMobile || mobileSection === 'runtime'"
+        class="modern-credential-detail-section"
+      >
         <h3>{{ t('credentialCards.cooldownModels') }}</h3>
         <div
           v-for="cooldown in item.modelCooldowns"
@@ -287,7 +318,10 @@ useMessageSource(() =>
           }}</small>
         </div>
       </section>
-      <section class="modern-credential-detail-section">
+      <section
+        v-show="!isMobile || mobileSection === 'settings'"
+        class="modern-credential-detail-section"
+      >
         <div class="modern-credential-detail-settings-title">
           <h3>{{ t('credentialCards.settings') }}</h3>
           <AppTooltip :label="t('credentialCards.autoWeight')">
@@ -336,6 +370,11 @@ useMessageSource(() =>
   </GroupWorkspacePanel>
 </template>
 <style scoped>
+.modern-credential-mobile-toolbar {
+  padding: var(--modern-space-2) var(--modern-space-5);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+
 .modern-credential-detail-section {
   display: grid;
   gap: var(--modern-space-3);

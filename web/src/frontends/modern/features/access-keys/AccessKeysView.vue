@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { SlidersHorizontal, ChevronRight } from '@lucide/vue'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import {
   ChartNoAxesCombined,
@@ -39,6 +41,8 @@ import {
   AppSelect,
   AppBadge,
   AppButton,
+  AppFilterSheet,
+  AppIcon,
   AppCollectionState,
   AppConfirmDialog,
   AppCopyValue,
@@ -65,6 +69,8 @@ import { accessState, accessTime } from './access-key-display'
 const { t, n, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const isMobile = useMobileLayout()
+const mobileFilters = ref(false)
 const client = useApiClient()
 const cache = useQueryClient()
 const messages = useMessages()
@@ -395,43 +401,68 @@ onScopeDispose(() => {
         @compositionstart="composing = true"
         @compositionend="compositionEnd"
       />
-      <AppSearchSelect
-        class="modern-access-filter"
-        :model-value="filters.group"
-        :label="t('accessKeys.groupFilter')"
-        label-hidden
-        :options="groupOptions"
-        :disabled="busy || groups.isPending.value"
-        @update:model-value="change({ group: $event })"
-        ><template #option="{ option }"
-          ><AppChannelIcon
-            v-if="groupMap.get(option.value)"
-            :icon="groupMap.get(option.value)!.channelIcon"
-            :name="groupMap.get(option.value)!.channelName"
-            :mark="groupMap.get(option.value)!.channelMark"
-            size="sm"
-          /><span>{{ option.label }}</span></template
-        ></AppSearchSelect
+      <AppFilterSheet
+        v-model:open="mobileFilters"
+        :mobile="isMobile"
+        :title="t('ui.mobile.filters')"
       >
-      <AppSelect
-        class="modern-access-filter"
-        :model-value="filters.expiry"
-        :label="t('accessKeys.expires')"
-        label-hidden
-        :options="expiryOptions"
-        :disabled="busy"
-        @update:model-value="change({ expiry: $event as AccessFilters['expiry'] })"
+        <AppSearchSelect
+          class="modern-access-filter"
+          :model-value="filters.group"
+          :label="t('accessKeys.groupFilter')"
+          :label-hidden="!isMobile"
+          :options="groupOptions"
+          :disabled="busy || groups.isPending.value"
+          @update:model-value="change({ group: $event })"
+          ><template #option="{ option }"
+            ><AppChannelIcon
+              v-if="groupMap.get(option.value)"
+              :icon="groupMap.get(option.value)!.channelIcon"
+              :name="groupMap.get(option.value)!.channelName"
+              :mark="groupMap.get(option.value)!.channelMark"
+              size="sm"
+            /><span>{{ option.label }}</span></template
+          ></AppSearchSelect
+        >
+        <AppSelect
+          class="modern-access-filter"
+          :model-value="filters.expiry"
+          :label="t('accessKeys.expires')"
+          :label-hidden="!isMobile"
+          :options="expiryOptions"
+          :disabled="busy"
+          @update:model-value="change({ expiry: $event as AccessFilters['expiry'] })" />
+        <template v-if="isMobile">
+          <AppSelect
+            :model-value="filters.sort"
+            :label="t('accessKeys.sort')"
+            :options="sorts"
+            :disabled="busy"
+            @update:model-value="change({ sort: $event as AccessFilters['sort'] })" /></template
+      ></AppFilterSheet>
+      <AppIconButton
+        v-if="isMobile"
+        :icon="SlidersHorizontal"
+        :label="t('ui.mobile.filters')"
+        @click="mobileFilters = true"
       />
       <div class="modern-access-toolbar-actions">
         <AppSortMenu
+          v-if="!isMobile"
           :model-value="filters.sort"
           :label="t('accessKeys.sort')"
           :options="sorts"
           :disabled="busy"
           @update:model-value="change({ sort: $event as AccessFilters['sort'] })"
-        /><AppButton :icon="Plus" variant="primary" :disabled="busy" @click="openCreate">{{
-          t('accessKeys.create')
-        }}</AppButton>
+        /><AppButton
+          :icon="Plus"
+          :icon-only="isMobile"
+          :aria-label="t('accessKeys.create')"
+          variant="primary"
+          :disabled="busy"
+          @click="openCreate"
+          ><span v-if="!isMobile">{{ t('accessKeys.create') }}</span></AppButton
+        >
       </div>
     </form>
     <div class="modern-access-filterbar">
@@ -476,92 +507,120 @@ onScopeDispose(() => {
           t('accessKeys.create')
         }}</AppButton></AppCollectionState
       >
-      <article
-        v-for="row in rows"
-        v-else
-        :key="row.id"
-        class="modern-access-row modern-access-item"
-        :aria-label="row.name"
-      >
-        <div class="modern-access-name">
-          <AppButton variant="text" @click="setPanel('detail', row.id)"
-            ><AppOverflowText :text="row.name"
-          /></AppButton>
-        </div>
-        <div class="modern-access-key">
-          <AppCopyValue
-            :key="row.updated_at_ms"
-            :value="row.masked_key"
-            :resolve-value="resolveKey(row.id)"
-            :label="t('accessKeys.copy')"
-          />
-        </div>
-        <div class="modern-access-limits" :data-label="t('accessKeys.restrictions')">
-          <AccessKeyRestrictions :row="row" :groups="groupMap" />
-        </div>
-        <div class="modern-access-rpm" :data-label="t('rpm.hourPeakShort')">
-          <span v-if="row.rpmPeakHour !== undefined">{{ n(row.rpmPeakHour) }}</span>
-        </div>
-        <div :data-label="t('accessKeys.state')">
-          <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
-            t('accessKeys.' + accessState(row).key)
-          }}</AppBadge>
-        </div>
-        <div :data-label="t('accessKeys.recordRequestBody.column')">
-          <span class="modern-sr-only">{{ t('accessKeys.recordRequestBody.column') }}</span>
-          <AppBadge v-if="row.record_request_body" tone="warning" size="xs" dot>{{
-            t('accessKeys.recordRequestBody.enabled')
-          }}</AppBadge>
-          <AppBadge v-else variant="plain" size="xs">{{
-            t('accessKeys.recordRequestBody.disabled')
-          }}</AppBadge>
-        </div>
-        <div class="modern-access-expiry" :data-label="t('accessKeys.expires')">
-          <AppTooltip
-            :label="row.expires_at_ms === null ? undefined : accessTime(row.expires_at_ms, locale)"
-            ><span :tabindex="row.expires_at_ms === null ? undefined : 0">{{
-              row.expires_at_ms === null
-                ? t('accessKeys.never')
-                : accessTime(row.expires_at_ms, locale, false)
-            }}</span></AppTooltip
-          >
-        </div>
-        <div class="modern-access-last-request" :data-label="t('accessKeys.lastRequest')">
-          <AppOverflowText
-            :text="accessTime(row.last_request_at_ms, locale)"
-            :full-text="
-              row.last_request_at_ms
-                ? dateFormatter(locale, {
-                    dateStyle: 'medium',
-                    timeStyle: 'medium',
-                  }).format(row.last_request_at_ms)
-                : undefined
-            "
-          />
-        </div>
-        <div class="modern-access-row-actions">
-          <AppIconButton
-            :icon="Pencil"
-            :label="t('accessKeys.edit')"
-            size="xs"
-            :disabled="mutating.has(row.id)"
-            @click="setPanel('detail', row.id)"
-          /><AppActionMenu
-            :label="t('accessKeys.actions')"
-            :items="menus(row)"
-            size="xs"
-            :disabled="mutating.has(row.id)"
-            @select="action(row, $event)"
-          /><AppSwitch
-            size="sm"
-            :model-value="row.status === 'active'"
-            :label="t('accessKeys.active')"
-            :loading="mutating.has(row.id)"
-            :disabled="mutating.has(row.id)"
-            @update:model-value="toggle(row, $event)"
-          />
-        </div>
-      </article>
+      <template v-else
+        ><template v-for="row in rows" :key="row.id">
+          <article v-if="isMobile" class="modern-access-mobile">
+            <AppButton
+              class="modern-access-mobile-open"
+              variant="ghost"
+              @click="setPanel('detail', row.id)"
+            >
+              <span class="modern-access-mobile-name">{{ row.name }}</span>
+              <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
+                t('accessKeys.' + accessState(row).key)
+              }}</AppBadge>
+              <AppIcon :icon="ChevronRight" size="sm" />
+            </AppButton>
+            <div class="modern-access-mobile-meta">
+              <AppCopyValue
+                :key="row.updated_at_ms"
+                :value="row.masked_key"
+                :resolve-value="resolveKey(row.id)"
+                :label="t('accessKeys.copy')"
+              /><span>{{
+                row.expires_at_ms === null
+                  ? t('accessKeys.never')
+                  : accessTime(row.expires_at_ms, locale, false)
+              }}</span>
+            </div>
+            <AccessKeyRestrictions :row="row" :groups="groupMap" />
+            <AppBadge v-if="row.record_request_body" tone="warning" size="xs">{{
+              t('accessKeys.recordRequestBody.enabled')
+            }}</AppBadge>
+          </article>
+          <article v-else class="modern-access-row modern-access-item" :aria-label="row.name">
+            <div class="modern-access-name">
+              <AppButton variant="text" @click="setPanel('detail', row.id)"
+                ><AppOverflowText :text="row.name"
+              /></AppButton>
+            </div>
+            <div class="modern-access-key">
+              <AppCopyValue
+                :key="row.updated_at_ms"
+                :value="row.masked_key"
+                :resolve-value="resolveKey(row.id)"
+                :label="t('accessKeys.copy')"
+              />
+            </div>
+            <div class="modern-access-limits" :data-label="t('accessKeys.restrictions')">
+              <AccessKeyRestrictions :row="row" :groups="groupMap" />
+            </div>
+            <div class="modern-access-rpm" :data-label="t('rpm.hourPeakShort')">
+              <span v-if="row.rpmPeakHour !== undefined">{{ n(row.rpmPeakHour) }}</span>
+            </div>
+            <div :data-label="t('accessKeys.state')">
+              <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
+                t('accessKeys.' + accessState(row).key)
+              }}</AppBadge>
+            </div>
+            <div :data-label="t('accessKeys.recordRequestBody.column')">
+              <span class="modern-sr-only">{{ t('accessKeys.recordRequestBody.column') }}</span>
+              <AppBadge v-if="row.record_request_body" tone="warning" size="xs" dot>{{
+                t('accessKeys.recordRequestBody.enabled')
+              }}</AppBadge>
+              <AppBadge v-else variant="plain" size="xs">{{
+                t('accessKeys.recordRequestBody.disabled')
+              }}</AppBadge>
+            </div>
+            <div class="modern-access-expiry" :data-label="t('accessKeys.expires')">
+              <AppTooltip
+                :label="
+                  row.expires_at_ms === null ? undefined : accessTime(row.expires_at_ms, locale)
+                "
+                ><span :tabindex="row.expires_at_ms === null ? undefined : 0">{{
+                  row.expires_at_ms === null
+                    ? t('accessKeys.never')
+                    : accessTime(row.expires_at_ms, locale, false)
+                }}</span></AppTooltip
+              >
+            </div>
+            <div class="modern-access-last-request" :data-label="t('accessKeys.lastRequest')">
+              <AppOverflowText
+                :text="accessTime(row.last_request_at_ms, locale)"
+                :full-text="
+                  row.last_request_at_ms
+                    ? dateFormatter(locale, {
+                        dateStyle: 'medium',
+                        timeStyle: 'medium',
+                      }).format(row.last_request_at_ms)
+                    : undefined
+                "
+              />
+            </div>
+            <div class="modern-access-row-actions">
+              <AppIconButton
+                :icon="Pencil"
+                :label="t('accessKeys.edit')"
+                size="xs"
+                :disabled="mutating.has(row.id)"
+                @click="setPanel('detail', row.id)"
+              /><AppActionMenu
+                :label="t('accessKeys.actions')"
+                :items="menus(row)"
+                size="xs"
+                :disabled="mutating.has(row.id)"
+                @select="action(row, $event)"
+              /><AppSwitch
+                size="sm"
+                :model-value="row.status === 'active'"
+                :label="t('accessKeys.active')"
+                :loading="mutating.has(row.id)"
+                :disabled="mutating.has(row.id)"
+                @update:model-value="toggle(row, $event)"
+              />
+            </div>
+          </article> </template
+      ></template>
       <template #footer
         ><AppPagination
           :page="filters.page"
@@ -614,6 +673,37 @@ onScopeDispose(() => {
   />
 </template>
 <style scoped>
+.modern-access-mobile {
+  display: grid;
+  gap: var(--modern-space-2);
+  padding: var(--modern-space-3) 0;
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-access-mobile-open {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 0;
+  color: var(--modern-text);
+}
+.modern-access-mobile-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-access-mobile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+
 .modern-access-workspace {
   display: flex;
   flex: 1;
@@ -768,6 +858,19 @@ onScopeDispose(() => {
   }
   .modern-access-row-actions > :last-child {
     margin-left: auto;
+  }
+}
+@media (max-width: 760px) {
+  .modern-access-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--modern-space-2);
+  }
+  .modern-access-toolbar-actions {
+    display: contents;
+  }
+  .modern-access-search {
+    grid-column: auto;
   }
 }
 </style>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { SlidersHorizontal } from '@lucide/vue'
 import { Boxes, ListOrdered, RefreshCw, Search } from '@lucide/vue'
 import { keepPreviousData, useIsFetching, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -19,6 +21,8 @@ import { useURLState } from '@modern/app/url-state'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import {
   AppButton,
+  AppFilterSheet,
+  AppIconButton,
   AppCollectionState,
   AppFilterSummary,
   AppListFrame,
@@ -33,6 +37,12 @@ import ClientModelCatalogDialog from './ClientModelCatalogDialog.vue'
 import ModelDetailPanel from './ModelDetailPanel.vue'
 
 const { t } = useI18n()
+const isMobile = useMobileLayout()
+const mobileFilters = ref(false)
+function openCatalog(): void {
+  mobileFilters.value = false
+  catalogOpen.value = true
+}
 const client = useApiClient()
 const cache = useQueryClient()
 const session = useAuthSession()
@@ -217,21 +227,33 @@ useMessageSource(() =>
         @compositionstart="composing = true"
         @compositionend="finishComposition"
       />
-      <AppSelect
-        v-if="admin"
-        :model-value="state.groups"
-        :options="groupOptions"
-        :label="t('modelManager.groupStatus')"
-        label-hidden
-        class="modern-models-filter"
-        @update:model-value="change({ groups: $event === 'all' ? 'all' : 'enabled' })"
+      <AppIconButton
+        v-if="isMobile && admin"
+        :icon="SlidersHorizontal"
+        :label="t('ui.mobile.filters')"
+        @click="mobileFilters = true"
       />
-      <AppButton v-if="admin" :icon="ListOrdered" @click="catalogOpen = true">{{
-        t('modelManager.clientCatalog.title')
-      }}</AppButton>
-      <AppButton v-if="admin" :icon="RefreshCw" :loading="syncing" @click="sync">{{
-        t('modelManager.sync')
-      }}</AppButton>
+      <AppFilterSheet
+        v-model:open="mobileFilters"
+        :mobile="isMobile"
+        :title="t('ui.mobile.filters')"
+      >
+        <AppSelect
+          v-if="admin"
+          :model-value="state.groups"
+          :options="groupOptions"
+          :label="t('modelManager.groupStatus')"
+          :label-hidden="!isMobile"
+          class="modern-models-filter"
+          @update:model-value="change({ groups: $event === 'all' ? 'all' : 'enabled' })"
+        />
+        <AppButton v-if="admin" :icon="ListOrdered" @click="openCatalog">{{
+          t('modelManager.clientCatalog.title')
+        }}</AppButton>
+        <AppButton v-if="admin" :icon="RefreshCw" :loading="syncing" @click="sync">{{
+          t('modelManager.sync')
+        }}</AppButton>
+      </AppFilterSheet>
     </form>
     <div class="modern-models-statusbar">
       <AppSegmentedControl
@@ -281,6 +303,7 @@ useMessageSource(() =>
           v-for="model in data.items"
           :key="model.name"
           :model="model"
+          :mobile="isMobile"
           :admin="admin"
           :selected="model.name === state.model"
           :disabled="query.isPlaceholderData.value"
@@ -379,6 +402,21 @@ useMessageSource(() =>
   }
   .modern-models-filter {
     flex-basis: 120px;
+  }
+}
+@media (max-width: 760px) {
+  .modern-models-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--modern-space-2);
+  }
+  .modern-models-grid {
+    display: block;
+    column-width: auto;
+    padding-block: 0;
+  }
+  .modern-models-grid > * {
+    margin-bottom: 0;
   }
 }
 </style>

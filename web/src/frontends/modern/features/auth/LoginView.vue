@@ -287,7 +287,14 @@ async function submit(): Promise<void> {
 }
 @media (max-width: 760px) {
   .modern-login-stage {
-    --modern-login-mascot-width: 108px;
+    --modern-login-mascot-width: 88px;
+  }
+  .modern-login-card {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    padding-inline: 0;
   }
   .modern-login-help summary {
     min-height: var(--modern-touch-target);

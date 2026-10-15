@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { Copy } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { AppButton, AppCopyValue, AppOverflowText } from '@modern/components/ui'
@@ -9,6 +10,7 @@ defineProps<{
   copyable: boolean
 }>()
 const { t, n } = useI18n()
+const isMobile = useMobileLayout()
 </script>
 
 <template>
@@ -37,7 +39,15 @@ const { t, n } = useI18n()
           </template>
         </AppCopyValue>
       </div>
+      <details v-if="isMobile" class="modern-connect-preview">
+        <summary>{{ t('ui.mobile.previewConfig') }}</summary>
+        <pre
+          tabindex="0"
+          :aria-label="block.label === 'shell' ? t('home.terminal') : block.label"
+        ><code>{{ block.content }}</code></pre>
+      </details>
       <pre
+        v-else
         tabindex="0"
         :aria-label="block.label === 'shell' ? t('home.terminal') : block.label"
       ><code>{{ block.content }}</code></pre>
@@ -46,6 +56,17 @@ const { t, n } = useI18n()
 </template>
 
 <style scoped>
+.modern-connect-preview {
+  min-width: 0;
+}
+.modern-connect-preview summary {
+  min-height: var(--modern-touch-target);
+  align-content: center;
+  color: var(--modern-muted);
+  cursor: pointer;
+  font-size: var(--modern-font-size-small);
+}
+
 .modern-connect-steps {
   display: grid;
   gap: var(--modern-space-3);

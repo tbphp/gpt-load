@@ -7,7 +7,7 @@ import { AppButton, AppIcon, AppSegmentedBar } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
 import type { HealthKind } from './health-state'
 
-const props = defineProps<{ report: HealthReport; unavailable: number }>()
+const props = defineProps<{ report: HealthReport; unavailable: number; mobile?: boolean }>()
 defineEmits<{ select: [kind: HealthKind] }>()
 const { t, locale } = useI18n()
 const count = (value: number) => formatCompactNumber(value, locale.value)
@@ -52,7 +52,28 @@ const metrics = computed(() => [
 </script>
 
 <template>
-  <section class="modern-health-overview" :aria-label="t('health.overview')">
+  <section v-if="mobile" class="modern-health-mobile-overview" :aria-label="t('health.overview')">
+    <div class="modern-health-mobile-availability">
+      <span>{{ t('health.available') }}</span
+      ><strong
+        >{{ count(report.counts.available) }} / {{ count(report.counts.credentials) }}</strong
+      >
+    </div>
+    <AppSegmentedBar :segments="segments" :label="hint" />
+    <div class="modern-health-mobile-counts">
+      <AppButton
+        v-for="metric in metrics"
+        :key="metric.kind"
+        variant="ghost"
+        @click="$emit('select', metric.kind)"
+        ><span>{{ t('health.' + metric.label) }}</span
+        ><strong :data-tone="metric.value ? metric.tone : undefined">{{
+          count(metric.value)
+        }}</strong></AppButton
+      >
+    </div>
+  </section>
+  <section v-else class="modern-health-overview" :aria-label="t('health.overview')">
     <div class="modern-health-availability">
       <div class="modern-health-availability-value">
         <span>{{ t('health.available') }}</span>
@@ -81,6 +102,41 @@ const metrics = computed(() => [
 </template>
 
 <style scoped>
+.modern-health-mobile-overview {
+  display: grid;
+  gap: var(--modern-space-2);
+  padding-top: var(--modern-space-4);
+}
+.modern-health-mobile-availability {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-health-mobile-availability strong {
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-section);
+}
+.modern-health-mobile-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--modern-space-1) var(--modern-space-3);
+}
+.modern-health-mobile-counts > * {
+  width: 100%;
+  justify-content: space-between;
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-regular);
+  padding-inline: 0;
+}
+.modern-health-mobile-counts [data-tone='danger'] {
+  color: var(--modern-danger);
+}
+.modern-health-mobile-counts [data-tone='warning'] {
+  color: var(--modern-warning);
+}
+
 .modern-health-overview {
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) repeat(4, minmax(0, 1fr));

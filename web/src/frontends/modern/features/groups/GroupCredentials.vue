@@ -16,6 +16,8 @@ import {
 } from '@lucide/vue'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { SlidersHorizontal } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -57,6 +59,7 @@ import SubscriptionCredentialCard from './SubscriptionCredentialCard.vue'
 import CredentialDetailPanel from './CredentialDetailPanel.vue'
 import CredentialTestDialog from './CredentialTestDialog.vue'
 import {
+  AppFilterSheet,
   AppButton,
   AppActionMenu,
   AppIcon,
@@ -80,13 +83,15 @@ import { useURLState, positivePage } from '@modern/app/url-state'
 import { useMessageSource } from '@modern/app/messages'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 
-const props = defineProps<{ group: GroupRow; channel?: GroupChannel }>()
+const props = defineProps<{ group: GroupRow; visible?: boolean; channel?: GroupChannel }>()
 const emit = defineEmits<{
   add: []
   changed: []
   pending: [value: boolean]
   updatedAt: [value: number]
 }>()
+const isMobile = useMobileLayout()
+const mobileFilters = ref(false)
 const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
@@ -980,7 +985,7 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <section class="modern-credentials">
+  <section v-show="visible !== false" class="modern-credentials">
     <div class="modern-credentials-toolbar">
       <AppTextField
         v-model="search"
@@ -995,40 +1000,73 @@ defineExpose({ refresh })
         @compositionstart="composing = true"
         @compositionend="compositionEnd"
       />
-      <AppSelect
-        v-if="group.connectionType === 'subscription'"
-        class="modern-credentials-filter-control"
-        :model-value="filters.reset"
-        :label="t('groupDetail.filters.reset')"
-        label-hidden
-        :options="resetOptions"
-        :disabled="mutating !== undefined || accountBatchPending"
-        @update:model-value="change({ reset: $event as CredentialFilters['reset'], page: 1 })"
-      />
-      <AppSelect
-        class="modern-credentials-filter-control"
-        :model-value="filters.proxy"
-        :label="t('groupDetail.filters.proxy')"
-        label-hidden
-        :options="proxyOptions"
-        :disabled="mutating !== undefined || accountBatchPending"
-        @update:model-value="change({ proxy: $event as CredentialFilters['proxy'], page: 1 })"
+      <AppFilterSheet
+        v-model:open="mobileFilters"
+        :mobile="isMobile"
+        :title="t('ui.mobile.filters')"
+      >
+        <AppSelect
+          v-if="group.connectionType === 'subscription'"
+          class="modern-credentials-filter-control"
+          :model-value="filters.reset"
+          :label="t('groupDetail.filters.reset')"
+          :label-hidden="!isMobile"
+          :options="resetOptions"
+          :disabled="mutating !== undefined || accountBatchPending"
+          @update:model-value="change({ reset: $event as CredentialFilters['reset'], page: 1 })" />
+        <AppSelect
+          class="modern-credentials-filter-control"
+          :model-value="filters.proxy"
+          :label="t('groupDetail.filters.proxy')"
+          :label-hidden="!isMobile"
+          :options="proxyOptions"
+          :disabled="mutating !== undefined || accountBatchPending"
+          @update:model-value="change({ proxy: $event as CredentialFilters['proxy'], page: 1 })" />
+        <template v-if="isMobile">
+          <AppSelect
+            :model-value="filters.sort"
+            :label="t('groups.sort.label')"
+            :options="sortOptions"
+            :disabled="mutating !== undefined || accountBatchPending"
+            @update:model-value="change({ sort: $event as CredentialFilters['sort'], page: 1 })"
+          /> </template
+      ></AppFilterSheet>
+      <AppIconButton
+        v-if="isMobile"
+        :icon="SlidersHorizontal"
+        :label="t('ui.mobile.filters')"
+        @click="mobileFilters = true"
       />
       <div class="modern-credentials-toolbar-actions">
         <AppSortMenu
+          v-if="!isMobile"
           :model-value="filters.sort"
           :label="t('groups.sort.label')"
           :options="sortOptions"
           :disabled="mutating !== undefined || accountBatchPending"
           @update:model-value="change({ sort: $event as CredentialFilters['sort'], page: 1 })"
         />
-        <AppButton :icon="Plus" variant="primary" :disabled="!channel" @click="emit('add')">{{
-          t(
-            group.connectionType === 'subscription'
-              ? 'groupDetail.connectAccount'
-              : 'groupDetail.addCredentials',
-          )
-        }}</AppButton>
+        <AppButton
+          :icon="Plus"
+          :icon-only="isMobile"
+          :aria-label="
+            t(
+              group.connectionType === 'subscription'
+                ? 'groupDetail.connectAccount'
+                : 'groupDetail.addCredentials',
+            )
+          "
+          variant="primary"
+          :disabled="!channel"
+          @click="emit('add')"
+          ><span v-if="!isMobile">{{
+            t(
+              group.connectionType === 'subscription'
+                ? 'groupDetail.connectAccount'
+                : 'groupDetail.addCredentials',
+            )
+          }}</span></AppButton
+        >
       </div>
     </div>
     <div class="modern-credentials-filters">
@@ -1048,6 +1086,7 @@ defineExpose({ refresh })
     </div>
     <AppListFrame
       ref="list"
+      mobile-flow
       :label="t('groupDetail.credentials')"
       :loading="query.isFetching.value"
     >
@@ -1434,6 +1473,19 @@ defineExpose({ refresh })
   }
   .modern-credentials-toolbar > :first-child {
     flex-basis: 100%;
+  }
+}
+@media (max-width: 760px) {
+  .modern-credentials-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--modern-space-2);
+  }
+  .modern-credentials-toolbar > :first-child {
+    grid-column: auto;
+  }
+  .modern-credentials-toolbar-actions {
+    display: contents;
   }
 }
 </style>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { Trash2 } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
@@ -50,6 +51,8 @@ import ErrorRulesEditor from '../config/ErrorRulesEditor.vue'
 import { cloneErrorRules, type ErrorRule } from '@shared/error-rules'
 import { groupValidationModelOptions } from './group-model-options'
 
+const isMobile = useMobileLayout()
+const mobileSection = ref('connection')
 const props = defineProps<{ group: GroupRow; channel?: GroupChannel; models: GroupModel[] }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const { t } = useI18n()
@@ -225,12 +228,22 @@ const headerInvalid = computed(() => {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value || switching.value) return
   attempted.value = true
-  if (errorRulesMode.value === 'override' && !(await errorRulesEditor.value?.prepareSave())) return
+  if (errorRulesMode.value === 'override') {
+    if (isMobile.value) {
+      mobileSection.value = 'errors'
+      await nextTick()
+    }
+    if (!(await errorRulesEditor.value?.prepareSave())) return
+  }
   if (!dirty.value) {
     emit('close')
     return
   }
   if (!rulesValid.value) {
+    if (isMobile.value) {
+      mobileSection.value = 'parameters'
+      await nextTick()
+    }
     await rulesEditor.value?.focusFirstInvalid()
     return
   }
@@ -239,8 +252,16 @@ async function save(): Promise<void> {
     runtimeNumbers.some(numberInvalid) ||
     proxyInvalid.value ||
     headerInvalid.value
-  )
+  ) {
+    if (isMobile.value)
+      mobileSection.value =
+        Object.keys(paramErrors.value).length || proxyInvalid.value
+          ? 'connection'
+          : runtimeNumbers.some(numberInvalid)
+            ? 'runtime'
+            : 'headers'
     return
+  }
   const base = saved.value
   const overrides: RuntimeSettings = JSON.parse(JSON.stringify(base.overrides))
   for (const key of runtimeNumbers) {
@@ -381,12 +402,27 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
     @close="emit('close')"
     @save="save"
   >
+    <template v-if="isMobile" #toolbar
+      ><div class="modern-advanced-mobile-toolbar">
+        <AppSelect
+          v-model="mobileSection"
+          :label="t('groupDetail.advanced')"
+          label-hidden
+          :options="[
+            { value: 'connection', label: t('groupDetail.channel') },
+            { value: 'runtime', label: t('credentialCards.runtime') },
+            { value: 'headers', label: t('groupDetail.headers') },
+            { value: 'errors', label: t('groupDetail.errorHandling') },
+            { value: 'parameters', label: t('groupDetail.parameters') },
+          ]"
+        /></div
+    ></template>
     <AppCollectionState v-if="query.isPending.value" :title="t('collection.loading')" loading />
     <AppCollectionState v-else-if="!saved" :title="t('groups.edit.loadFailed')" error
       ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
     >
     <template v-else>
-      <AppFormSection>
+      <AppFormSection v-show="!isMobile || mobileSection === 'connection'">
         <GroupChannelSelect
           v-if="switchable"
           :model-value="saved.channelID"
@@ -451,7 +487,12 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           </AppSelect>
         </div>
       </AppFormSection>
-      <AppFormSection v-if="channel?.proxy" compact :title="t('groupCreate.proxy')">
+      <AppFormSection
+        v-if="channel?.proxy"
+        v-show="!isMobile || mobileSection === 'connection'"
+        compact
+        :title="t('groupCreate.proxy')"
+      >
         <template #actions>
           <AppSegmentedControl
             v-model="proxyMode"
@@ -475,7 +516,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           :error="attempted && proxyInvalid ? t('proxies.selectHelp') : undefined"
         />
       </AppFormSection>
-      <AppFormSection>
+      <AppFormSection v-show="!isMobile || mobileSection === 'runtime'">
         <div class="modern-advanced-columns">
           <AppTextField
             v-for="key in runtimeNumbers"
@@ -520,6 +561,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         </div>
       </AppFormSection>
       <AppFormSection
+        v-show="!isMobile || mobileSection === 'headers'"
         compact
         :title="t('groupDetail.headers')"
         :add-label="t('groupDetail.addHeader')"
@@ -581,6 +623,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         </template>
       </AppFormSection>
       <AppFormSection
+        v-show="!isMobile || mobileSection === 'errors'"
         compact
         :title="t('groupDetail.errorHandling')"
         :hint="t('errorRules.order')"
@@ -607,6 +650,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         />
       </AppFormSection>
       <AppFormSection
+        v-show="!isMobile || mobileSection === 'parameters'"
         compact
         :title="t('groupDetail.parameters')"
         :hint="
@@ -660,6 +704,11 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
 </template>
 
 <style scoped>
+.modern-advanced-mobile-toolbar {
+  padding: var(--modern-space-3) var(--modern-space-5);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+
 .modern-advanced-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

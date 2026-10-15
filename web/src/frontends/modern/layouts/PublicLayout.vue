@@ -91,6 +91,20 @@ const mascotHint = useId()
   padding: var(--modern-space-8) var(--modern-content-inset);
 }
 @media (max-width: 760px) {
+  .modern-public-layout {
+    background: var(--modern-surface);
+  }
+  .modern-public-header {
+    border-bottom: 0;
+    padding-top: env(safe-area-inset-top);
+    height: calc(var(--modern-topbar-height) + env(safe-area-inset-top));
+  }
+  .modern-public-content {
+    align-items: start;
+    padding-top: var(--modern-space-10);
+    padding-bottom: max(var(--modern-space-6), env(safe-area-inset-bottom));
+  }
+
   .modern-public-brand.is-restoring-session {
     display: none;
   }

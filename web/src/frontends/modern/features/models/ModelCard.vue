@@ -11,6 +11,7 @@ import {
 } from '@modern/api/models'
 import {
   AppBadge,
+  AppButton,
   AppChannelIcon,
   AppCopyValue,
   AppIcon,
@@ -23,6 +24,7 @@ import { protocolLabel } from '@modern/i18n/protocols'
 import { modelGroupCount, modelUnitPrice, priceStatus } from './models-display'
 
 const props = defineProps<{
+  mobile?: boolean
   model: RequestModel
   admin: boolean
   selected?: boolean
@@ -63,7 +65,48 @@ function hiddenGroupsLabel(source: ModelSource): string {
 </script>
 
 <template>
-  <article class="modern-model-card" :class="{ 'is-selected': selected }" :aria-label="model.name">
+  <article v-if="mobile" class="modern-model-mobile">
+    <AppButton
+      variant="ghost"
+      class="modern-model-mobile-title"
+      :disabled="disabled"
+      @click="emit('open')"
+      ><strong>{{ model.name }}</strong
+      ><AppIcon :icon="ChevronRight" size="sm"
+    /></AppButton>
+    <div class="modern-model-mobile-meta">
+      <span>{{ t('modelManager.protocolCount', { count: n(model.protocols.length) }) }}</span
+      ><span>{{ t('modelManager.sourceCount', { count: n(model.sources.length) }) }}</span
+      ><span v-if="admin">{{ t('modelManager.groupCount', { count: n(groupCount) }) }}</span>
+    </div>
+    <AppButton
+      v-for="source in model.sources.slice(0, 2)"
+      :key="source.price.id"
+      variant="ghost"
+      class="modern-model-mobile-source"
+      :disabled="disabled"
+      @click="emit('open', source.price.id)"
+    >
+      <span class="modern-model-mobile-channel"
+        ><AppChannelIcon
+          :icon="source.price.channel.icon"
+          :mark="source.price.channel.mark"
+          :name="source.price.channel.name"
+          size="sm"
+        /><span>{{ source.price.channel.name }}</span></span
+      >
+      <span class="modern-model-mobile-prices"
+        ><span>{{ t('modelManager.slots.input') }} {{ price(source, 'input') }}</span
+        ><span>{{ t('modelManager.slots.output') }} {{ price(source, 'output') }}</span></span
+      >
+    </AppButton>
+  </article>
+  <article
+    v-else
+    class="modern-model-card"
+    :class="{ 'is-selected': selected }"
+    :aria-label="model.name"
+  >
     <header class="modern-model-card-heading">
       <span class="modern-model-card-name"><AppCopyValue :value="model.name" /></span>
       <AppTooltip :label="protocolsLabel">
@@ -178,6 +221,64 @@ function hiddenGroupsLabel(source: ModelSource): string {
 </template>
 
 <style scoped>
+.modern-model-mobile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--modern-space-1);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  padding: var(--modern-space-3) 0;
+}
+.modern-model-mobile-title {
+  width: 100%;
+  justify-content: space-between;
+  color: var(--modern-text);
+  padding: 0;
+  min-width: 0;
+}
+.modern-model-mobile-title strong {
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-model-mobile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-model-mobile-source {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  gap: var(--modern-space-1);
+  height: auto;
+  padding: var(--modern-space-2) 0;
+  color: var(--modern-muted);
+  font-weight: var(--modern-weight-regular);
+  text-align: left;
+}
+.modern-model-mobile-channel {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+}
+.modern-model-mobile-channel > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modern-model-mobile-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--modern-space-3);
+  font-size: var(--modern-font-size-small);
+}
+
 .modern-model-card {
   display: flex;
   min-width: 0;

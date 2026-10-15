@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { Eye, EyeOff, ChevronDown } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
@@ -50,6 +51,13 @@ import {
   type GroupDraftModel,
 } from './group-create-rules'
 
+const isMobile = useMobileLayout()
+const mobileSteps = ['connection', 'credentials', 'models'] as const
+const mobileStep = ref<(typeof mobileSteps)[number]>('connection')
+function moveStep(direction: number): void {
+  mobileStep.value =
+    mobileSteps[mobileSteps.indexOf(mobileStep.value) + direction] ?? mobileStep.value
+}
 const props = defineProps<{ initialChannel?: string }>()
 const emit = defineEmits<{
   close: []
@@ -421,6 +429,10 @@ async function execute(): Promise<void> {
 async function submit(): Promise<void> {
   if (inputLocked.value || query.isPending.value) return
   if (authorizationPending.value) {
+    if (isMobile.value) {
+      mobileStep.value = 'credentials'
+      await nextTick()
+    }
     stager.value?.focus()
     return
   }
@@ -429,6 +441,16 @@ async function submit(): Promise<void> {
   errorText.value = ''
   if (!validConnection() || nameError.value || priceError.value || modelErrors(models.value).size) {
     if (priceError.value || proxyError.value) advanced.value = true
+    if (isMobile.value)
+      mobileStep.value =
+        nameError.value ||
+        !channel.value ||
+        Object.keys(paramErrors.value).length ||
+        proxyError.value
+          ? 'connection'
+          : credentialError.value
+            ? 'credentials'
+            : 'models'
     await nextTick()
     if (nameError.value) nameInput.value?.focus()
     else if (!validConnection()) focusConnectionError()
@@ -553,134 +575,154 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
       <AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton>
     </AppCollectionState>
     <form v-else class="modern-group-create-form" novalidate @submit.prevent="submit">
+      <AppSegmentedControl
+        v-if="isMobile"
+        v-model="mobileStep"
+        class="modern-group-create-steps"
+        :label="t('groupCreate.title')"
+        :options="[
+          { value: 'connection', label: t('groupCreate.channel') },
+          { value: 'credentials', label: t('groupDetail.credentials') },
+          { value: 'models', label: t('groupDetail.models') },
+        ]"
+      />
       <div class="modern-group-create-body">
-        <GroupChannelSelect
-          ref="channelInput"
-          :model-value="channelID"
-          :channels="channels"
-          :label="t('groupCreate.channel')"
-          :disabled="inputLocked"
-          :error="attempted && !channel ? t('groupCreate.required') : undefined"
-          @update:model-value="requestChannel"
-        />
-        <div v-if="channel?.nativeProtocols.length" class="modern-group-create-protocols">
-          <span>{{ t('groupCreate.supportedProtocols') }}</span>
-          <div>
-            <AppProtocolTag
-              v-for="protocol in channel.nativeProtocols"
-              :key="protocol"
-              :protocol="protocol"
-            />
+        <div v-show="!isMobile || mobileStep === 'connection'" class="modern-group-create-step">
+          <GroupChannelSelect
+            ref="channelInput"
+            :model-value="channelID"
+            :channels="channels"
+            :label="t('groupCreate.channel')"
+            :disabled="inputLocked"
+            :error="attempted && !channel ? t('groupCreate.required') : undefined"
+            @update:model-value="requestChannel"
+          />
+          <div v-if="channel?.nativeProtocols.length" class="modern-group-create-protocols">
+            <span>{{ t('groupCreate.supportedProtocols') }}</span>
+            <div>
+              <AppProtocolTag
+                v-for="protocol in channel.nativeProtocols"
+                :key="protocol"
+                :protocol="protocol"
+              />
+            </div>
           </div>
+          <AppTextField
+            ref="nameInput"
+            v-model="name"
+            :label="t('groups.edit.name')"
+            :placeholder="t('groupCreate.autoName')"
+            autocomplete="off"
+            :disabled="inputLocked"
+            :error="attempted ? nameError : undefined"
+          />
+          <template v-if="channel">
+            <template v-for="field in channel.fields" :key="field.key">
+              <GroupBaseURLField
+                v-if="field.key === 'base_url'"
+                :ref="(element) => paramRef(field.key, element)"
+                :model-value="params[field.key] ?? ''"
+                :channel="channel"
+                :disabled="inputLocked"
+                :error="attempted ? paramErrors[field.key] : undefined"
+                @update:model-value="params[field.key] = $event"
+              />
+              <AppTextField
+                v-else
+                :ref="(element) => paramRef(field.key, element)"
+                :model-value="params[field.key] ?? ''"
+                :label="field.label"
+                :type="
+                  (field.sensitive || field.inputKind === 'secret') &&
+                  !secretsVisible.has(field.key)
+                    ? 'password'
+                    : 'text'
+                "
+                :placeholder="
+                  field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
+                "
+                :disabled="inputLocked"
+                :error="attempted ? paramErrors[field.key] : undefined"
+                autocomplete="off"
+                spellcheck="false"
+                @update:model-value="params[field.key] = $event"
+              >
+                <template v-if="field.sensitive || field.inputKind === 'secret'" #suffix>
+                  <AppIconButton
+                    :icon="secretsVisible.has(field.key) ? EyeOff : Eye"
+                    :label="
+                      t(
+                        secretsVisible.has(field.key)
+                          ? 'groupCreate.hideSecret'
+                          : 'groupCreate.showSecret',
+                      )
+                    "
+                    size="xs"
+                    @click="toggleSecret(field.key)"
+                  />
+                </template>
+              </AppTextField>
+            </template>
+          </template>
         </div>
-        <AppTextField
-          ref="nameInput"
-          v-model="name"
-          :label="t('groups.edit.name')"
-          :placeholder="t('groupCreate.autoName')"
-          autocomplete="off"
-          :disabled="inputLocked"
-          :error="attempted ? nameError : undefined"
-        />
-        <template v-if="channel">
-          <template v-for="field in channel.fields" :key="field.key">
-            <GroupBaseURLField
-              v-if="field.key === 'base_url'"
-              :ref="(element) => paramRef(field.key, element)"
-              :model-value="params[field.key] ?? ''"
-              :channel="channel"
-              :disabled="inputLocked"
-              :error="attempted ? paramErrors[field.key] : undefined"
-              @update:model-value="params[field.key] = $event"
-            />
-            <AppTextField
-              v-else
-              :ref="(element) => paramRef(field.key, element)"
-              :model-value="params[field.key] ?? ''"
-              :label="field.label"
-              :type="
-                (field.sensitive || field.inputKind === 'secret') && !secretsVisible.has(field.key)
-                  ? 'password'
-                  : 'text'
-              "
-              :placeholder="
-                field.defaultValue || (field.inputKind === 'url' ? 'https://' : undefined)
-              "
-              :disabled="inputLocked"
-              :error="attempted ? paramErrors[field.key] : undefined"
+        <template v-if="channel"
+          ><div v-show="!isMobile || mobileStep === 'credentials'" class="modern-group-create-step">
+            <AppTextArea
+              v-if="!subscription"
+              ref="credentialInput"
+              v-model="credentials"
+              :label="t('groupCreate.credentials')"
+              :hint="t(structured ? 'groupCreate.structuredHelp' : 'groupCreate.credentialsHelp')"
+              :placeholder="credentialPlaceholder"
+              :rows="6"
+              mono
               autocomplete="off"
               spellcheck="false"
-              @update:model-value="params[field.key] = $event"
+              :disabled="inputLocked"
+              :error="attempted ? credentialError : undefined"
             >
-              <template v-if="field.sensitive || field.inputKind === 'secret'" #suffix>
-                <AppIconButton
-                  :icon="secretsVisible.has(field.key) ? EyeOff : Eye"
-                  :label="
-                    t(
-                      secretsVisible.has(field.key)
-                        ? 'groupCreate.hideSecret'
-                        : 'groupCreate.showSecret',
-                    )
-                  "
-                  size="xs"
-                  @click="toggleSecret(field.key)"
-                />
+              <template v-if="channel.partner" #label-extra>
+                <span class="modern-group-create-partner"
+                  >{{ t('groupCreate.partnerChannel') }} ·
+                  <AppExternalLink :href="channel.partner.signupURL"
+                    >{{ t('groupCreate.partnerSignup', { name: channel.name }) }} ↗</AppExternalLink
+                  ></span
+                >
               </template>
-            </AppTextField>
-          </template>
-          <AppTextArea
-            v-if="!subscription"
-            ref="credentialInput"
-            v-model="credentials"
-            :label="t('groupCreate.credentials')"
-            :hint="t(structured ? 'groupCreate.structuredHelp' : 'groupCreate.credentialsHelp')"
-            :placeholder="credentialPlaceholder"
-            :rows="6"
-            mono
-            autocomplete="off"
-            spellcheck="false"
-            :disabled="inputLocked"
-            :error="attempted ? credentialError : undefined"
-          >
-            <template v-if="channel.partner" #label-extra>
-              <span class="modern-group-create-partner"
-                >{{ t('groupCreate.partnerChannel') }} ·
-                <AppExternalLink :href="channel.partner.signupURL"
-                  >{{ t('groupCreate.partnerSignup', { name: channel.name }) }} ↗</AppExternalLink
-                ></span
-              >
-            </template>
-          </AppTextArea>
-          <p v-if="!subscription" class="modern-group-create-count">
-            {{ t('groupCreate.credentialCount', { count: n(count) }) }}
-          </p>
-          <SubscriptionCredentialStager
-            v-else
-            :key="channel.id"
-            ref="stager"
-            v-model="stages"
-            :channel="channel"
-            :proxy="proxyOverride"
-            :disabled="locked || discovering"
-            :entry-disabled="Boolean(proxyError) || Object.keys(paramErrors).length > 0"
-            :error="attempted ? credentialError : undefined"
-            @busy="stagingBusy = $event"
-            @dirty="stagingDirty = $event"
-          />
-          <GroupModelPicker
-            ref="modelPicker"
-            v-model="models"
-            :connection-revision="connectionRevision"
-            :candidates="candidates"
-            :loading="discoveryFeedback"
-            :discovery-supported="channel.discovery"
-            :can-discover="validConnection()"
-            :discovery-error="discoveryError"
-            :disabled="inputLocked"
-            :attempted="attempted"
-            @discover="discover"
-            @cancel-discovery="cancelDiscovery"
-          />
+            </AppTextArea>
+            <p v-if="!subscription" class="modern-group-create-count">
+              {{ t('groupCreate.credentialCount', { count: n(count) }) }}
+            </p>
+            <SubscriptionCredentialStager
+              v-else
+              :key="channel.id"
+              ref="stager"
+              v-model="stages"
+              :channel="channel"
+              :proxy="proxyOverride"
+              :disabled="locked || discovering"
+              :entry-disabled="Boolean(proxyError) || Object.keys(paramErrors).length > 0"
+              :error="attempted ? credentialError : undefined"
+              @busy="stagingBusy = $event"
+              @dirty="stagingDirty = $event"
+            />
+          </div>
+          <div v-show="!isMobile || mobileStep === 'models'" class="modern-group-create-step">
+            <GroupModelPicker
+              ref="modelPicker"
+              v-model="models"
+              :connection-revision="connectionRevision"
+              :candidates="candidates"
+              :loading="discoveryFeedback"
+              :discovery-supported="channel.discovery"
+              :can-discover="validConnection()"
+              :discovery-error="discoveryError"
+              :disabled="inputLocked"
+              :attempted="attempted"
+              @discover="discover"
+              @cancel-discovery="cancelDiscovery"
+            />
+          </div>
           <details
             class="modern-group-create-advanced"
             :open="advanced"
@@ -756,8 +798,22 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
               })
         }}</span>
         <div class="modern-group-create-actions">
-          <AppButton :disabled="busy" @click="close">{{ t('ui.cancel') }}</AppButton>
           <AppButton
+            :disabled="busy"
+            @click="isMobile && mobileStep !== 'connection' ? moveStep(-1) : close()"
+            >{{
+              t(isMobile && mobileStep !== 'connection' ? 'ui.mobile.back' : 'ui.cancel')
+            }}</AppButton
+          >
+          <AppButton
+            v-if="isMobile && mobileStep !== 'models'"
+            variant="primary"
+            :disabled="!channel || inputLocked"
+            @click="moveStep(1)"
+            >{{ t('ui.mobile.next') }}</AppButton
+          >
+          <AppButton
+            v-if="!isMobile || mobileStep === 'models'"
             type="submit"
             variant="primary"
             :loading="operation.pending.value"
@@ -823,6 +879,17 @@ useMessageSource(() => (errorText.value ? { text: errorText.value, tone: 'danger
 </template>
 
 <style scoped>
+.modern-group-create-step {
+  display: contents;
+}
+.modern-group-create-steps {
+  width: 100%;
+  border-radius: 0;
+  flex: none;
+  padding: var(--modern-space-2) var(--modern-space-4);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+
 .modern-group-create-form {
   display: flex;
   flex: 1;

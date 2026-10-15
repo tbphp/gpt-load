@@ -1,5 +1,18 @@
 import { zhCN as dateZH, enUS as dateEN, jaJP as dateJA } from './date-time'
 export const zhCN = {
+  mobile: {
+    trend: '趋势',
+    sources: '来源',
+    composition: 'Token 构成',
+    previewConfig: '查看配置内容',
+    next: '下一步',
+    more: '更多',
+    filters: '筛选与排序',
+    showResults: '查看结果',
+    back: '返回',
+    details: '查看详情',
+    nav: { home: '总览', groups: '分组', models: '模型', logs: '日志', usage: '用量' },
+  },
   date: dateZH,
   close: '关闭',
   edit: '编辑',
@@ -53,6 +66,19 @@ export const zhCN = {
 }
 
 export const enUS: typeof zhCN = {
+  mobile: {
+    trend: 'Trends',
+    sources: 'Sources',
+    composition: 'Tokens',
+    previewConfig: 'Preview configuration',
+    next: 'Next',
+    more: 'More',
+    filters: 'Filter and sort',
+    showResults: 'Show results',
+    back: 'Back',
+    details: 'View details',
+    nav: { home: 'Overview', groups: 'Groups', models: 'Models', logs: 'Logs', usage: 'Usage' },
+  },
   date: dateEN,
   close: 'Close',
   edit: 'Edit',
@@ -107,6 +133,19 @@ export const enUS: typeof zhCN = {
 }
 
 export const jaJP: typeof zhCN = {
+  mobile: {
+    trend: '推移',
+    sources: '内訳',
+    composition: 'Token 構成',
+    previewConfig: '設定内容を表示',
+    next: '次へ',
+    more: 'その他',
+    filters: '絞り込みと並び順',
+    showResults: '結果を表示',
+    back: '戻る',
+    details: '詳細を表示',
+    nav: { home: '概要', groups: 'グループ', models: 'モデル', logs: 'ログ', usage: '使用量' },
+  },
   date: dateJA,
   close: '閉じる',
   edit: '編集',

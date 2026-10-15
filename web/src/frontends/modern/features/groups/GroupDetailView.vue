@@ -2,6 +2,7 @@
 import { ArrowLeft, ChevronRight, Layers, SlidersHorizontal } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { useMessages, useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -16,6 +17,7 @@ import { getGroupUsage, getGroupWorkspace, groupQueryKey } from '@modern/api/gro
 import { getGroupUsageTrend } from '@modern/api/group-usage-trend'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import {
+  AppSegmentedControl,
   AppBadge,
   AppButton,
   AppChannelIcon,
@@ -39,7 +41,8 @@ const router = useRouter()
 const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
-const settingsSection = ref<HTMLElement>()
+const isMobile = useMobileLayout()
+const mobileTab = ref('credentials')
 const id = computed(() => Number(route.params.id))
 const valid = computed(() => Number.isSafeInteger(id.value) && id.value > 0)
 const groups = useQuery({
@@ -264,7 +267,7 @@ useMessageSource(() =>
                 t('groups.connection.' + group.connectionType)
               }}</AppBadge>
             </div>
-            <div class="modern-group-workspace-meta">
+            <div v-if="!isMobile || mobileTab === 'overview'" class="modern-group-workspace-meta">
               <AppCopyValue
                 v-if="group.endpoint"
                 class="modern-group-workspace-endpoint"
@@ -280,7 +283,10 @@ useMessageSource(() =>
                 >{{ t('groups.board.price', { value: group.priceMultiplier }) }}</span
               >
             </div>
-            <div v-if="channel?.nativeProtocols.length" class="modern-group-workspace-protocols">
+            <div
+              v-if="(!isMobile || mobileTab === 'overview') && channel?.nativeProtocols.length"
+              class="modern-group-workspace-protocols"
+            >
               <span>{{ t('groupDetail.supportedProtocols') }}</span>
               <div>
                 <AppProtocolTag
@@ -292,16 +298,30 @@ useMessageSource(() =>
             </div>
           </div>
         </header>
-        <AppButton
-          class="modern-group-mobile-settings"
-          variant="ghost"
-          :icon="SlidersHorizontal"
-          @click="settingsSection?.scrollIntoView({ block: 'start' })"
-          >{{ t('groupDetail.settings') }}</AppButton
-        >
+        <AppSegmentedControl
+          v-if="isMobile"
+          v-model="mobileTab"
+          :label="t('groupDetail.settings')"
+          :options="[
+            { value: 'credentials', label: t('groupDetail.credentials') },
+            { value: 'overview', label: t('groupDetail.overview') },
+            { value: 'settings', label: t('groupDetail.settings') },
+          ]"
+        />
+        <GroupOverview
+          v-if="isMobile && mobileTab === 'overview'"
+          :group="group"
+          :usage="groupUsage"
+          :trend="trend.data.value"
+          :loading="usage.isFetching.value || trend.isFetching.value"
+          :incomplete="usage.data.value?.incomplete ?? false"
+          :failed="usage.isError.value || trend.isError.value"
+          @retry="refreshUsage"
+        />
         <GroupCredentials
           :key="group.id"
           ref="credentials"
+          :visible="!isMobile || mobileTab === 'credentials'"
           :group="group"
           :channel="channel"
           @add="panel = 'add'"
@@ -311,7 +331,7 @@ useMessageSource(() =>
         />
       </div>
       <aside
-        ref="settingsSection"
+        v-show="!isMobile || mobileTab === 'settings'"
         class="modern-group-workspace-sidebar"
         :aria-label="t('groupDetail.settings')"
       >
@@ -325,7 +345,7 @@ useMessageSource(() =>
           @pending="basicsPending = $event"
           @updated-at="basicsUpdatedAt = $event"
         >
-          <template #overview
+          <template v-if="!isMobile" #overview
             ><GroupOverview
               :group="group"
               :usage="groupUsage"
@@ -536,6 +556,16 @@ useMessageSource(() =>
   }
 }
 @media (max-width: 760px) {
+  .modern-group-workspace {
+    flex: none;
+  }
+  .modern-group-workspace-layout {
+    gap: var(--modern-space-3);
+  }
+  .modern-group-workspace-sidebar {
+    border-top: 0;
+  }
+
   .modern-group-mobile-settings {
     display: inline-flex;
     align-self: flex-end;

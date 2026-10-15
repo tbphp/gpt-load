@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ArrowRight, ChevronDown, ChevronRight, Eye, Route, Search } from '@lucide/vue'
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { Pencil, ArrowRight, ChevronDown, ChevronRight, Eye, Route, Search } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -34,6 +35,8 @@ import { percentage } from '@modern/features/usage/usage-display'
 import { activeGroups, groupWeight, groupsWeight, reasonLabel } from './inspection-display'
 import InspectionCredentials from './InspectionCredentials.vue'
 
+const isMobile = useMobileLayout()
+const mobileQueryOpen = ref(false)
 const props = defineProps<{
   groups?: GroupWorkspace
   groupsLoading: boolean
@@ -270,6 +273,7 @@ async function run(): Promise<void> {
     query.isFetching.value
   )
     return
+  if (isMobile.value) mobileQueryOpen.value = false
   const same =
     state.value.run &&
     state.value.protocol === draft.value.protocol &&
@@ -298,7 +302,19 @@ defineExpose({ refresh, pending, updatedAt })
 
 <template>
   <div class="modern-inspector-workspace">
-    <form class="modern-inspector-form" @submit.prevent="run">
+    <AppButton
+      v-if="isMobile && result"
+      :icon="Pencil"
+      class="modern-inspector-edit-query"
+      variant="ghost"
+      @click="mobileQueryOpen = !mobileQueryOpen"
+      >{{ t('ui.edit') }}</AppButton
+    >
+    <form
+      v-show="!isMobile || !result || mobileQueryOpen"
+      class="modern-inspector-form"
+      @submit.prevent="run"
+    >
       <AppSearchSelect
         v-model="draft.key"
         :label="t('inspector.accessKey')"
@@ -421,7 +437,7 @@ defineExpose({ refresh, pending, updatedAt })
       <AppListFrame :label="t('inspector.result')" :loading="query.isFetching.value" flow>
         <div
           class="modern-inspector-table"
-          role="table"
+          :role="isMobile ? undefined : 'table'"
           :aria-label="t('inspector.result')"
           tabindex="0"
         >
@@ -441,7 +457,44 @@ defineExpose({ refresh, pending, updatedAt })
             :title="t(result.groups.length ? 'inspector.emptyFiltered' : 'inspector.noGroups')"
           />
           <div v-for="group in visible" :key="rowKey(group)" class="modern-inspector-row">
-            <div class="modern-inspector-columns" role="row">
+            <AppButton
+              v-if="isMobile"
+              variant="ghost"
+              class="modern-inspector-mobile-route"
+              :aria-expanded="expanded.has(rowKey(group))"
+              @click="toggle(group)"
+            >
+              <span class="modern-inspector-mobile-heading"
+                ><strong>{{ group.name }}</strong
+                ><AppIcon
+                  :icon="expanded.has(rowKey(group)) ? ChevronDown : ChevronRight"
+                  size="sm"
+              /></span>
+              <span class="modern-inspector-mobile-meta"
+                ><AppBadge
+                  :tone="active(group) ? 'success' : group.included ? 'warning' : 'neutral'"
+                  size="xs"
+                  dot
+                  >{{ t('inspector.' + status(group)) }}</AppBadge
+                ><span>{{ group.model ?? '—' }}</span
+                ><span>{{ t('inspector.' + group.mode) }}</span></span
+              >
+              <span class="modern-inspector-mobile-meta"
+                ><span
+                  >{{ t('inspector.credentials') }}
+                  {{ n(group.credentials.filter((row) => row.available).length) }}/{{
+                    n(group.credentials.length)
+                  }}</span
+                ><span
+                  >{{ t('inspector.share') }}
+                  {{ active(group) ? percentage(share(group), locale) : '—' }}</span
+                ></span
+              >
+              <span v-if="group.reason" class="modern-inspector-mobile-reason">{{
+                reasonLabel(group.reason, t)
+              }}</span>
+            </AppButton>
+            <div v-else class="modern-inspector-columns" role="row">
               <div class="modern-inspector-identity" role="cell">
                 <AppIconButton
                   :icon="expanded.has(rowKey(group)) ? ChevronDown : ChevronRight"
@@ -514,6 +567,11 @@ defineExpose({ refresh, pending, updatedAt })
                 />
               </div>
             </div>
+            <AppButton v-if="isMobile && expanded.has(rowKey(group))" variant="text" as-child
+              ><RouterLink :to="{ name: 'modern-group-detail', params: { id: group.id } }">{{
+                t('inspector.openGroup')
+              }}</RouterLink></AppButton
+            >
             <InspectionCredentials
               v-if="expanded.has(rowKey(group))"
               :group="group"
@@ -537,6 +595,47 @@ defineExpose({ refresh, pending, updatedAt })
 </template>
 
 <style scoped>
+.modern-inspector-edit-query {
+  justify-self: end;
+}
+.modern-inspector-mobile-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  height: auto;
+  justify-content: stretch;
+  gap: var(--modern-space-2);
+  padding: var(--modern-space-3) 0;
+  border-radius: 0;
+  text-align: left;
+  white-space: normal;
+  color: var(--modern-text);
+}
+.modern-inspector-mobile-heading,
+.modern-inspector-mobile-meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--modern-space-2);
+}
+.modern-inspector-mobile-heading strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-inspector-mobile-meta {
+  flex-wrap: wrap;
+}
+.modern-inspector-mobile-meta,
+.modern-inspector-mobile-reason {
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-regular);
+  color: var(--modern-muted);
+}
+
 .modern-inspector-workspace {
   container: modern-inspector / inline-size;
   display: flex;

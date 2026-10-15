@@ -4,7 +4,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from './AppIcon.vue'
 
-defineProps<{
+const props = defineProps<{
   label: string
   loading?: boolean
   flow?: boolean
@@ -14,7 +14,19 @@ const { t } = useI18n()
 const scroller = ref<HTMLElement>()
 defineExpose({
   scrollToTop: () => {
-    scroller.value?.scrollTo({ top: 0 })
+    const element = scroller.value
+    element?.scrollTo({ top: 0 })
+    // 手机列表随页面滚动，翻页后也要回到列表顶部。
+    if (props.mobileFlow && element && element.scrollHeight <= element.clientHeight) {
+      let parent = element.parentElement
+      while (parent) {
+        if (['auto', 'scroll'].includes(getComputedStyle(parent).overflowY)) {
+          parent.scrollTo({ top: 0 })
+          break
+        }
+        parent = parent.parentElement
+      }
+    }
   },
 })
 </script>

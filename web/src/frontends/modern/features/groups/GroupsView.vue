@@ -28,12 +28,14 @@ import {
   type GroupRow,
   type GroupWorkspace,
 } from '@modern/api/groups'
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { useMessageSource } from '@modern/app/messages'
 import { useURLState } from '@modern/app/url-state'
 import { usePageRefresh } from '@modern/app/page-refresh'
 import { useLoadingFeedback } from '@modern/components/ui/loading'
 import {
   AppAdvancedFilters,
+  AppFilterSheet,
   AppAdvancedFilterSection,
   AppButton,
   AppChannelIcon,
@@ -61,6 +63,7 @@ import { protocolLabel, protocolOrder } from '@modern/i18n/protocols'
 import { groupFilterQuery as serializeGroupFilters, parseGroupFilters } from './group-route'
 
 const { t, n, locale } = useI18n()
+const isMobile = useMobileLayout()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const route = useRoute()
@@ -743,33 +746,80 @@ useMessageSource(() =>
           @compositionend="endComposition"
         />
       </div>
-      <AppSearchSelect
-        class="modern-groups-channel"
-        :model-value="filters.channel"
-        :label="t('groups.board.channel')"
-        label-hidden
-        :options="channels"
-        @update:model-value="updateFilters({ channel: $event })"
-      >
-        <template #option="{ option }">
-          <AppChannelIcon
-            v-if="channelInfo.has(option.value)"
-            :icon="channelInfo.get(option.value)?.icon"
-            :mark="channelInfo.get(option.value)?.mark"
-            :name="channelInfo.get(option.value)?.name"
+      <AppFilterSheet v-model:open="moreFilters" :mobile="isMobile" :title="t('ui.mobile.filters')">
+        <AppSearchSelect
+          class="modern-groups-channel"
+          :model-value="filters.channel"
+          :label="t('groups.board.channel')"
+          :label-hidden="!isMobile"
+          :options="channels"
+          @update:model-value="updateFilters({ channel: $event })"
+        >
+          <template #option="{ option }">
+            <AppChannelIcon
+              v-if="channelInfo.has(option.value)"
+              :icon="channelInfo.get(option.value)?.icon"
+              :mark="channelInfo.get(option.value)?.mark"
+              :name="channelInfo.get(option.value)?.name"
+            />
+            <span>{{ option.label }}</span>
+          </template>
+        </AppSearchSelect>
+        <AppModelSelect
+          class="modern-groups-model"
+          :model-value="filters.model"
+          :label="t('groupDetail.models')"
+          :label-hidden="!isMobile"
+          :models="modelNames"
+          fuzzy
+          @update:model-value="updateFilters({ model: $event }, true)"
+        />
+        <template v-if="isMobile">
+          <AppAdvancedFilterSection :title="t('groups.board.filterSection')">
+            <AppSelect
+              :model-value="filters.connection"
+              :label="t('groupDetail.filters.channelType')"
+              :options="connectionOptions"
+              size="xs"
+              @update:model-value="
+                updateFilters({ connection: $event as GroupFilters['connection'] })
+              "
+            />
+            <AppSearchSelect
+              :model-value="filters.credential"
+              :label="t('groups.board.credentials')"
+              :placeholder="t('groups.board.searchCredentials')"
+              :options="credentialOptions"
+              :loading="credentialCatalog.isFetching.value"
+              size="xs"
+              @update:model-value="updateFilters({ credential: $event })"
+            />
+            <AppSelect
+              :model-value="filters.protocol"
+              :label="t('groups.board.protocolFilter')"
+              :options="protocolOptions"
+              size="xs"
+              @update:model-value="updateFilters({ protocol: $event })"
+            >
+              <template #value="{ value, label }">
+                <AppProtocolTag v-if="value" :protocol="value" />
+                <AppOverflowText v-else :text="label" />
+              </template>
+              <template #option="{ option }">
+                <AppProtocolTag v-if="option.value" :protocol="option.value" />
+                <span v-else>{{ option.label }}</span>
+              </template>
+            </AppSelect>
+          </AppAdvancedFilterSection>
+          <AppSelect
+            :model-value="filters.sort"
+            :label="t('groups.sort.label')"
+            :options="sortOptions"
+            :disabled="pending.size > 0"
+            @update:model-value="updateFilters({ sort: $event as GroupFilters['sort'] })"
           />
-          <span>{{ option.label }}</span>
         </template>
-      </AppSearchSelect>
-      <AppModelSelect
-        class="modern-groups-model"
-        :model-value="filters.model"
-        :label="t('groupDetail.models')"
-        label-hidden
-        :models="modelNames"
-        fuzzy
-        @update:model-value="updateFilters({ model: $event }, true)"
-      />
+      </AppFilterSheet>
       <div class="modern-groups-toolbar-actions">
         <AppIconButton
           :icon="SlidersHorizontal"
@@ -779,6 +829,7 @@ useMessageSource(() =>
           @click="moreFilters = !moreFilters"
         />
         <AppSortMenu
+          v-if="!isMobile"
           :model-value="filters.sort"
           :label="t('groups.sort.label')"
           :options="sortOptions"
@@ -788,13 +839,15 @@ useMessageSource(() =>
         <AppButton
           variant="primary"
           :icon="Plus"
+          :icon-only="isMobile"
+          :aria-label="t('groups.create')"
           :disabled="pending.size > 0"
           @click="openCreate"
-          >{{ t('groups.create') }}</AppButton
+          ><span v-if="!isMobile">{{ t('groups.create') }}</span></AppButton
         >
       </div>
     </form>
-    <AppAdvancedFilters id="modern-groups-more-filters" :open="moreFilters">
+    <AppAdvancedFilters v-if="!isMobile" id="modern-groups-more-filters" :open="moreFilters">
       <AppAdvancedFilterSection :title="t('groups.board.filterSection')">
         <AppSelect
           :model-value="filters.connection"
@@ -925,6 +978,7 @@ useMessageSource(() =>
           v-for="group in visible"
           :key="group.id + ':' + rowRevision"
           :group="group"
+          :mobile="isMobile"
           :expanded="expanded.has(group.id)"
           :pending="pending.get(group.id)"
           :enabled-override="enabledOverrides.get(group.id)"
@@ -1080,7 +1134,7 @@ useMessageSource(() =>
   }
   .modern-groups-toolbar {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: var(--modern-space-2);
     padding-top: var(--modern-space-3);
   }
@@ -1088,9 +1142,11 @@ useMessageSource(() =>
   .modern-groups-model {
     flex: 1 1 0;
   }
-  .modern-groups-search,
   .modern-groups-toolbar-actions {
-    grid-column: 1 / -1;
+    display: contents;
+  }
+  .modern-groups-search {
+    grid-column: auto;
   }
   .modern-group-list-head {
     display: none;
