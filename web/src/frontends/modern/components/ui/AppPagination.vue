@@ -330,21 +330,5 @@ function selectSize(value: string): void {
   .modern-pagination-position {
     min-width: var(--modern-touch-target);
   }
-  @container modern-pagination (max-width: 320px) {
-    .modern-pagination {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .modern-pagination-controls {
-      display: contents;
-    }
-    .modern-pagination-size {
-      grid-column: 2;
-      grid-row: 1;
-    }
-    .modern-pagination-navigation {
-      grid-column: 1 / -1;
-      justify-self: end;
-    }
-  }
 }
 </style>

@@ -20,13 +20,14 @@ defineEmits<{ close: [] }>()
         <h2>{{ title }}</h2>
         <AppIconButton
           v-if="hint"
+          touchable
           :icon="Info"
           :label="hint"
           size="xxs"
           class="modern-help-trigger"
         />
       </div>
-      <p v-if="description"><AppOverflowText :text="description" /></p>
+      <p v-if="description"><AppOverflowText :text="description" wrap-on-mobile /></p>
     </div>
     <AppIconButton
       :icon="X"
@@ -66,5 +67,20 @@ defineEmits<{ close: [] }>()
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
   overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .modern-dialog-header {
+    align-items: flex-start;
+    padding: var(--modern-space-3) var(--modern-space-4);
+    gap: var(--modern-space-2);
+  }
+  .modern-dialog-title {
+    min-height: var(--modern-touch-target);
+    min-width: 0;
+  }
+  .modern-dialog-header h2 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

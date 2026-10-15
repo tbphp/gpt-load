@@ -607,6 +607,7 @@ onScopeDispose(() => {
             <AppDateTimePicker
               v-if="!draft.never"
               v-model="draft.expires"
+              :mobile="isMobile"
               :label="t('accessKeys.expires')"
               label-hidden
               :shortcuts="expiryShortcuts"

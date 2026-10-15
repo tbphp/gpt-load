@@ -228,6 +228,11 @@ defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
   font-size: var(--modern-font-size-small);
 }
 @media (max-width: 760px) {
+  .modern-multi-trigger {
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+    margin-inline-end: calc(-1 * var(--modern-space-2));
+  }
   .modern-multi-input {
     font-size: var(--modern-font-size-input-mobile);
   }

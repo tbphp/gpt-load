@@ -422,9 +422,8 @@ const lastActive = computed(() =>
   gap: var(--modern-space-2);
 }
 .modern-group-mobile-title strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: var(--modern-weight-semibold);
 }
 .modern-group-mobile-meta,

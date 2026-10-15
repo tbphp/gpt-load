@@ -447,6 +447,20 @@ async function importClient(): Promise<void> {
   .modern-connect {
     height: auto;
   }
+  .modern-connect-split {
+    gap: var(--modern-space-5);
+    border-top: 0;
+  }
+  .modern-connect-client-picker,
+  .modern-connect-main,
+  .modern-connect-content {
+    padding: 0;
+  }
+  .modern-connect-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--modern-space-5);
+  }
   .modern-connect-content {
     overflow: visible;
   }

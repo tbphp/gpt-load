@@ -475,8 +475,11 @@ useLoadingActivity(() => filtering.value || props.loading)
   }
   .modern-create-model-row > :nth-child(3) {
     grid-column: 2;
-    grid-row: 1 / 3;
-    align-self: center;
+    grid-row: 1;
+    align-self: end;
+  }
+  .modern-create-model-field:nth-child(2) {
+    grid-column: 1 / -1;
   }
 }
 </style>

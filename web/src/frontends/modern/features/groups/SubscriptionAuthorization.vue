@@ -142,6 +142,7 @@ async function submitPastedCallback(): Promise<void> {
         >{{ t(device ? 'subscriptions.deviceStep' : 'subscriptions.callbackStep') }}
         <AppIconButton
           v-if="!device"
+          touchable
           :icon="Info"
           :label="t('subscriptions.callbackHelp')"
           size="xxs"

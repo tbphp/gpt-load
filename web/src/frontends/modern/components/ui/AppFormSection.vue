@@ -39,7 +39,7 @@ const bodyId = useId()
             <span>{{ title }}</span
             ><AppIcon :icon="ChevronDown" size="sm" :class="{ 'is-expanded': expanded }" />
           </button>
-          <AppTooltip v-if="hint" :label="hint">
+          <AppTooltip v-if="hint" touchable :label="hint">
             <span
               class="modern-form-section-hint modern-help-trigger"
               tabindex="0"

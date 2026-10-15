@@ -370,6 +370,11 @@ onScopeDispose(cancelRequest)
   font-size: var(--modern-font-size-secondary);
 }
 @media (max-width: 760px) {
+  .modern-search-select-trigger {
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+    margin-inline-end: calc(-1 * var(--modern-space-2));
+  }
   .modern-search-select {
     container: modern-search-select / inline-size;
   }

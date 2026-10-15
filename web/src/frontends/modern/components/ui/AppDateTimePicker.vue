@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { CalendarClock } from '@lucide/vue'
-import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
+import {
+  DialogRoot,
+  DialogTrigger,
+  PopoverContent,
+  PopoverPortal,
+  PopoverRoot,
+  PopoverTrigger,
+} from 'reka-ui'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppButton from './AppButton.vue'
+import AppDialogContent from './AppDialogContent.vue'
+import AppDialogHeader from './AppDialogHeader.vue'
 import AppDateTimeEditor from './AppDateTimeEditor.vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
@@ -24,6 +33,7 @@ defineOptions({ inheritAttrs: false })
 const props = withDefaults(
   defineProps<
     FieldProps & {
+      mobile?: boolean
       min?: string
       max?: string
       placeholder?: string
@@ -95,9 +105,9 @@ function clear(): void {
 </script>
 <template>
   <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
-    <PopoverRoot v-model:open="open">
+    <component :is="mobile ? DialogRoot : PopoverRoot" v-model:open="open">
       <AppFieldControl as-child :size="size" :disabled="disabled" :invalid="invalid">
-        <PopoverTrigger as-child
+        <component :is="mobile ? DialogTrigger : PopoverTrigger" as-child
           ><AppButton
             :id="id"
             :size="size"
@@ -109,40 +119,54 @@ function clear(): void {
             ><AppIcon :icon="CalendarClock" size="sm" /><AppOverflowText
               :text="display"
               :class="{ 'modern-date-placeholder': !model }" /></AppButton
-        ></PopoverTrigger>
+        ></component>
       </AppFieldControl>
-      <PopoverPortal
-        ><PopoverContent
-          class="modern-date-popover"
-          align="start"
-          :side-offset="overlaySideOffset"
-          :collision-padding="16"
+      <component
+        :is="mobile ? 'div' : PopoverPortal"
+        :class="mobile ? 'modern-date-portal' : undefined"
+      >
+        <component
+          :is="mobile ? AppDialogContent : PopoverContent"
+          :class="mobile ? 'modern-date-sheet' : 'modern-date-popover'"
+          v-bind="
+            mobile
+              ? { placement: 'bottom', title: label, description: label }
+              : { align: 'start', sideOffset: overlaySideOffset, collisionPadding: 16 }
+          "
           @keydown.enter="confirmKey"
         >
-          <div
-            v-if="shortcuts.length"
-            class="modern-date-shortcuts"
-            :aria-label="t('ui.date.shortcuts')"
-          >
-            <AppButton
-              v-for="option in shortcuts"
-              :key="option.label"
-              size="xxs"
-              :variant="activeShortcut === option.label ? 'brand' : 'ghost'"
-              :aria-pressed="activeShortcut === option.label"
-              @click="shortcut(option)"
-              >{{ option.label }}</AppButton
-            >
-          </div>
-          <AppDateTimeEditor
-            v-model="draft"
-            :label="label"
-            :min="min"
-            :max="max"
-            :invalid="!valid"
-            @update:model-value="activeShortcut = ''"
+          <AppDialogHeader
+            v-if="mobile"
+            :title="label"
+            :close-label="t('ui.close')"
+            @close="open = false"
           />
-          <p v-if="!valid" class="modern-date-error" role="status">{{ t('ui.date.invalid') }}</p>
+          <div class="modern-date-body">
+            <div
+              v-if="shortcuts.length"
+              class="modern-date-shortcuts"
+              :aria-label="t('ui.date.shortcuts')"
+            >
+              <AppButton
+                v-for="option in shortcuts"
+                :key="option.label"
+                size="xxs"
+                :variant="activeShortcut === option.label ? 'brand' : 'ghost'"
+                :aria-pressed="activeShortcut === option.label"
+                @click="shortcut(option)"
+                >{{ option.label }}</AppButton
+              >
+            </div>
+            <AppDateTimeEditor
+              v-model="draft"
+              :label="label"
+              :min="min"
+              :max="max"
+              :invalid="!valid"
+              @update:model-value="activeShortcut = ''"
+            />
+            <p v-if="!valid" class="modern-date-error" role="status">{{ t('ui.date.invalid') }}</p>
+          </div>
           <footer class="modern-date-footer">
             <span class="modern-date-zone">{{ localTimeZone() }}</span>
             <div>
@@ -157,8 +181,8 @@ function clear(): void {
               }}</AppButton>
             </div>
           </footer>
-        </PopoverContent></PopoverPortal
+        </component></component
       >
-    </PopoverRoot>
+    </component>
   </AppField>
 </template>

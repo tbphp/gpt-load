@@ -386,6 +386,7 @@ const bucketLabel = computed(() => {
       <AppDateTimeRangePicker
         v-model:from="from"
         v-model:to="to"
+        :mobile="isMobile"
         :preset="preset"
         :label="t('logs.timeRange')"
         size="md"

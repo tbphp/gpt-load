@@ -292,6 +292,7 @@ const loadCredentials = computed(() => {
       <AppDateTimeRangePicker
         v-model:from="from"
         v-model:to="to"
+        :mobile="isMobile"
         class="modern-log-filter-date"
         :label="t('logs.timeRange')"
         label-hidden

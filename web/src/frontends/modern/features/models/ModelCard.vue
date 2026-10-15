@@ -239,9 +239,8 @@ function hiddenGroupsLabel(source: ModelSource): string {
 .modern-model-mobile-title strong {
   text-align: left;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-weight: var(--modern-weight-semibold);
 }
 .modern-model-mobile-meta {

@@ -510,17 +510,25 @@ onScopeDispose(() => {
       <template v-else
         ><template v-for="row in rows" :key="row.id">
           <article v-if="isMobile" class="modern-access-mobile">
-            <AppButton
-              class="modern-access-mobile-open"
-              variant="ghost"
-              @click="setPanel('detail', row.id)"
-            >
-              <span class="modern-access-mobile-name">{{ row.name }}</span>
-              <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
-                t('accessKeys.' + accessState(row).key)
-              }}</AppBadge>
-              <AppIcon :icon="ChevronRight" size="sm" />
-            </AppButton>
+            <div class="modern-access-mobile-heading">
+              <AppButton
+                class="modern-access-mobile-open"
+                variant="ghost"
+                @click="setPanel('detail', row.id)"
+              >
+                <span class="modern-access-mobile-name">{{ row.name }}</span>
+                <AppBadge :tone="accessState(row).tone" variant="plain" size="xs" dot>{{
+                  t('accessKeys.' + accessState(row).key)
+                }}</AppBadge>
+                <AppIcon :icon="ChevronRight" size="sm" />
+              </AppButton>
+              <AppActionMenu
+                :label="`${row.name} · ${t('accessKeys.actions')}`"
+                :items="menus(row)"
+                :disabled="mutating.has(row.id)"
+                @select="action(row, $event)"
+              />
+            </div>
             <div class="modern-access-mobile-meta">
               <AppCopyValue
                 :key="row.updated_at_ms"
@@ -680,7 +688,8 @@ onScopeDispose(() => {
   border-bottom: var(--modern-line-width) solid var(--modern-border);
 }
 .modern-access-mobile-open {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   justify-content: flex-start;
   padding: 0;
   color: var(--modern-text);
@@ -689,10 +698,14 @@ onScopeDispose(() => {
   flex: 1;
   min-width: 0;
   text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-weight: var(--modern-weight-semibold);
+}
+.modern-access-mobile-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--modern-space-1);
 }
 .modern-access-mobile-meta {
   display: flex;

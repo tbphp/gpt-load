@@ -260,4 +260,13 @@ onScopeDispose(() => {
   justify-content: flex-end;
   gap: var(--modern-space-2);
 }
+@media (max-width: 760px) {
+  .modern-copy-button {
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+  }
+  .modern-copy-fallback textarea {
+    font-size: var(--modern-font-size-input-mobile);
+  }
+}
 </style>

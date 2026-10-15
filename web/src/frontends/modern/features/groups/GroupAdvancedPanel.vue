@@ -587,7 +587,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             <AppTextField
               v-model="header.name"
               :label="t('groupDetail.headerName')"
-              label-hidden
+              :label-hidden="!isMobile"
               :placeholder="t('groupDetail.headerName')"
               size="xs"
               :disabled="busy"
@@ -595,7 +595,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
             <AppTextField
               v-model="header.value"
               :label="t('groupDetail.headerValue')"
-              label-hidden
+              :label-hidden="!isMobile"
               :placeholder="t('groupDetail.headerValue')"
               size="xs"
               :disabled="busy"

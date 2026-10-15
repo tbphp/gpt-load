@@ -236,6 +236,10 @@ function move(event: PointerEvent): void {
 function focus(): void {
   focused.value = selected.value ?? 0
 }
+function start(event: PointerEvent): void {
+  move(event)
+  if (event.pointerType === 'touch') focused.value = hovered.value
+}
 function navigate(event: KeyboardEvent): void {
   if (event.altKey || event.ctrlKey || event.metaKey) return
   if (event.key === 'Escape') {
@@ -334,7 +338,7 @@ function navigate(event: KeyboardEvent): void {
     <span v-if="!report.summary.request_count || !segments.length" class="modern-usage-chart-empty">
       {{ t(!report.summary.request_count ? 'usage.empty' : 'usage.noMeasuredData') }}
     </span>
-    <AppTooltip v-if="coordinates.length" :label="tooltip" side="top">
+    <AppTooltip v-if="coordinates.length" :label="tooltip" side="top" touchable>
       <span
         class="modern-usage-chart-hit"
         role="img"
@@ -347,6 +351,7 @@ function navigate(event: KeyboardEvent): void {
           height: ((bottom - top) / height) * 100 + '%',
         }"
         @pointermove="move"
+        @pointerdown="start"
         @pointerleave="hovered = undefined"
         @focus="focus"
         @blur="focused = undefined"

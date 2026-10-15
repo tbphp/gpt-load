@@ -43,7 +43,7 @@ const describedBy = computed(
       <label :id="`${fieldId}-label`" :for="fieldId" :class="{ 'modern-sr-only': labelHidden }">{{
         label
       }}</label>
-      <AppTooltip v-if="hint && !labelHidden" :label="hint">
+      <AppTooltip v-if="hint && !labelHidden" touchable :label="hint">
         <span
           class="modern-field-hint modern-help-trigger"
           tabindex="0"

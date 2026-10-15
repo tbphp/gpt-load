@@ -855,18 +855,29 @@ onScopeDispose(() => {
           @close="!pending && (importing = false)"
         />
         <form class="modern-proxy-panel" @submit.prevent="importRows">
-          <AppTextArea
-            v-model="importText"
-            :label="t('proxies.address')"
-            :hint="t('proxies.importHelp')"
-            :disabled="pending"
-            autocomplete="off"
-            spellcheck="false"
-            :rows="12"
-          /><AppNotice v-if="error" tone="danger">{{ error }}</AppNotice
-          ><AppButton type="submit" :loading="pending" :disabled="!importText.trim()">{{
-            t('proxies.import')
-          }}</AppButton>
+          <div class="modern-proxy-import-body">
+            <AppTextArea
+              v-model="importText"
+              :label="t('proxies.address')"
+              :hint="t('proxies.importHelp')"
+              :disabled="pending"
+              autocomplete="off"
+              spellcheck="false"
+              :rows="12"
+            /><AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
+          </div>
+          <footer class="modern-proxy-import-footer">
+            <AppButton v-if="isMobile" :disabled="pending" @click="importing = false">{{
+              t('ui.cancel')
+            }}</AppButton>
+            <AppButton
+              type="submit"
+              :variant="isMobile ? 'primary' : 'default'"
+              :loading="pending"
+              :disabled="!importText.trim()"
+              >{{ t('proxies.import') }}</AppButton
+            >
+          </footer>
         </form></AppDialogContent
       ></DialogRoot
     >
@@ -1123,12 +1134,42 @@ onScopeDispose(() => {
   padding: var(--modern-space-5);
   overflow-y: auto;
 }
+.modern-proxy-import-body,
+.modern-proxy-import-footer {
+  display: contents;
+}
 @media (max-width: 1150px) {
   .modern-proxy-search {
     flex-basis: 100%;
   }
 }
 @media (max-width: 760px) {
+  .modern-proxy-panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0;
+    gap: 0;
+    overflow: hidden;
+  }
+  .modern-proxy-import-body {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    align-content: start;
+    gap: var(--modern-space-4);
+    padding: var(--modern-space-4);
+    overflow-y: auto;
+  }
+  .modern-proxy-import-footer {
+    display: flex;
+    flex: none;
+    justify-content: flex-end;
+    gap: var(--modern-space-2);
+    padding: var(--modern-space-3) var(--modern-space-4);
+    border-top: var(--modern-line-width) solid var(--modern-border);
+  }
   .modern-proxies {
     flex: none;
   }

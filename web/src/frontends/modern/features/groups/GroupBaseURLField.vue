@@ -91,7 +91,7 @@ const warning = computed(() => {
         v-if="defaults.length"
         :text="t('groupCreate.defaultURLs', { urls: defaults.join(', ') })"
       />
-      <AppTooltip :label="description">
+      <AppTooltip touchable :label="description">
         <span
           class="modern-base-url-help modern-help-trigger"
           tabindex="0"
