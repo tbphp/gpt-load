@@ -943,6 +943,7 @@ func (handler *Handler) executeAttempts(
 	var lastConversion *deferredAttempt
 	var lastProviderError *deferredAttempt
 	var lastEmptyResponse *deferredAttempt
+	var recoveryRejection *deferredAttempt
 	lastAttemptIndex := -1
 	attemptSequence := 0
 	forwardAttempts := 0
@@ -1356,6 +1357,7 @@ func (handler *Handler) executeAttempts(
 		defer releaseGroup()
 		attemptSequence++
 		forwardAttempts++
+		recoveryRejection = nil
 		if attemptSequence == 1 && (originalMetadata.PreviousResponseID != "" ||
 			(requestAffinity.preferredCredentialID != 0 && selection.CredentialID == requestAffinity.preferredCredentialID)) {
 			kind := requestAffinity.kind
@@ -1561,20 +1563,12 @@ func (handler *Handler) executeAttempts(
 					body:      sanitized,
 				}
 				encryptedReplayUsed = true
-				// Keep the first rejection if the replay loses its eligible
-				// credential and the ordinary attempt budget is exhausted.
-				deferred := &deferredAttempt{
+				// Keep the rejection only until another forwarding attempt starts.
+				// It is the fallback if the recovery replay cannot execute.
+				recoveryRejection = &deferredAttempt{
 					result: result, decision: decision,
 					upstreamModel: optionalModelValue(selection.UpstreamModelID),
 					attemptIndex:  recordedAttempt,
-				}
-				switch {
-				case result.ProviderErrorBeforeCommit:
-					lastProviderError = deferred
-				case result.HasResponse():
-					lastResponse = deferred
-				default:
-					lastTransport = deferred
 				}
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
@@ -1712,6 +1706,16 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 
+	if recoveryRejection != nil {
+		switch {
+		case recoveryRejection.result.ProviderErrorBeforeCommit:
+			lastProviderError = recoveryRejection
+		case recoveryRejection.result.HasResponse():
+			lastResponse = recoveryRejection
+		default:
+			lastTransport = recoveryRejection
+		}
+	}
 	if lastEmptyResponse != nil {
 		handler.completeEmptyResponse(
 			ginContext,

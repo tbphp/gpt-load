@@ -178,6 +178,62 @@ func TestResponsesContextRecoveryPreservesRejectionWhenReplayUnavailable(t *test
 	}
 }
 
+func TestResponsesContextRecoveryReturnsLaterCredentialFailure(t *testing.T) {
+	for _, mode := range []string{"http", "sse"} {
+		for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests} {
+			t.Run(mode+"/"+http.StatusText(status), func(t *testing.T) {
+				observed := &encryptedRecoveryBodies{}
+				failureCode := "invalid_api_key"
+				if status == http.StatusTooManyRequests {
+					failureCode = "rate_limit_exceeded"
+				}
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					body := readAllString(t, r)
+					observed.add(r.Header.Get("Authorization"), body)
+					if strings.Contains(body, "opaque") {
+						errorObject := map[string]any{"code": "invalid_encrypted_content", "message": "The encrypted content for item rs_old could not be verified."}
+						if mode == "sse" {
+							w.Header().Set("Content-Type", "text/event-stream")
+							failed, _ := json.Marshal(map[string]any{"type": "response.failed", "response": map[string]any{"id": "resp_failed", "object": "response", "status": "failed", "model": "model-a", "output": []any{}, "error": errorObject}})
+							_, _ = w.Write([]byte("event: response.failed\ndata: " + string(failed) + "\n\n"))
+						} else {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusBadRequest)
+							payload, _ := json.Marshal(map[string]any{"error": errorObject})
+							_, _ = w.Write(payload)
+						}
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					if status == http.StatusTooManyRequests {
+						w.Header().Set("Retry-After", "5")
+					}
+					w.WriteHeader(status)
+					payload, _ := json.Marshal(map[string]any{"error": map[string]any{"code": failureCode, "message": "credential unavailable"}})
+					_, _ = w.Write(payload)
+				}))
+				defer upstream.Close()
+				engine, _ := newDialectGatewayEngineWithSystemSettings(t, protocol.OpenAIResponses, "model-a", dialect.NewSet(dialect.NewOpenAIResponses()), newTestExecutionForwarder(t), config.Settings{state.SettingRetryCount: 1},
+					dialectGatewayGroup{id: 1, name: "relay", channelID: channel.NewAPI, params: openAIBaseURLParams(t, upstream.URL), apiKeys: []string{"sk-one"}},
+				)
+				body := contextRecoveryRequest
+				if mode == "sse" {
+					body = strings.TrimSuffix(body, "}") + `,"stream":true}`
+				}
+				response := serveContinuation(t, engine, "gl-client", body, status)
+				keys, bodies := observed.snapshot()
+				if len(keys) != 2 || keys[0] != keys[1] || !strings.Contains(response.Body.String(), failureCode) {
+					t.Fatalf("later credential failure was lost: keys=%v body=%s", keys, response.Body.String())
+				}
+				assertRecoveredContext(t, bodies[1])
+				if status == http.StatusTooManyRequests && response.Header().Get("Retry-After") != "5" {
+					t.Fatalf("later rate-limit header was lost: %v", response.Header())
+				}
+			})
+		}
+	}
+}
+
 func assertRecoveredContext(t *testing.T, body string) {
 	t.Helper()
 	for _, removed := range []string{"msg_old", "fc_old", "rs_old", "opaque"} {
