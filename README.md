@@ -153,6 +153,8 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
 
+Responses context recovery runs only after the upstream explicitly rejects history item ownership, history item references, or encrypted continuation state, before the response is committed to the client. It removes replayable items' old IDs and opaque state, preserves readable content and tool call associations, and retries once on the current credential. Subsequent credential failover retains recovered context under the existing retry policy. Normal requests are not cleaned. Server-only item references cannot be reconstructed by the gateway; removing undecryptable compaction loses history not retained in readable form.
+
 ### Built-in channels
 
 - **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
