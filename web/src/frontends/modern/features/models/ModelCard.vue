@@ -279,6 +279,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
 }
 
 .modern-model-card {
+  container: modern-model-card / inline-size;
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -465,27 +466,51 @@ function hiddenGroupsLabel(source: ModelSource): string {
 .modern-model-source-method.is-unpriced {
   text-decoration: line-through;
 }
-@media (max-width: 760px) {
+/* 紧凑卡片按自身宽度重排，桌面窄窗口同样适用。 */
+@container modern-model-card (max-width: 640px) {
+  .modern-model-card-heading {
+    padding: var(--modern-space-3);
+  }
   .modern-model-card-name {
     flex-basis: 100%;
   }
+  .modern-model-card-table {
+    overflow-x: visible;
+  }
   .modern-model-row,
   .modern-model-card-table.is-read-only .modern-model-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     min-width: 0;
-    gap: var(--modern-space-3);
-    padding-block: var(--modern-space-3);
+    gap: var(--modern-space-2) var(--modern-space-3);
+    padding: var(--modern-space-3);
   }
   .modern-model-row--head,
   .modern-model-card-table.is-read-only .modern-model-row--head {
     display: none;
   }
-  .modern-model-source-name,
+  .modern-model-source-name {
+    grid-column: 1 / 4;
+    grid-row: 1;
+  }
   .modern-model-source-groups {
-    grid-column: 1 / -1;
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+  .modern-model-source-groups .modern-model-group-chip {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .modern-model-source-method {
+    grid-column: 3 / -1;
+    grid-row: 2;
+    justify-self: end;
   }
   .modern-model-row .modern-model-source-price {
-    display: grid;
+    grid-column: span 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
     gap: var(--modern-space-1);
     overflow: visible;
     text-align: left;
@@ -499,7 +524,8 @@ function hiddenGroupsLabel(source: ModelSource): string {
     font-size: var(--modern-font-size-caption);
   }
   .modern-model-source-open {
-    grid-column: 2;
+    grid-column: 4;
+    grid-row: 1;
     justify-self: end;
   }
 }

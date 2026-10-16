@@ -343,6 +343,7 @@ useMessageSource(() =>
 
 <style scoped>
 .modern-models-workspace {
+  container: modern-models-workspace / inline-size;
   display: flex;
   flex: 1;
   min-width: 0;
@@ -393,6 +394,14 @@ useMessageSource(() =>
   margin-bottom: var(--modern-space-4);
   break-inside: avoid;
 }
+/* 放不下两张宽表卡片时，使用两列紧凑卡片，避免单卡被拉成整行。 */
+@container modern-models-workspace (max-width: 1256px) {
+  .modern-models-grid,
+  .modern-models-grid.is-read-only {
+    column-width: 320px;
+    column-count: 2;
+  }
+}
 @media (max-width: 760px) {
   .modern-models-workspace {
     flex: none;
@@ -414,9 +423,11 @@ useMessageSource(() =>
     grid-template-columns: minmax(0, 1fr) auto;
     gap: var(--modern-space-2);
   }
-  .modern-models-grid {
+  .modern-models-grid,
+  .modern-models-grid.is-read-only {
     display: block;
     column-width: auto;
+    column-count: 1;
     padding-block: 0;
   }
   .modern-models-grid > * {

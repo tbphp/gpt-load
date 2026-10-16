@@ -171,6 +171,8 @@ function select(value: unknown): void {
   }
   .modern-segmented--filter {
     flex-wrap: nowrap;
+    /* 贴边选项保留自己的圆角，避免滚动容器再次裁切边框。 */
+    border-radius: 0;
     overflow-x: auto;
   }
   .modern-segmented--filter .modern-segmented-option {

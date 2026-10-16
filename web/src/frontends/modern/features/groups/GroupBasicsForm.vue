@@ -333,12 +333,10 @@ useMessageSource(() =>
   font-size: var(--modern-font-size-small);
 }
 
-@container modern-group-workspace (max-width: 980px) {
+@media (max-width: 760px) {
   .modern-group-settings-fields {
     overflow: visible;
   }
-}
-@media (max-width: 760px) {
   .modern-group-settings-footer {
     position: sticky;
     bottom: 0;

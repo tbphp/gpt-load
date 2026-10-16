@@ -374,7 +374,9 @@ useMessageSource(() =>
           <LogMobileRow
             v-if="isMobile"
             :row="row"
-            :group-name="row.group_id ? groupMap?.get(row.group_id)?.name : undefined"
+            :admin="admin"
+            :groups="groupMap"
+            :channels="channelMap"
             @open="showDetail(row.request_id)"
           />
           <article
@@ -628,6 +630,7 @@ useMessageSource(() =>
   .modern-log-table {
     border: 0;
     border-radius: 0;
+    background: transparent;
   }
   .modern-logs-workspace {
     flex: none;

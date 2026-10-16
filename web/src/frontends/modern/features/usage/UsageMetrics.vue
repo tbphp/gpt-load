@@ -8,7 +8,7 @@ import { formatCompactNumber } from '@modern/components/ui/format'
 import { inputTokens, cacheRate, formatUsageCost, successRate, percentage } from './usage-display'
 import UsageMetricGraphic from './UsageMetricGraphic.vue'
 
-const props = defineProps<{ report: UsageReport; mobile?: boolean }>()
+const props = defineProps<{ report: UsageReport }>()
 const { t, locale } = useI18n()
 const report = computed(() => props.report)
 const compact = (value: number) => formatCompactNumber(value, locale.value)
@@ -74,22 +74,11 @@ const cards = computed<UsageCard[]>(() => {
 })
 </script>
 <template>
-  <dl v-if="mobile" class="modern-usage-mobile-metrics">
-    <div
-      v-for="card in cards"
-      :key="card.id"
-      :class="{ 'is-primary': card.id === 'requests' || card.id === 'cost' }"
-    >
-      <dt>{{ t('usage.' + card.id) }}</dt>
-      <dd>{{ card.value }}</dd>
-      <small v-if="card.id === 'cost'">{{ card.detail }}</small>
-    </div>
-  </dl>
-  <div v-else class="modern-usage-metrics">
+  <div class="modern-usage-metrics">
     <article v-for="card in cards" :key="card.id" class="modern-usage-stat" :data-kind="card.id">
       <div class="modern-usage-stat-label">
         <span class="modern-usage-stat-symbol"><AppIcon :icon="card.icon" size="sm" /></span>
-        <AppTooltip :label="card.id === 'cache' ? t('usage.cacheHint') : undefined">
+        <AppTooltip :label="card.id === 'cache' ? t('usage.cacheHint') : undefined" touchable>
           <span :tabindex="card.id === 'cache' ? 0 : undefined">
             {{ t('usage.' + card.id) }}
           </span>
@@ -106,36 +95,6 @@ const cards = computed<UsageCard[]>(() => {
   </div>
 </template>
 <style scoped>
-.modern-usage-mobile-metrics {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  margin: 0;
-  gap: var(--modern-space-4) var(--modern-space-2);
-  padding: var(--modern-space-3) 0 var(--modern-space-4);
-}
-.modern-usage-mobile-metrics > div {
-  grid-column: span 2;
-  min-width: 0;
-}
-.modern-usage-mobile-metrics > .is-primary {
-  grid-column: span 3;
-  grid-row: 1;
-}
-.modern-usage-mobile-metrics dt,
-.modern-usage-mobile-metrics small {
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-usage-mobile-metrics dd {
-  margin: var(--modern-space-1) 0 0;
-  font-size: var(--modern-font-size-section);
-  font-weight: var(--modern-weight-semibold);
-  overflow-wrap: anywhere;
-}
-.modern-usage-mobile-metrics .is-primary dd {
-  font-size: var(--modern-font-size-title);
-}
-
 .modern-usage-metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -242,12 +201,42 @@ const cards = computed<UsageCard[]>(() => {
 @media (max-width: 760px) {
   .modern-usage-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--modern-space-2);
   }
   .modern-usage-stat:nth-child(n) {
     grid-column: auto;
-    padding: var(--modern-space-4);
+    gap: var(--modern-space-2);
+    padding: var(--modern-space-3);
   }
   .modern-usage-stat:last-child {
+    grid-column: 1 / -1;
+  }
+  .modern-usage-stat-label {
+    gap: var(--modern-space-1-5);
+    font-size: var(--modern-font-size-small);
+    overflow-wrap: anywhere;
+  }
+  .modern-usage-stat-symbol {
+    width: var(--modern-control-xxs);
+    height: var(--modern-control-xxs);
+  }
+  .modern-usage-stat-graphic {
+    display: none;
+  }
+  .modern-usage-stat-detail {
+    font-size: var(--modern-font-size-caption);
+    overflow-wrap: anywhere;
+  }
+  .modern-usage-stat[data-kind='cost'] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+  }
+  .modern-usage-stat[data-kind='cost'] .modern-usage-stat-value {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .modern-usage-stat[data-kind='cost'] .modern-usage-stat-detail {
     grid-column: 1 / -1;
   }
 }

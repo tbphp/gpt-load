@@ -556,7 +556,7 @@ const bucketLabel = computed(() => {
       :aria-busy="query.isFetching.value"
       :class="{ 'is-updating': query.isPlaceholderData.value }"
     >
-      <UsageMetrics :report="report" :mobile="isMobile" />
+      <UsageMetrics :report="report" />
       <AppSegmentedControl
         v-if="isMobile"
         v-model="mobileSection"

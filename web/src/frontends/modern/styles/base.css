@@ -77,6 +77,10 @@ svg {
   cursor: help;
 }
 @media (max-width: 760px) {
+  button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
   .modern-help-trigger {
     display: inline-flex;
     align-items: center;

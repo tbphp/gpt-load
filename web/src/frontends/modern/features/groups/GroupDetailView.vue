@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowLeft, ChevronRight, Layers, SlidersHorizontal } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, ref } from 'vue'
+import { computed, onMounted, onScopeDispose, ref } from 'vue'
 import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { useURLState } from '@modern/app/url-state'
 import { useMessages, useMessageSource } from '@modern/app/messages'
@@ -43,6 +43,21 @@ const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
 const isMobile = useMobileLayout()
+const workspace = ref<HTMLElement>()
+const compactLayout = ref(isMobile.value)
+// 按内容区宽度切换，收起导航栏或调整桌面窗口后也能访问全部设置。
+function updateLayout(width: number): void {
+  compactLayout.value = width <= 980
+}
+const workspaceObserver = new ResizeObserver(([entry]) => {
+  if (entry) updateLayout(entry.contentRect.width)
+})
+onMounted(() => {
+  if (!workspace.value) return
+  updateLayout(workspace.value.clientWidth)
+  workspaceObserver.observe(workspace.value)
+})
+onScopeDispose(() => workspaceObserver.disconnect())
 const mobileView = useURLState(
   ['mobile_view'],
   (query) => ({
@@ -239,7 +254,7 @@ useMessageSource(() =>
 </script>
 
 <template>
-  <div class="modern-group-workspace">
+  <div ref="workspace" class="modern-group-workspace">
     <AppCollectionState
       v-if="valid && groups.isPending.value"
       :title="t('collection.loading')"
@@ -257,7 +272,14 @@ useMessageSource(() =>
         ><RouterLink :to="returnTo">{{ t('groupDetail.back') }}</RouterLink></AppButton
       >
     </AppCollectionState>
-    <div v-else class="modern-group-workspace-layout">
+    <div
+      v-else
+      class="modern-group-workspace-layout"
+      :class="{
+        'is-compact': compactLayout,
+        'is-settings': compactLayout && mobileTab === 'settings',
+      }"
+    >
       <div class="modern-group-workspace-main">
         <header class="modern-group-workspace-header">
           <AppIconButton
@@ -314,8 +336,9 @@ useMessageSource(() =>
           </div>
         </header>
         <AppSegmentedControl
-          v-if="isMobile"
+          v-if="compactLayout"
           v-model="mobileTab"
+          class="modern-group-workspace-tabs"
           :label="t('groupDetail.settings')"
           :options="[
             { value: 'credentials', label: t('groupDetail.credentials') },
@@ -324,7 +347,8 @@ useMessageSource(() =>
           ]"
         />
         <GroupOverview
-          v-if="isMobile && mobileTab === 'overview'"
+          v-if="compactLayout && mobileTab === 'overview'"
+          class="modern-group-workspace-overview"
           :group="group"
           :usage="groupUsage"
           :trend="trend.data.value"
@@ -336,7 +360,7 @@ useMessageSource(() =>
         <GroupCredentials
           :key="group.id"
           ref="credentials"
-          :visible="!isMobile || mobileTab === 'credentials'"
+          :visible="!compactLayout || mobileTab === 'credentials'"
           :group="group"
           :channel="channel"
           @add="panel = 'add'"
@@ -346,7 +370,7 @@ useMessageSource(() =>
         />
       </div>
       <aside
-        v-show="!isMobile || mobileTab === 'settings'"
+        v-show="!compactLayout || mobileTab === 'settings'"
         class="modern-group-workspace-sidebar"
         :aria-label="t('groupDetail.settings')"
       >
@@ -360,7 +384,7 @@ useMessageSource(() =>
           @pending="basicsPending = $event"
           @updated-at="basicsUpdatedAt = $event"
         >
-          <template v-if="!isMobile" #overview
+          <template v-if="!compactLayout" #overview
             ><GroupOverview
               :group="group"
               :usage="groupUsage"
@@ -513,8 +537,13 @@ useMessageSource(() =>
   border-left: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-surface);
 }
-.modern-group-mobile-settings {
-  display: none;
+.modern-group-workspace-tabs {
+  flex: none;
+}
+.modern-group-workspace-overview {
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
 }
 .modern-group-settings-links {
   display: grid;
@@ -542,48 +571,34 @@ useMessageSource(() =>
   flex: none;
   color: var(--modern-muted);
 }
-@container modern-group-workspace (max-width: 980px) {
-  .modern-group-workspace-layout {
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-    gap: var(--modern-space-5);
-  }
-  .modern-group-workspace-main {
-    flex: none;
-    height: max(520px, calc(100dvh - var(--modern-topbar-height) - var(--modern-space-5)));
-  }
-  .modern-group-workspace-sidebar {
-    flex: none;
-    border-left: 0;
-    border-top: var(--modern-line-width) solid var(--modern-border);
-  }
+.modern-group-workspace-layout.is-compact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--modern-space-3);
 }
-@container modern-group-workspace (max-width: 700px) {
-  .modern-group-workspace-layout {
-    overflow-y: visible;
-  }
-  .modern-group-workspace-main {
-    height: auto;
-  }
-  .modern-group-workspace-main :deep(.modern-list-scroll) {
-    overscroll-behavior-y: auto;
-  }
+.modern-group-workspace-layout.is-compact .modern-group-workspace-main {
+  flex: 1;
+}
+.modern-group-workspace-layout.is-settings .modern-group-workspace-main {
+  flex: none;
+}
+.modern-group-workspace-layout.is-compact .modern-group-workspace-sidebar {
+  flex: 1;
+  border-left: 0;
 }
 @media (max-width: 760px) {
   .modern-group-workspace {
     flex: none;
   }
-  .modern-group-workspace-layout {
-    gap: var(--modern-space-3);
+  .modern-group-workspace-layout.is-compact .modern-group-workspace-main,
+  .modern-group-workspace-layout.is-compact .modern-group-workspace-sidebar {
+    flex: none;
   }
-  .modern-group-workspace-sidebar {
-    border-top: 0;
+  .modern-group-workspace-overview {
+    overflow: visible;
   }
-
-  .modern-group-mobile-settings {
-    display: inline-flex;
-    align-self: flex-end;
+  .modern-group-workspace-main :deep(.modern-list-scroll) {
+    overscroll-behavior-y: auto;
   }
 }
 @container modern-group-workspace (max-width: 420px) {
