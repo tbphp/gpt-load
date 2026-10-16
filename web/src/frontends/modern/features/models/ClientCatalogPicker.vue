@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { Plus, Search } from '@lucide/vue'
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, ref, watch } from 'vue'
@@ -10,6 +11,7 @@ import { matchesSearchOption } from '@modern/components/ui/search-options'
 const props = defineProps<{ names: string[]; disabled?: boolean }>()
 const emit = defineEmits<{ add: [names: string[]] }>()
 const { t, n } = useI18n()
+const isMobile = useMobileLayout()
 const open = ref(false)
 const search = ref('')
 const selected = ref<string[]>([])
@@ -72,7 +74,7 @@ watch(
         :side-offset="overlaySideOffset"
         :collision-padding="16"
         :aria-label="t('modelManager.clientCatalog.addLabel')"
-        @open-auto-focus.prevent="input?.focus()"
+        @open-auto-focus.prevent="!isMobile && input?.focus()"
         @keydown="navigate"
       >
         <AppTextField
@@ -98,7 +100,7 @@ watch(
             class="modern-client-catalog-picker-option"
             :class="{ 'is-selected': selected.includes(name) }"
             @update:model-value="toggle(name, $event)"
-            ><AppOverflowText :text="name"
+            ><AppOverflowText :text="name" wrap-on-mobile
           /></AppCheckbox>
           <p v-if="!results.length" class="modern-client-catalog-picker-empty">
             {{ t('ui.select.empty') }}

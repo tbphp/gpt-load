@@ -112,6 +112,9 @@ defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
           <ComboboxInput
             :id="id"
             ref="input"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             :model-value="search"
             :placeholder="placeholder ?? t('ui.select.search')"
             :aria-describedby="describedBy"
@@ -228,6 +231,11 @@ defineExpose({ focus: () => input.value?.$el.focus({ preventScroll: true }) })
   font-size: var(--modern-font-size-small);
 }
 @media (max-width: 760px) {
+  .modern-multi-trigger {
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+    margin-inline-end: calc(-1 * var(--modern-space-2));
+  }
   .modern-multi-input {
     font-size: var(--modern-font-size-input-mobile);
   }

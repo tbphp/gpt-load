@@ -37,6 +37,7 @@ useLoadingActivity(() => Boolean(props.loading || props.pending))
     @close="close"
   >
     <form class="modern-workspace-panel-form" novalidate @submit.prevent="emit('save')">
+      <slot name="toolbar" />
       <div class="modern-workspace-panel-body" :class="{ 'is-filled': fill }"><slot /></div>
       <footer class="modern-workspace-panel-footer">
         <div class="modern-workspace-panel-feedback"><slot name="feedback" /></div>

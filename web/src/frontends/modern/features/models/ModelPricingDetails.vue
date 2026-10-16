@@ -55,6 +55,7 @@ const value = (prices: PriceSlots, field: (typeof priceFields)[number]) =>
       <span
         v-for="field in priceFields"
         :key="field"
+        :data-label="t('modelManager.slots.' + field)"
         :class="{ 'is-empty': row.prices[field] === null }"
         >{{ value(row.prices, field) }}</span
       >
@@ -116,5 +117,36 @@ const value = (prices: PriceSlots, field: (typeof priceFields)[number]) =>
 }
 .modern-model-price-row .is-empty {
   color: var(--modern-control-placeholder);
+}
+@media (max-width: 760px) {
+  .modern-model-price-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-block: var(--modern-space-3);
+  }
+  .modern-model-price-row--head {
+    display: block;
+    min-height: 0;
+    padding-top: 0;
+  }
+  .modern-model-price-row--head > :not(:first-child) {
+    display: none;
+  }
+  .modern-model-price-label {
+    grid-column: 1 / -1;
+    font-weight: var(--modern-weight-medium);
+  }
+  .modern-model-price-row > [data-label] {
+    display: grid;
+    gap: var(--modern-space-1);
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .modern-model-price-row > [data-label]::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-family: var(--modern-font-sans);
+    font-size: var(--modern-font-size-caption);
+  }
 }
 </style>

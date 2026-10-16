@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { ArrowUpRight, Copy } from '@lucide/vue'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -36,6 +37,7 @@ import HomeSectionLink from './HomeSectionLink.vue'
 import ConnectTerminal from './ConnectTerminal.vue'
 import { readGatewayPreferences, rememberGatewayPreferences } from './gateway-preferences'
 
+const isMobile = useMobileLayout()
 const props = defineProps<{ keys: HomeKey[]; admin: boolean }>()
 const { t } = useI18n()
 const client = useApiClient()
@@ -184,7 +186,7 @@ async function importClient(): Promise<void> {
 </script>
 
 <template>
-  <AppPanel :title="t('home.connection')" compact flush>
+  <AppPanel :title="t('home.connection')" :plain="isMobile" compact flush>
     <template #actions>
       <HomeSectionLink
         v-if="admin"
@@ -195,9 +197,18 @@ async function importClient(): Promise<void> {
     <div class="modern-connect">
       <div class="modern-connect-split">
         <ConnectClientList
+          v-if="!isMobile"
           class="modern-connect-aside"
           :selected="selectedClient.id"
           @select="selectClient"
+        />
+        <AppSelect
+          v-else
+          class="modern-connect-client-picker"
+          :model-value="selectedClient.id"
+          :label="t('home.client')"
+          :options="gatewayClients.map((item) => ({ value: item.id, label: item.name }))"
+          @update:model-value="selectClient($event as GatewayClientID)"
         />
         <div class="modern-connect-main">
           <div
@@ -294,7 +305,11 @@ async function importClient(): Promise<void> {
                     </template>
                   </AppCopyValue>
                 </header>
-                <pre tabindex="0">{{ block.content }}</pre>
+                <details v-if="isMobile" class="modern-connect-preview">
+                  <summary>{{ t('ui.mobile.previewConfig') }}</summary>
+                  <pre tabindex="0">{{ block.content }}</pre>
+                </details>
+                <pre v-else tabindex="0">{{ block.content }}</pre>
               </div>
             </template>
           </div>
@@ -316,6 +331,17 @@ async function importClient(): Promise<void> {
 </template>
 
 <style scoped>
+.modern-connect-client-picker {
+  padding: var(--modern-space-3);
+}
+.modern-connect-preview summary {
+  min-height: var(--modern-touch-target);
+  align-content: center;
+  color: var(--modern-muted);
+  cursor: pointer;
+  font-size: var(--modern-font-size-small);
+}
+
 .modern-connect {
   container: modern-connect / inline-size;
   height: clamp(360px, 52dvh, 480px);
@@ -415,6 +441,33 @@ async function importClient(): Promise<void> {
     max-height: 64px;
     border-inline-end: 0;
     border-block-end: var(--modern-line-width) solid var(--modern-border);
+  }
+}
+@media (max-width: 760px) {
+  .modern-connect {
+    height: auto;
+  }
+  .modern-connect-split {
+    gap: var(--modern-space-5);
+    border-top: 0;
+  }
+  .modern-connect-client-picker,
+  .modern-connect-main,
+  .modern-connect-content {
+    padding: 0;
+  }
+  .modern-connect-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--modern-space-5);
+  }
+  .modern-connect-content {
+    overflow: visible;
+  }
+}
+@media (max-width: 420px) {
+  .modern-connect-field {
+    flex-basis: 100%;
   }
 }
 </style>

@@ -4,7 +4,12 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { observeOverflow } from './overflow-observer'
 
 defineOptions({ inheritAttrs: false })
-const props = defineProps<{ text: string; fullText?: string; hint?: string }>()
+const props = defineProps<{
+  text: string
+  fullText?: string
+  hint?: string
+  wrapOnMobile?: boolean
+}>()
 const element = ref<HTMLElement>()
 const overflow = ref(false)
 let unobserve: (() => void) | undefined
@@ -33,13 +38,24 @@ onScopeDispose(() => unobserve?.())
 
 <template>
   <AppTooltip v-if="tooltip" :label="tooltip">
-    <span ref="element" v-bind="$attrs" class="modern-overflow-text" @pointerenter="measure">{{
-      text
-    }}</span>
+    <span
+      ref="element"
+      v-bind="$attrs"
+      class="modern-overflow-text"
+      :class="{ 'is-mobile-wrapped': wrapOnMobile }"
+      @pointerenter="measure"
+      >{{ text }}</span
+    >
   </AppTooltip>
-  <span v-else ref="element" v-bind="$attrs" class="modern-overflow-text" @pointerenter="measure">{{
-    text
-  }}</span>
+  <span
+    v-else
+    ref="element"
+    v-bind="$attrs"
+    class="modern-overflow-text"
+    :class="{ 'is-mobile-wrapped': wrapOnMobile }"
+    @pointerenter="measure"
+    >{{ text }}</span
+  >
 </template>
 
 <style scoped>
@@ -51,5 +67,11 @@ onScopeDispose(() => unobserve?.())
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+@media (max-width: 760px) {
+  .modern-overflow-text.is-mobile-wrapped {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

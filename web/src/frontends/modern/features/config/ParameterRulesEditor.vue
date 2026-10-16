@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { protocolLabel, sortProtocols } from '@modern/i18n/protocols'
 import {
   ArrowDown,
@@ -43,6 +44,7 @@ import {
 } from './parameter-rule-draft'
 import { matchesModel } from '@modern/components/ui/model-match'
 
+const isMobile = useMobileLayout()
 const props = defineProps<{
   modelValue: ParameterRule[]
   protocols: readonly string[]
@@ -416,7 +418,7 @@ defineExpose({
             <AppSegmentedField
               :model-value="row.json ? 'json' : 'rows'"
               :label="t('parameterRules.editMode')"
-              label-hidden
+              :label-hidden="!isMobile"
               :options="viewOptions(row)"
               size="xs"
               :disabled="disabled"
@@ -437,7 +439,7 @@ defineExpose({
           v-if="row.json"
           v-model="row.setText"
           :label="t('parameterRules.setJSON')"
-          label-hidden
+          :label-hidden="!isMobile"
           :rows="4"
           size="xs"
           mono
@@ -477,7 +479,7 @@ defineExpose({
               v-else
               :model-value="action.operation"
               :label="t('parameterRules.operation')"
-              label-hidden
+              :label-hidden="!isMobile"
               :options="operationOptions"
               size="xs"
               :disabled="disabled"
@@ -488,7 +490,7 @@ defineExpose({
             <AppTextField
               v-model="action.path"
               :label="t('parameterRules.path')"
-              label-hidden
+              :label-hidden="!isMobile"
               placeholder="reasoning/effort"
               size="xs"
               :disabled="disabled"
@@ -502,7 +504,7 @@ defineExpose({
             <AppSelect
               :model-value="action.type"
               :label="t('parameterRules.type')"
-              label-hidden
+              :label-hidden="!isMobile"
               :options="typeOptions"
               size="xs"
               :disabled="disabled"
@@ -514,7 +516,7 @@ defineExpose({
               v-if="action.type === 'boolean'"
               v-model="action.text"
               :label="t('parameterRules.value')"
-              label-hidden
+              :label-hidden="!isMobile"
               :options="booleanOptions"
               size="xs"
               :disabled="disabled"
@@ -526,7 +528,7 @@ defineExpose({
               v-else-if="action.type === 'json'"
               v-model="action.text"
               :label="t('parameterRules.value')"
-              label-hidden
+              :label-hidden="!isMobile"
               :rows="2"
               size="xs"
               mono
@@ -539,7 +541,7 @@ defineExpose({
               v-else
               v-model="action.text"
               :label="t('parameterRules.value')"
-              label-hidden
+              :label-hidden="!isMobile"
               :placeholder="t('parameterRules.valuePlaceholder')"
               :inputmode="action.type === 'number' ? 'decimal' : 'text'"
               size="xs"
@@ -754,6 +756,14 @@ defineExpose({
 @media (max-width: 760px) {
   .modern-parameter-editor {
     --modern-parameter-action-size: var(--modern-touch-target);
+  }
+  .modern-parameter-action {
+    grid-template-columns: minmax(0, 1fr) var(--modern-touch-target);
+    grid-template-areas: 'operation delete' 'path path' 'type type' 'value value';
+    gap: var(--modern-space-3);
+  }
+  .modern-parameter-delete {
+    align-self: end;
   }
   .modern-parameter-null,
   .modern-parameter-remove-label {

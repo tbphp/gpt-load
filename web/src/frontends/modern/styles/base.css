@@ -76,6 +76,22 @@ svg {
 .modern-help-trigger {
   cursor: help;
 }
+@media (max-width: 760px) {
+  button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .modern-help-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+  }
+  svg.modern-help-trigger {
+    padding: var(--modern-space-3);
+  }
+}
 .modern-sr-only {
   position: absolute;
   top: 0;

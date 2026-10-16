@@ -15,6 +15,7 @@ import {
 import { formatCompactNumber } from '@modern/components/ui/format'
 import { amount, distributionValue, percentage } from './usage-display'
 const props = defineProps<{
+  mobile?: boolean
   dimension: UsageDimension
   distribution: UsageDistribution
   metric: UsageMetric
@@ -53,11 +54,60 @@ const details = (row: UsageItem) =>
 
 <template>
   <section class="modern-usage-rank" :data-metric="metric">
-    <header class="modern-usage-rank-heading">
+    <header v-if="!mobile" class="modern-usage-rank-heading">
       <h3>{{ t('usage.dimensions.' + dimension) }}</h3>
       <span>{{ t('usage.topFive') }}</span>
     </header>
     <div v-if="!rows.length" class="modern-usage-rank-empty">{{ t('usage.noData') }}</div>
+    <ol
+      v-else-if="mobile"
+      class="modern-usage-mobile-rank"
+      :aria-label="t('usage.dimensions.' + dimension)"
+    >
+      <li
+        v-for="(row, index) in rows"
+        :key="row.other ? 'other' : (row.model ?? row.group_id ?? row.access_key_id ?? index)"
+      >
+        <div class="modern-usage-mobile-identity">
+          <span class="modern-usage-position">{{ row.other ? '·' : index + 1 }}</span>
+          <AppButton
+            v-if="!row.other"
+            class="modern-usage-mobile-name"
+            variant="text"
+            :disabled="disabled || (dimension === 'model' && !row.model)"
+            @click="emit('select', row)"
+            ><AppOverflowText :text="name(row)" wrap-on-mobile
+          /></AppButton>
+          <span v-else class="modern-usage-mobile-name">{{ name(row) }}</span>
+          <AppIconButton
+            v-if="!row.other"
+            :icon="ScrollText"
+            :label="t('usage.viewLogs') + ' · ' + name(row)"
+            :disabled="disabled || (dimension === 'model' && !row.model)"
+            @click="emit('logs', row)"
+          />
+        </div>
+        <dl class="modern-usage-mobile-metrics">
+          <div
+            v-for="field in ['requests', 'tokens', 'cost'] as const"
+            :key="field"
+            :class="{ 'is-current': metric === field }"
+          >
+            <dt>{{ t('usage.' + field) }}</dt>
+            <dd>{{ display(row, field) }}</dd>
+          </div>
+        </dl>
+        <div class="modern-usage-mobile-share">
+          <div class="modern-usage-rank-track" aria-hidden="true">
+            <span :style="{ width: share(row) + '%' }" />
+          </div>
+          <span
+            >{{ t('usage.share') }}
+            {{ total && display(row, metric) !== '—' ? percentage(share(row), locale) : '—' }}</span
+          >
+        </div>
+      </li>
+    </ol>
     <table v-else class="modern-usage-rank-table" :aria-label="t('usage.dimensions.' + dimension)">
       <colgroup>
         <col />
@@ -134,6 +184,68 @@ const details = (row: UsageItem) =>
 .modern-usage-rank {
   --modern-usage-rank-tone: var(--modern-accent);
   min-width: 0;
+}
+.modern-usage-mobile-rank {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.modern-usage-mobile-rank > li {
+  display: grid;
+  gap: var(--modern-space-3);
+  padding-block: var(--modern-space-3);
+}
+.modern-usage-mobile-rank > li + li {
+  border-top: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-usage-mobile-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
+.modern-usage-mobile-name {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+}
+.modern-usage-mobile-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--modern-space-1) var(--modern-space-3);
+  margin: 0;
+}
+.modern-usage-mobile-metrics > div {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+}
+.modern-usage-mobile-metrics dt {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-usage-mobile-metrics dd {
+  margin: 0;
+  color: var(--modern-text);
+  font-size: var(--modern-font-size-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.modern-usage-mobile-metrics .is-current dd {
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-usage-mobile-share {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-usage-mobile-share .modern-usage-rank-track {
+  flex: 1;
+  margin: 0;
 }
 .modern-usage-rank[data-metric='tokens'] {
   --modern-usage-rank-tone: var(--modern-chart-input);

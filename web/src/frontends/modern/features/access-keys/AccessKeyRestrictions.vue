@@ -206,6 +206,12 @@ const tone = computed<SemanticTone>(() =>
 .modern-access-restriction-tag {
   flex: 0 1 auto;
 }
+@media (max-width: 760px) {
+  .modern-access-restrictions,
+  .modern-access-restriction-tags {
+    flex-wrap: wrap;
+  }
+}
 .modern-access-quota-summary {
   display: inline-flex;
   flex: none;

@@ -62,4 +62,10 @@ const { t } = useI18n()
   margin: 0;
   font-family: var(--modern-font-mono);
 }
+@media (max-width: 420px) {
+  .modern-connect-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--modern-space-1);
+  }
+}
 </style>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { Trash2 } from '@lucide/vue'
 import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AppIconButton, AppRulesEmpty, AppSelect, AppTextField } from '@modern/components/ui'
 import { newHeader, type HeaderRow, type HeaderSetting } from './settings-draft'
 
+const isMobile = useMobileLayout()
 const props = defineProps<{
   setting: HeaderSetting
   disabled: boolean
@@ -41,7 +43,7 @@ defineExpose({ addRule })
         :model-value="row.action"
         :options="actions"
         :label="t('settingsForm.headers.action')"
-        label-hidden
+        :label-hidden="!isMobile"
         size="sm"
         :disabled="disabled"
         @update:model-value="row.action = $event === 'remove' ? 'remove' : 'set'"
@@ -52,7 +54,7 @@ defineExpose({ addRule })
         :label="t('settingsForm.headers.name')"
         :placeholder="t('settingsForm.headers.name')"
         :error="errors[setting + '.' + row.id + '.name']"
-        label-hidden
+        :label-hidden="!isMobile"
         size="sm"
         :disabled="disabled"
         autocomplete="off"
@@ -64,7 +66,7 @@ defineExpose({ addRule })
         :label="t('settingsForm.headers.value')"
         :placeholder="t('settingsForm.headers.value')"
         :error="errors[setting + '.' + row.id + '.value']"
-        label-hidden
+        :label-hidden="!isMobile"
         size="sm"
         :disabled="disabled"
         autocomplete="off"
@@ -136,6 +138,20 @@ defineExpose({ addRule })
 @media (max-width: 760px) {
   .modern-settings-headers {
     --modern-settings-header-action-size: var(--modern-touch-target);
+  }
+  .modern-settings-header-row {
+    grid-template-columns: minmax(0, 1fr) var(--modern-touch-target);
+  }
+  .modern-settings-header-row > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .modern-settings-header-row > :nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .modern-settings-header-row > :last-child {
+    grid-column: 2;
   }
 }
 </style>

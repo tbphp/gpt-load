@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { Boxes, PencilLine, RotateCcw } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
@@ -37,6 +38,7 @@ import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import ModelPricingDetails from './ModelPricingDetails.vue'
 import ModelPriceEditor from './ModelPriceEditor.vue'
 
+const isMobile = useMobileLayout()
 const props = defineProps<{
   model: string
   source: number
@@ -325,7 +327,12 @@ async function reset(): Promise<void> {
                 </template>
                 <ModelPricingDetails :price="price" />
               </AppFormSection>
-              <AppFormSection v-if="admin && catalog" :title="t('modelManager.catalog')" compact>
+              <AppFormSection
+                v-if="admin && catalog"
+                :collapsible="isMobile"
+                :title="t('modelManager.catalog')"
+                compact
+              >
                 <div class="modern-model-catalog-origin">
                   <span>{{
                     t(
@@ -386,6 +393,7 @@ async function reset(): Promise<void> {
               </AppFormSection>
               <AppFormSection
                 v-if="admin && groups.length"
+                :collapsible="isMobile"
                 :title="t('modelManager.relatedGroups')"
                 compact
               >
@@ -423,6 +431,7 @@ async function reset(): Promise<void> {
               </AppFormSection>
               <AppFormSection
                 v-if="admin && relatedModels.length > 1"
+                :collapsible="isMobile"
                 :title="t('modelManager.relatedModels')"
                 compact
               >

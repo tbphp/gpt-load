@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Info } from '@lucide/vue'
+import { ChevronDown, Info } from '@lucide/vue'
+import { ref, useId } from 'vue'
 import AppFormActions from './AppFormActions.vue'
 import AppIcon from './AppIcon.vue'
 import AppTooltip from './AppTooltip.vue'
@@ -11,8 +12,11 @@ defineProps<{
   compact?: boolean
   addLabel?: string
   addDisabled?: boolean
+  collapsible?: boolean
 }>()
 defineEmits<{ add: [] }>()
+const expanded = ref(false)
+const bodyId = useId()
 </script>
 
 <template>
@@ -23,8 +27,19 @@ defineEmits<{ add: [] }>()
     >
       <div v-if="title || description">
         <div v-if="title" class="modern-form-section-title">
-          <h3>{{ title }}</h3>
-          <AppTooltip v-if="hint" :label="hint">
+          <h3 v-if="!collapsible">{{ title }}</h3>
+          <button
+            v-else
+            class="modern-form-section-toggle"
+            type="button"
+            :aria-expanded="expanded"
+            :aria-controls="bodyId"
+            @click="expanded = !expanded"
+          >
+            <span>{{ title }}</span
+            ><AppIcon :icon="ChevronDown" size="sm" :class="{ 'is-expanded': expanded }" />
+          </button>
+          <AppTooltip v-if="hint" touchable :label="hint">
             <span
               class="modern-form-section-hint modern-help-trigger"
               tabindex="0"
@@ -46,13 +61,33 @@ defineEmits<{ add: [] }>()
         <slot name="actions" />
       </AppFormActions>
     </header>
-    <div class="modern-form-section-body"><slot /></div>
+    <div v-show="!collapsible || expanded" :id="bodyId" class="modern-form-section-body">
+      <slot />
+    </div>
   </section>
 </template>
 
 <style scoped>
 .modern-form-section {
   min-width: 0;
+}
+.modern-form-section-toggle {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--modern-touch-target);
+  gap: var(--modern-space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: var(--modern-font-size-secondary);
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-form-section-toggle .is-expanded {
+  transform: rotate(180deg);
 }
 .modern-form-section + .modern-form-section {
   padding-top: var(--modern-space-5);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { DialogRoot } from 'reka-ui'
 import { computed, onMounted, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -23,6 +24,7 @@ import { accessTime } from './access-key-display'
 const props = defineProps<{ id: number; hint: AccessFilters }>()
 defineEmits<{ close: [] }>()
 const { t, locale } = useI18n()
+const isMobile = useMobileLayout()
 const client = useApiClient()
 const router = useRouter()
 const key = ref('')
@@ -88,6 +90,7 @@ useLoadingActivity(loading)
     "
   >
     <AppDialogContent
+      :size="isMobile ? 'sheet' : 'default'"
       :title="t('accessKeys.handoffTitle')"
       :description="row?.name ?? t('accessKeys.handoff')"
     >
@@ -118,6 +121,7 @@ useLoadingActivity(loading)
             </div>
           </dl>
           <AppCopyValue
+            v-if="!isMobile"
             :value="instructions"
             :display="t('accessKeys.handoff')"
             :label="t('accessKeys.copyHandoff')"
@@ -134,6 +138,17 @@ useLoadingActivity(loading)
       </div>
       <footer class="modern-access-handoff-footer">
         <AppButton size="sm" @click="$emit('close')">{{ t('ui.close') }}</AppButton>
+        <AppCopyValue
+          v-if="isMobile && !loading && !failed"
+          :value="instructions"
+          :label="t('accessKeys.copyHandoff')"
+        >
+          <template #trigger="{ copy, pending }">
+            <AppButton variant="primary" :loading="pending" @click="copy()">{{
+              t('accessKeys.copyHandoff')
+            }}</AppButton>
+          </template>
+        </AppCopyValue>
       </footer>
     </AppDialogContent>
   </DialogRoot>
@@ -169,5 +184,17 @@ useLoadingActivity(loading)
   flex: none;
   padding: var(--modern-space-3) var(--modern-space-5);
   border-top: var(--modern-line-width) solid var(--modern-border);
+  gap: var(--modern-space-2);
+}
+@media (max-width: 760px) {
+  .modern-access-handoff-body {
+    flex: 1;
+    align-content: start;
+    padding: var(--modern-space-4);
+  }
+  .modern-access-handoff-footer {
+    flex-wrap: wrap;
+    padding-inline: var(--modern-space-4);
+  }
 }
 </style>

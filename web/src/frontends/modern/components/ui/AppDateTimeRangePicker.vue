@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { CalendarClock } from '@lucide/vue'
-import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
+import {
+  DialogRoot,
+  DialogTrigger,
+  PopoverContent,
+  PopoverPortal,
+  PopoverRoot,
+  PopoverTrigger,
+} from 'reka-ui'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppButton from './AppButton.vue'
+import AppDialogContent from './AppDialogContent.vue'
+import AppDialogHeader from './AppDialogHeader.vue'
 import AppDateTimeEditor from './AppDateTimeEditor.vue'
 import AppField from './AppField.vue'
 import AppFieldControl from './AppFieldControl.vue'
@@ -27,6 +36,7 @@ defineOptions({ inheritAttrs: false })
 const props = withDefaults(
   defineProps<
     FieldProps & {
+      mobile?: boolean
       min?: string
       max?: string
       size?: ControlSize
@@ -114,9 +124,9 @@ function submit(preset: DateRangePreset | undefined): void {
 </script>
 <template>
   <AppField v-slot="{ id, describedBy, invalid }" v-bind="{ ...props, ...layoutAttrs($attrs) }">
-    <PopoverRoot v-model:open="open">
+    <component :is="mobile ? DialogRoot : PopoverRoot" v-model:open="open">
       <AppFieldControl as-child :size="size" :invalid="invalid" :disabled="disabled"
-        ><PopoverTrigger as-child
+        ><component :is="mobile ? DialogTrigger : PopoverTrigger" as-child
           ><AppButton
             :id="id"
             :size="size"
@@ -126,67 +136,81 @@ function submit(preset: DateRangePreset | undefined): void {
             :aria-describedby="describedBy"
             :aria-invalid="invalid || undefined"
             ><AppIcon :icon="CalendarClock" size="sm" /><AppOverflowText
-              :text="display" /></AppButton></PopoverTrigger
+              :text="display" /></AppButton></component
       ></AppFieldControl>
-      <PopoverPortal
-        ><PopoverContent
-          class="modern-date-popover modern-date-popover--range"
-          align="start"
-          :side-offset="overlaySideOffset"
-          :collision-padding="16"
+      <component
+        :is="mobile ? 'div' : PopoverPortal"
+        :class="mobile ? 'modern-date-portal' : undefined"
+      >
+        <component
+          :is="mobile ? AppDialogContent : PopoverContent"
+          :class="mobile ? 'modern-date-sheet' : 'modern-date-popover modern-date-popover--range'"
+          v-bind="
+            mobile
+              ? { placement: 'bottom', title: label, description: label }
+              : { align: 'start', sideOffset: overlaySideOffset, collisionPadding: 16 }
+          "
           @keydown.enter="confirmKey"
         >
-          <div class="modern-date-shortcuts" :aria-label="t('ui.date.shortcuts')">
-            <AppButton
-              v-for="option in presets"
-              :key="option"
-              :variant="chosen === option ? 'brand' : 'ghost'"
-              size="xxs"
-              :aria-pressed="chosen === option"
-              @click="shortcut(option)"
-              >{{ t('ui.date.ranges.' + option) }}</AppButton
-            >
-          </div>
-          <AppSegmentedControl
-            v-model="activeBoundary"
-            class="modern-date-range-switch"
-            :label="t('ui.date.rangePlaceholder')"
-            :options="[
-              { value: 'from', label: t('ui.date.from') },
-              { value: 'to', label: t('ui.date.to') },
-            ]"
-            appearance="field"
-            size="xs"
+          <AppDialogHeader
+            v-if="mobile"
+            :title="label"
+            :close-label="t('ui.close')"
+            @close="open = false"
           />
-          <div class="modern-date-range-editors">
-            <section :class="{ 'is-active': activeBoundary === 'from' }">
-              <h4>{{ t('ui.date.from') }}</h4>
-              <AppDateTimeEditor
-                v-model="start"
-                :label="t('ui.date.from')"
-                :min="min"
-                :max="max"
-                :invalid="!startValid"
-                :range="{ from: start, to: end }"
-                @update:model-value="chosen = undefined"
-              />
-            </section>
-            <section :class="{ 'is-active': activeBoundary === 'to' }">
-              <h4>{{ t('ui.date.to') }}</h4>
-              <AppDateTimeEditor
-                v-model="end"
-                :label="t('ui.date.to')"
-                :min="min"
-                :max="max"
-                :invalid="!endValid || !ordered"
-                :range="{ from: start, to: end }"
-                @update:model-value="chosen = undefined"
-              />
-            </section>
+          <div class="modern-date-body">
+            <div class="modern-date-shortcuts" :aria-label="t('ui.date.shortcuts')">
+              <AppButton
+                v-for="option in presets"
+                :key="option"
+                :variant="chosen === option ? 'brand' : 'ghost'"
+                size="xxs"
+                :aria-pressed="chosen === option"
+                @click="shortcut(option)"
+                >{{ t('ui.date.ranges.' + option) }}</AppButton
+              >
+            </div>
+            <AppSegmentedControl
+              v-model="activeBoundary"
+              class="modern-date-range-switch"
+              :label="t('ui.date.rangePlaceholder')"
+              :options="[
+                { value: 'from', label: t('ui.date.from') },
+                { value: 'to', label: t('ui.date.to') },
+              ]"
+              appearance="field"
+              size="xs"
+            />
+            <div class="modern-date-range-editors">
+              <section :class="{ 'is-active': activeBoundary === 'from' }">
+                <h4>{{ t('ui.date.from') }}</h4>
+                <AppDateTimeEditor
+                  v-model="start"
+                  :label="t('ui.date.from')"
+                  :min="min"
+                  :max="max"
+                  :invalid="!startValid"
+                  :range="{ from: start, to: end }"
+                  @update:model-value="chosen = undefined"
+                />
+              </section>
+              <section :class="{ 'is-active': activeBoundary === 'to' }">
+                <h4>{{ t('ui.date.to') }}</h4>
+                <AppDateTimeEditor
+                  v-model="end"
+                  :label="t('ui.date.to')"
+                  :min="min"
+                  :max="max"
+                  :invalid="!endValid || !ordered"
+                  :range="{ from: start, to: end }"
+                  @update:model-value="chosen = undefined"
+                />
+              </section>
+            </div>
+            <p v-if="!valid" class="modern-date-error" role="status">
+              {{ t(startValid && endValid ? 'ui.date.orderError' : 'ui.date.invalid') }}
+            </p>
           </div>
-          <p v-if="!valid" class="modern-date-error" role="status">
-            {{ t(startValid && endValid ? 'ui.date.orderError' : 'ui.date.invalid') }}
-          </p>
           <footer class="modern-date-footer">
             <span class="modern-date-zone">{{ localTimeZone() }}</span>
             <div>
@@ -198,9 +222,9 @@ function submit(preset: DateRangePreset | undefined): void {
               }}</AppButton>
             </div>
           </footer>
-        </PopoverContent></PopoverPortal
+        </component></component
       >
-    </PopoverRoot>
+    </component>
   </AppField>
 </template>
 <style>
@@ -225,7 +249,8 @@ function submit(preset: DateRangePreset | undefined): void {
   .modern-date-popover--range {
     width: min(300px, calc(100vw - var(--modern-space-8)));
   }
-  .modern-date-popover--range .modern-date-range-switch {
+  .modern-date-popover--range .modern-date-range-switch,
+  .modern-date-sheet .modern-date-range-switch {
     display: inline-flex;
     margin-bottom: var(--modern-space-2);
   }

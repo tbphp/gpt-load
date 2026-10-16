@@ -91,7 +91,7 @@ function focusInitialAction(event: Event): void {
         </header>
         <div v-if="subject || description || error || $slots.default" class="modern-confirm-body">
           <div v-if="subject" class="modern-confirm-subject">
-            <AppOverflowText :text="subject" />
+            <AppOverflowText :text="subject" wrap-on-mobile />
           </div>
           <p v-if="description">{{ description }}</p>
           <slot />

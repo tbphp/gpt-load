@@ -103,6 +103,7 @@ defineExpose({ focus: () => input.value?.focus() })
 }
 @media (max-width: 760px) {
   .modern-checkbox {
+    min-width: var(--modern-touch-target);
     min-height: var(--modern-touch-target);
   }
 }

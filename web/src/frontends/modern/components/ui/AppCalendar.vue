@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
-import { ChevronLeft, ChevronRight } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { ChevronDown, ChevronLeft, ChevronRight } from '@lucide/vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppButton from './AppButton.vue'
 import AppIconButton from './AppIconButton.vue'
@@ -20,6 +20,11 @@ const { t, locale } = useI18n()
 const grid = ref<HTMLElement>()
 const focused = ref('')
 const month = ref(new Date())
+const monthPicker = ref(false)
+const monthPickerId = useId()
+const monthLabel = computed(() =>
+  dateFormatter(locale.value, { year: 'numeric', month: 'long' }).format(month.value),
+)
 const minimum = computed(() => props.min?.slice(0, 10))
 const maximum = computed(() => props.max?.slice(0, 10))
 const dateFor = (value: string) => parseLocalDateTime(value + 'T12:00:00')
@@ -163,20 +168,35 @@ function inRange(value: string): boolean {
         size="xs"
         @click="moveMonth(-1)"
       />
-      <AppSearchSelect
-        v-model="yearValue"
-        :label="t('ui.date.year')"
-        label-hidden
-        :options="years"
-        size="xs"
-      />
-      <AppSelect
-        v-model="monthValue"
-        :label="t('ui.date.month')"
-        label-hidden
-        :options="months"
-        size="xs"
-      />
+      <AppButton
+        class="modern-calendar-month-title"
+        variant="ghost"
+        :icon="ChevronDown"
+        :aria-expanded="monthPicker"
+        :aria-controls="monthPickerId"
+        @click="monthPicker = !monthPicker"
+        >{{ monthLabel }}</AppButton
+      >
+      <div
+        :id="monthPickerId"
+        class="modern-calendar-month-picker"
+        :class="{ 'is-open': monthPicker }"
+      >
+        <AppSearchSelect
+          v-model="yearValue"
+          :label="t('ui.date.year')"
+          label-hidden
+          :options="years"
+          size="xs"
+        />
+        <AppSelect
+          v-model="monthValue"
+          :label="t('ui.date.month')"
+          label-hidden
+          :options="months"
+          size="xs"
+        />
+      </div>
       <AppIconButton
         :icon="ChevronRight"
         :label="t('ui.date.nextMonth')"
@@ -228,6 +248,12 @@ function inRange(value: string): boolean {
   align-items: center;
   gap: var(--modern-space-1);
 }
+.modern-calendar-month-title {
+  display: none;
+}
+.modern-calendar-month-picker {
+  display: contents;
+}
 .modern-calendar-grid {
   display: grid;
   gap: var(--modern-space-0-5);
@@ -261,5 +287,32 @@ function inRange(value: string): boolean {
 }
 .modern-calendar-day.is-today {
   box-shadow: inset 0 0 0 var(--modern-line-width) var(--modern-tooltip-border);
+}
+@media (max-width: 760px) {
+  .modern-calendar-heading {
+    grid-template-columns: var(--modern-touch-target) minmax(0, 1fr) var(--modern-touch-target);
+  }
+  .modern-calendar-heading > :last-child {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .modern-calendar-month-title {
+    display: inline-flex;
+    min-width: 0;
+    white-space: normal;
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .modern-calendar-month-picker {
+    display: none;
+  }
+  .modern-calendar-month-picker.is-open {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--modern-space-2);
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-block: var(--modern-space-2);
+  }
 }
 </style>

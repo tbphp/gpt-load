@@ -78,7 +78,7 @@ const cards = computed<UsageCard[]>(() => {
     <article v-for="card in cards" :key="card.id" class="modern-usage-stat" :data-kind="card.id">
       <div class="modern-usage-stat-label">
         <span class="modern-usage-stat-symbol"><AppIcon :icon="card.icon" size="sm" /></span>
-        <AppTooltip :label="card.id === 'cache' ? t('usage.cacheHint') : undefined">
+        <AppTooltip :label="card.id === 'cache' ? t('usage.cacheHint') : undefined" touchable>
           <span :tabindex="card.id === 'cache' ? 0 : undefined">
             {{ t('usage.' + card.id) }}
           </span>
@@ -201,12 +201,42 @@ const cards = computed<UsageCard[]>(() => {
 @media (max-width: 760px) {
   .modern-usage-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--modern-space-2);
   }
   .modern-usage-stat:nth-child(n) {
     grid-column: auto;
-    padding: var(--modern-space-4);
+    gap: var(--modern-space-2);
+    padding: var(--modern-space-3);
   }
   .modern-usage-stat:last-child {
+    grid-column: 1 / -1;
+  }
+  .modern-usage-stat-label {
+    gap: var(--modern-space-1-5);
+    font-size: var(--modern-font-size-small);
+    overflow-wrap: anywhere;
+  }
+  .modern-usage-stat-symbol {
+    width: var(--modern-control-xxs);
+    height: var(--modern-control-xxs);
+  }
+  .modern-usage-stat-graphic {
+    display: none;
+  }
+  .modern-usage-stat-detail {
+    font-size: var(--modern-font-size-caption);
+    overflow-wrap: anywhere;
+  }
+  .modern-usage-stat[data-kind='cost'] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+  }
+  .modern-usage-stat[data-kind='cost'] .modern-usage-stat-value {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .modern-usage-stat[data-kind='cost'] .modern-usage-stat-detail {
     grid-column: 1 / -1;
   }
 }
