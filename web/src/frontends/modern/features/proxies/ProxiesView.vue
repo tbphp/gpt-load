@@ -60,9 +60,15 @@ import {
   AppTooltip,
 } from '@modern/components/ui'
 import ProxyEditor from './ProxyEditor.vue'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 
 const { t, n, locale } = useI18n()
 const isMobile = useMobileLayout()
+const mobileFilterCount = computed(
+  () =>
+    activeFilters.value.filter((item) => ['scheme', 'used', 'test', 'sort'].includes(item.key))
+      .length,
+)
 const mobileFilters = ref(false)
 function openImport(): void {
   mobileFilters.value = false
@@ -270,6 +276,12 @@ function resetFilter(key?: string) {
 const editor = ref<ProxyItem | null | undefined>()
 const importing = ref(false)
 const importText = ref('')
+const importGuard = ref<InstanceType<typeof AppDraftGuard>>()
+async function closeImport(): Promise<void> {
+  if (pending.value || (isMobile.value && !(await importGuard.value?.confirm()))) return
+  if (isMobile.value) importText.value = ''
+  importing.value = false
+}
 const notice = ref('')
 const error = ref('')
 const pending = ref(false)
@@ -421,6 +433,7 @@ onScopeDispose(() => {
       <AppIconButton
         v-if="isMobile"
         :icon="SlidersHorizontal"
+        :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
         :label="t('ui.mobile.filters')"
         @click="mobileFilters = true"
       />
@@ -428,6 +441,8 @@ onScopeDispose(() => {
         v-model:open="mobileFilters"
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="change({ scheme: '', used: '', test: '', sort: 'name' })"
       >
         <AppSelect
           class="modern-proxy-filter"
@@ -843,7 +858,7 @@ onScopeDispose(() => {
         <AppBadge v-if="impact.global" tone="brand">{{ t('proxies.global') }}</AppBadge>
       </div>
     </AppConfirmDialog>
-    <DialogRoot :open="importing" @update:open="!pending && (importing = $event)"
+    <DialogRoot :open="importing" @update:open="!$event && closeImport()"
       ><AppDialogContent
         :title="t('proxies.import')"
         :description="t('proxies.importHelp')"
@@ -852,7 +867,7 @@ onScopeDispose(() => {
         ><AppDialogHeader
           :close-label="t('proxies.cancel')"
           :title="t('proxies.import')"
-          @close="!pending && (importing = false)"
+          @close="closeImport"
         />
         <form class="modern-proxy-panel" @submit.prevent="importRows">
           <div class="modern-proxy-import-body">
@@ -867,7 +882,7 @@ onScopeDispose(() => {
             /><AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
           </div>
           <footer class="modern-proxy-import-footer">
-            <AppButton v-if="isMobile" :disabled="pending" @click="importing = false">{{
+            <AppButton v-if="isMobile" :disabled="pending" @click="closeImport">{{
               t('ui.cancel')
             }}</AppButton>
             <AppButton
@@ -881,6 +896,11 @@ onScopeDispose(() => {
         </form></AppDialogContent
       ></DialogRoot
     >
+    <AppDraftGuard
+      ref="importGuard"
+      :dirty="isMobile && Boolean(importText.trim())"
+      :pending="isMobile && importing && pending"
+    />
   </div>
 </template>
 

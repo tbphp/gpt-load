@@ -113,6 +113,27 @@ const errors = computed(() => {
       result[key] = 'invalidAmount'
   return result
 })
+const activeCount = computed(
+  () =>
+    Object.entries(draft.value).filter(
+      ([key, value]) => !['from_ms', 'to_ms', 'limit'].includes(key) && value?.trim(),
+    ).length,
+)
+function resetFilters(): void {
+  const { from_ms, to_ms, limit } = draft.value
+  draft.value = { from_ms, to_ms, limit }
+  edited = true
+  apply()
+}
+function sectionKeys(section: {
+  id: string
+  fields: readonly LogFilterDefinition[]
+}): LogFilterName[] {
+  return [
+    ...section.fields.map((field) => field.key),
+    ...(section.id === 'routing' && props.admin ? ['credential_id' as const] : []),
+  ]
+}
 function apply(): void {
   clearTimeout(searchTimer)
   if (composing.value || Object.keys(errors.value).length) return
@@ -373,7 +394,7 @@ const loadCredentials = computed(() => {
             <AppIconButton
               :icon="SlidersHorizontal"
               :label="t('logs.moreFilters')"
-              :variant="more ? 'brand' : 'ghost'"
+              :variant="more || (isMobile && activeCount > 0) ? 'brand' : 'ghost'"
             />
           </component>
           <PopoverPortal>
@@ -481,6 +502,9 @@ const loadCredentials = computed(() => {
                     v-for="section in sections"
                     :key="section.id"
                     :title="t('logs.filterSections.' + section.id)"
+                    :collapsible="isMobile"
+                    :active-count="sectionKeys(section).filter((key) => draft[key]?.trim()).length"
+                    :invalid="sectionKeys(section).some((key) => errors[key])"
                     compact
                   >
                     <template v-if="section.id === 'routing' && admin">
@@ -586,6 +610,9 @@ const loadCredentials = computed(() => {
                   </AppAdvancedFilterSection>
                 </div>
                 <div v-if="isMobile" class="modern-log-mobile-filter-footer">
+                  <AppButton :disabled="!activeCount" @click="resetFilters">{{
+                    t('ui.filters.reset')
+                  }}</AppButton>
                   <AppButton
                     variant="primary"
                     :disabled="Object.keys(errors).length > 0"
@@ -623,6 +650,10 @@ const loadCredentials = computed(() => {
   justify-content: flex-end;
   padding: var(--modern-space-4);
   border-top: var(--modern-line-width) solid var(--modern-border);
+  gap: var(--modern-space-2);
+}
+.modern-log-mobile-filter-footer > * {
+  flex: 1;
 }
 
 .modern-log-filter-area {

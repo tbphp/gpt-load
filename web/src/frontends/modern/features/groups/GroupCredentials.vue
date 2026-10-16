@@ -91,6 +91,9 @@ const emit = defineEmits<{
   updatedAt: [value: number]
 }>()
 const isMobile = useMobileLayout()
+const mobileFilterCount = computed(
+  () => filterSummary.value.filter((item) => ['proxy', 'reset', 'sort'].includes(item.key)).length,
+)
 const mobileFilters = ref(false)
 const { t, n } = useI18n()
 const client = useApiClient()
@@ -1004,6 +1007,8 @@ defineExpose({ refresh })
         v-model:open="mobileFilters"
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="change({ proxy: '', reset: '', sort: 'priority', page: 1 })"
       >
         <AppSelect
           v-if="group.connectionType === 'subscription'"
@@ -1034,6 +1039,7 @@ defineExpose({ refresh })
       <AppIconButton
         v-if="isMobile"
         :icon="SlidersHorizontal"
+        :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
         :label="t('ui.mobile.filters')"
         @click="mobileFilters = true"
       />

@@ -35,7 +35,7 @@ const { t, locale } = useI18n()
       }}</span></span
     >
     <span v-if="row.error_code || row.error_summary" class="modern-log-mobile-error">{{
-      row.error_code || row.error_summary
+      row.error_summary || row.error_code
     }}</span>
   </AppButton>
 </template>
@@ -67,8 +67,11 @@ const { t, locale } = useI18n()
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-weight: var(--modern-weight-semibold);
 }
 .modern-log-mobile-source {
@@ -89,8 +92,11 @@ const { t, locale } = useI18n()
 .modern-log-mobile-error {
   color: var(--modern-danger);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-size: var(--modern-font-size-small);
 }
 </style>

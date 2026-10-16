@@ -60,6 +60,9 @@ import HealthDetailPanel from './HealthDetailPanel.vue'
 const { t, locale } = useI18n()
 const router = useRouter()
 const isMobile = useMobileLayout()
+const mobileFilterCount = computed(
+  () => summary.value.filter((item) => ['group', 'kind', 'sort'].includes(item.key)).length,
+)
 const mobileFilters = ref(false)
 const client = useApiClient()
 const state = useURLState(healthStateKeys, parseHealthState, serializeHealthState)
@@ -241,6 +244,7 @@ useMessageSource(() =>
       <AppIconButton
         v-if="isMobile"
         :icon="SlidersHorizontal"
+        :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
         :label="t('ui.mobile.filters')"
         @click="mobileFilters = true"
       />
@@ -248,6 +252,8 @@ useMessageSource(() =>
         v-model:open="mobileFilters"
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="change({ group: '', kind: '', sort: 'priority' })"
       >
         <AppSearchSelect
           :model-value="state.group"

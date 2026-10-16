@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronRight, Layers, SlidersHorizontal } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { useURLState } from '@modern/app/url-state'
 import { useMessages, useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -42,7 +43,21 @@ const { t, n } = useI18n()
 const client = useApiClient()
 const cache = useQueryClient()
 const isMobile = useMobileLayout()
-const mobileTab = ref('credentials')
+const mobileView = useURLState(
+  ['mobile_view'],
+  (query) => ({
+    tab: ['overview', 'settings'].includes(String(query.mobile_view))
+      ? String(query.mobile_view)
+      : 'credentials',
+  }),
+  (value) => (value.tab === 'credentials' ? {} : { mobile_view: value.tab }),
+)
+const mobileTab = computed({
+  get: () => mobileView.value.tab,
+  set: (value) => {
+    mobileView.value = { tab: value }
+  },
+})
 const id = computed(() => Number(route.params.id))
 const valid = computed(() => Number.isSafeInteger(id.value) && id.value > 0)
 const groups = useQuery({

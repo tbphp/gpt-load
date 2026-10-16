@@ -5,7 +5,8 @@ import AppButton from './AppButton.vue'
 import AppDialogContent from './AppDialogContent.vue'
 import AppDialogHeader from './AppDialogHeader.vue'
 
-defineProps<{ mobile: boolean; title: string; actionLabel?: string }>()
+defineProps<{ mobile: boolean; title: string; actionLabel?: string; activeCount?: number }>()
+defineEmits<{ reset: [] }>()
 const open = defineModel<boolean>('open', { default: false })
 const { t } = useI18n()
 </script>
@@ -17,6 +18,12 @@ const { t } = useI18n()
       <div class="modern-filter-sheet-body"><slot /></div>
       <footer class="modern-filter-sheet-footer">
         <slot name="footer" />
+        <AppButton
+          v-if="activeCount !== undefined"
+          :disabled="!activeCount"
+          @click="$emit('reset')"
+          >{{ t('ui.filters.reset') }}</AppButton
+        >
         <AppButton variant="primary" @click="open = false">{{
           actionLabel ?? t('ui.mobile.showResults')
         }}</AppButton>
@@ -41,5 +48,8 @@ const { t } = useI18n()
   gap: var(--modern-space-3);
   padding: var(--modern-space-4) var(--modern-space-5);
   border-top: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-filter-sheet-footer > * {
+  flex: 1;
 }
 </style>

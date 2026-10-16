@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import { DialogRoot } from 'reka-ui'
 import { computed, onMounted, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -19,14 +21,25 @@ import {
 const props = defineProps<{ proxy?: ProxyItem }>()
 const emit = defineEmits<{ close: []; saved: [proxy: ProxyItem] }>()
 const { t } = useI18n()
+const isMobile = useMobileLayout()
+const guard = ref<InstanceType<typeof AppDraftGuard>>()
 const client = useApiClient()
 const cache = useQueryClient()
 const name = ref(props.proxy?.name ?? '')
 const url = ref('')
+const baseline = ref({ name: name.value, url: '' })
+const completed = ref(false)
+const dirty = computed(
+  () =>
+    !completed.value &&
+    !loading.value &&
+    (name.value !== baseline.value.name || url.value !== baseline.value.url),
+)
 const pending = ref(false)
 const error = ref('')
 const loading = ref(Boolean(props.proxy))
 const loadFailed = ref(false)
+const urlTouched = ref(false)
 const loadController = new AbortController()
 const valid = computed(() => !loading.value && !loadFailed.value && validProxyURL(url.value.trim()))
 async function load() {
@@ -38,6 +51,7 @@ async function load() {
     if (loadController.signal.aborted) return
     name.value = proxy.name
     url.value = proxy.url
+    baseline.value = { name: proxy.name, url: proxy.url }
   } catch {
     if (!loadController.signal.aborted) loadFailed.value = true
   } finally {
@@ -61,6 +75,7 @@ async function save() {
       { name: name.value.trim(), url: url.value.trim() },
       props.proxy?.id,
     )
+    completed.value = true
     url.value = ''
     await cache.invalidateQueries({ queryKey: proxyListKey })
     emit('saved', proxy)
@@ -74,10 +89,13 @@ async function save() {
     pending.value = false
   }
 }
+async function close(): Promise<void> {
+  if (!pending.value && (!isMobile.value || (await guard.value?.confirm()))) emit('close')
+}
 </script>
 
 <template>
-  <DialogRoot :open="true" @update:open="!$event && !pending && emit('close')">
+  <DialogRoot :open="true" @update:open="!$event && close()">
     <AppDialogContent
       :title="t(proxy ? 'proxies.edit' : 'proxies.new')"
       :description="t('proxies.addressHelp')"
@@ -87,7 +105,7 @@ async function save() {
         :close-label="t('ui.close')"
         :title="t(proxy ? 'proxies.edit' : 'proxies.new')"
         :close-disabled="pending"
-        @close="!pending && emit('close')"
+        @close="close"
       />
       <form class="modern-proxy-editor" @submit.prevent="save">
         <div class="modern-proxy-editor-body">
@@ -111,17 +129,23 @@ async function save() {
               placeholder="http://127.0.0.1:8080"
               :hint="t('proxies.addressHelp')"
               :disabled="pending"
-              type="text"
+              type="url"
+              :error="
+                isMobile && urlTouched && url.trim() && !validProxyURL(url.trim())
+                  ? t('proxies.addressHelp')
+                  : undefined
+              "
               required
               size="sm"
               autocomplete="off"
               spellcheck="false"
+              @blur="urlTouched = true"
             />
             <AppNotice v-if="error" tone="danger">{{ error }}</AppNotice>
           </template>
         </div>
         <footer class="modern-proxy-editor-footer">
-          <AppButton size="sm" :disabled="pending" variant="ghost" @click="emit('close')">{{
+          <AppButton size="sm" :disabled="pending" variant="ghost" @click="close">{{
             t('proxies.cancel')
           }}</AppButton>
           <AppButton
@@ -136,6 +160,7 @@ async function save() {
       </form>
     </AppDialogContent>
   </DialogRoot>
+  <AppDraftGuard ref="guard" :dirty="isMobile && dirty" :pending="isMobile && pending" />
 </template>
 
 <style scoped>

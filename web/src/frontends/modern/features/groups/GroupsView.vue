@@ -64,6 +64,9 @@ import { groupFilterQuery as serializeGroupFilters, parseGroupFilters } from './
 
 const { t, n, locale } = useI18n()
 const isMobile = useMobileLayout()
+const mobileFilterCount = computed(
+  () => activeFilters.value.filter((item) => !['q', 'view'].includes(item.key)).length,
+)
 const client = useApiClient()
 const queryClient = useQueryClient()
 const route = useRoute()
@@ -746,7 +749,22 @@ useMessageSource(() =>
           @compositionend="endComposition"
         />
       </div>
-      <AppFilterSheet v-model:open="moreFilters" :mobile="isMobile" :title="t('ui.mobile.filters')">
+      <AppFilterSheet
+        v-model:open="moreFilters"
+        :mobile="isMobile"
+        :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="
+          updateFilters({
+            channel: '',
+            model: '',
+            connection: '',
+            credential: '',
+            protocol: '',
+            sort: 'recent',
+          })
+        "
+      >
         <AppSearchSelect
           class="modern-groups-channel"
           :model-value="filters.channel"
@@ -823,6 +841,7 @@ useMessageSource(() =>
       <div class="modern-groups-toolbar-actions">
         <AppIconButton
           :icon="SlidersHorizontal"
+          :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
           :label="t('groups.board.moreFilters')"
           :aria-expanded="moreFilters"
           aria-controls="modern-groups-more-filters"

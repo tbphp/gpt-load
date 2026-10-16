@@ -65,8 +65,31 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const isMobile = useMobileLayout()
 const mobileFilters = ref(false)
-const mobileSection = ref('trend')
-const mobileDimension = ref<UsageDimension>('model')
+const mobileView = useURLState(
+  ['mobile_view', 'mobile_dimension'],
+  (query) => ({
+    section: ['sources', 'composition'].includes(String(query.mobile_view))
+      ? String(query.mobile_view)
+      : 'trend',
+    dimension: usageDimensions.find((value) => value === query.mobile_dimension) ?? 'model',
+  }),
+  (value) => ({
+    ...(value.section !== 'trend' ? { mobile_view: value.section } : {}),
+    ...(value.dimension !== 'model' ? { mobile_dimension: value.dimension } : {}),
+  }),
+)
+const mobileSection = computed({
+  get: () => mobileView.value.section,
+  set: (section) => {
+    mobileView.value = { ...mobileView.value, section }
+  },
+})
+const mobileDimension = computed({
+  get: () => mobileView.value.dimension,
+  set: (dimension: UsageDimension) => {
+    mobileView.value = { ...mobileView.value, dimension }
+  },
+})
 const client = useApiClient()
 const session = useAuthSession()
 const admin = computed(() => session.state.principalType === 'admin')
@@ -248,6 +271,11 @@ function applyDate(): void {
     state.value = { ...state.value, range }
   }
 }
+function resetMobileFilters(): void {
+  clearTimeout(modelTimer)
+  model.value = ''
+  state.value = { ...state.value, filters: {} }
+}
 function reset(key?: string): void {
   if (!key) {
     state.value = { ...state.value, filters: {}, range: { preset: '24h' } }
@@ -398,6 +426,7 @@ const bucketLabel = computed(() => {
       <AppIconButton
         v-if="isMobile"
         :icon="SlidersHorizontal"
+        :variant="usageFilterKeys.some((key) => state.filters[key]) ? 'brand' : 'ghost'"
         :label="t('ui.mobile.filters')"
         @click="mobileFilters = true"
       />
@@ -405,6 +434,8 @@ const bucketLabel = computed(() => {
         v-model:open="mobileFilters"
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
+        :active-count="usageFilterKeys.filter((key) => state.filters[key]).length"
+        @reset="resetMobileFilters"
       >
         <AppSearchSelect
           v-if="admin"
@@ -529,6 +560,7 @@ const bucketLabel = computed(() => {
       <AppSegmentedControl
         v-if="isMobile"
         v-model="mobileSection"
+        class="modern-usage-mobile-tabs"
         :label="t('pages.usage.title')"
         :options="[
           { value: 'trend', label: t('ui.mobile.trend') },
@@ -617,6 +649,7 @@ const bucketLabel = computed(() => {
           v-if="isMobile"
           v-model="mobileDimension"
           :label="t('usage.sources')"
+          label-hidden
           :options="dimensions.map((value) => ({ value, label: t('usage.dimensions.' + value) }))"
         />
         <div class="modern-usage-ranks">
@@ -627,6 +660,7 @@ const bucketLabel = computed(() => {
             class="modern-usage-rank-cell"
           >
             <UsageRank
+              :mobile="isMobile"
               :dimension="dimension"
               :distribution="report.distributions[dimension]![state.metric]"
               :metric="state.metric"
@@ -649,6 +683,14 @@ const bucketLabel = computed(() => {
 </template>
 
 <style scoped>
+.modern-usage-mobile-tabs {
+  position: sticky;
+  top: 0;
+  z-index: var(--modern-layer-header);
+  width: 100%;
+  padding-block: var(--modern-space-2);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
 .modern-usage-workspace {
   display: flex;
   flex: 1;

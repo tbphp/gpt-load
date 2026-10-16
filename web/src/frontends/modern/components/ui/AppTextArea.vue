@@ -33,6 +33,14 @@ defineExpose({ focus: () => input.value?.focus(), select: () => input.value?.sel
           :class="[{ 'is-mono': mono }, `modern-textarea--${size}`]"
           :rows="rows"
           :disabled="disabled"
+          :autocapitalize="
+            ($attrs.autocapitalize as string) ??
+            (mono || String($attrs.spellcheck) === 'false' ? 'none' : undefined)
+          "
+          :autocorrect="
+            ($attrs.autocorrect as string) ??
+            (mono || String($attrs.spellcheck) === 'false' ? 'off' : undefined)
+          "
           :aria-invalid="invalid || undefined"
           :aria-describedby="describedBy"
         />

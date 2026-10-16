@@ -3,7 +3,7 @@ import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
 import { useI18n } from 'vue-i18n'
 import {
@@ -37,6 +37,7 @@ import CredentialWindowUsage from './CredentialWindowUsage.vue'
 
 const isMobile = useMobileLayout()
 const mobileSection = ref('runtime')
+const settingsSection = ref<HTMLElement>()
 const props = defineProps<{ group: GroupRow; row: CredentialRow; channel?: GroupChannel }>()
 const emit = defineEmits<{ close: []; saved: [row: CredentialRow] }>()
 const { t, n, locale, te } = useI18n()
@@ -113,7 +114,13 @@ async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
   if (weightInvalid.value || proxyInvalid.value) {
-    if (isMobile.value) mobileSection.value = 'settings'
+    if (isMobile.value) {
+      mobileSection.value = 'settings'
+      await nextTick()
+      const invalid = settingsSection.value?.querySelector<HTMLElement>('[aria-invalid="true"]')
+      invalid?.focus({ preventScroll: true })
+      invalid?.scrollIntoView({ block: 'center' })
+    }
     return
   }
   const patch: Parameters<typeof updateCredential>[3] = {}
@@ -320,13 +327,14 @@ useMessageSource(() =>
       </section>
       <section
         v-show="!isMobile || mobileSection === 'settings'"
+        ref="settingsSection"
         class="modern-credential-detail-section"
       >
         <div class="modern-credential-detail-settings-title">
           <h3>{{ t('credentialCards.settings') }}</h3>
-          <AppTooltip :label="t('credentialCards.autoWeight')">
+          <AppTooltip :label="t('credentialCards.autoWeight')" touchable>
             <span
-              class="modern-credential-detail-help"
+              class="modern-credential-detail-help modern-help-trigger"
               tabindex="0"
               :aria-label="t('credentialCards.autoWeight')"
             >

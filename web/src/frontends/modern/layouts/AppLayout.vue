@@ -103,6 +103,16 @@ const fetching = useIsFetching()
 const localActivity = provideLoadingActivity()
 const navigating = ref(false)
 const loadingPage = ref(true)
+const mobileScrollPositions = new Map<string, number>()
+let pendingMobileScroll: { path: string; top: number } | undefined
+function scrollKey(fullPath: string): string {
+  const url = new URL(fullPath, window.location.origin)
+  url.searchParams.sort()
+  return url.pathname + url.search
+}
+function cancelScrollRestore(): void {
+  pendingMobileScroll = undefined
+}
 let navigationTarget: string | undefined
 const contentPending = computed(
   () => pageRefresh.busy.value || fetching.value > 0 || localActivity.value,
@@ -111,6 +121,13 @@ const pageLoading = useLoadingFeedback(
   () => navigating.value || loadingPage.value || pageRefresh.running.value,
 )
 const removeBeforeEach = router.beforeEach((to, from) => {
+  if (isMobile.value && to.path !== from.path) {
+    const key = scrollKey(from.fullPath)
+    mobileScrollPositions.delete(key)
+    mobileScrollPositions.set(key, document.getElementById('modern-content')?.scrollTop ?? 0)
+    if (mobileScrollPositions.size > 50)
+      mobileScrollPositions.delete(mobileScrollPositions.keys().next().value!)
+  }
   navigationTarget = to.fullPath
   // query/hash 是页内状态，只有路径变化才作为页面导航。
   navigating.value = to.path !== from.path
@@ -131,6 +148,10 @@ watch(
     await nextTick()
     if (route.path === path && !navigating.value && !contentPending.value) {
       loadingPage.value = false
+      if (isMobile.value && pendingMobileScroll?.path === path) {
+        document.getElementById('modern-content')?.scrollTo({ top: pendingMobileScroll.top })
+        pendingMobileScroll = undefined
+      }
     }
   },
   { immediate: true, flush: 'post' },
@@ -172,6 +193,8 @@ const removeAfterEach = router.afterEach((to, from, failure) => {
   failedNavigation.value = null
   // 同页搜索和筛选只更新查询参数，保留当前控件的输入焦点。
   if (to.path === from.path) return
+  const top = isMobile.value ? mobileScrollPositions.get(scrollKey(to.fullPath)) : undefined
+  pendingMobileScroll = top === undefined ? undefined : { path: to.path, top }
   requestAnimationFrame(() =>
     document.getElementById('modern-content')?.focus({ preventScroll: true }),
   )
@@ -361,7 +384,15 @@ useMessageSource(() =>
           t('auth.requestBodyRecordingNotice', { days: requestBodyRecording.retentionDays })
         }}</AppNotice>
       </div>
-      <main id="modern-content" :key="route.path" class="modern-content" tabindex="-1">
+      <main
+        id="modern-content"
+        :key="route.path"
+        class="modern-content"
+        tabindex="-1"
+        @pointerdown="cancelScrollRestore"
+        @wheel.passive="cancelScrollRestore"
+        @keydown="cancelScrollRestore"
+      >
         <slot />
       </main>
       <MobileNavigation ref="mobileNavigation" @more="mobileOpen = true" />

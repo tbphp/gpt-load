@@ -15,6 +15,7 @@ export const zhCN = {
   },
   date: dateZH,
   close: '关闭',
+  clearSearch: '清除搜索',
   edit: '编辑',
   loading: '正在加载…',
   noRules: '暂无规则',
@@ -48,6 +49,7 @@ export const zhCN = {
     failed: '复制失败',
     value: '待复制内容',
     manualTitle: '手动复制',
+    manualHelpMobile: '请长按上方文本，选择“全选”，再点“复制”。',
     manualHelp: '自动复制未成功，请选中以下内容后使用系统复制快捷键。',
   },
   number: { range: '请输入 {min}–{max} 之间的整数。' },
@@ -81,6 +83,7 @@ export const enUS: typeof zhCN = {
   },
   date: dateEN,
   close: 'Close',
+  clearSearch: 'Clear search',
   edit: 'Edit',
   loading: 'Loading…',
   noRules: 'No rules',
@@ -114,6 +117,7 @@ export const enUS: typeof zhCN = {
     failed: 'Copy failed',
     value: 'Text to copy',
     manualTitle: 'Copy manually',
+    manualHelpMobile: 'Touch and hold the text above, choose Select all, then Copy.',
     manualHelp:
       'Your browser could not copy automatically. Select the text below and use your system copy shortcut.',
   },
@@ -148,6 +152,7 @@ export const jaJP: typeof zhCN = {
   },
   date: dateJA,
   close: '閉じる',
+  clearSearch: '検索をクリア',
   edit: '編集',
   loading: '読み込み中…',
   noRules: 'ルールはありません',
@@ -181,6 +186,8 @@ export const jaJP: typeof zhCN = {
     failed: 'コピーに失敗しました',
     value: 'コピーする内容',
     manualTitle: '手動でコピー',
+    manualHelpMobile:
+      '上のテキストを長押しし、「すべて選択」してから「コピー」をタップしてください。',
     manualHelp:
       '自動コピーできませんでした。下のテキストを選択し、システムのコピーショートカットを使用してください。',
   },

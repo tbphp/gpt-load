@@ -70,6 +70,9 @@ const { t, n, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const isMobile = useMobileLayout()
+const mobileFilterCount = computed(
+  () => summary.value.filter((item) => ['group', 'expiry', 'sort'].includes(item.key)).length,
+)
 const mobileFilters = ref(false)
 const client = useApiClient()
 const cache = useQueryClient()
@@ -405,6 +408,8 @@ onScopeDispose(() => {
         v-model:open="mobileFilters"
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="change({ group: '', expiry: '', sort: 'updated_desc' })"
       >
         <AppSearchSelect
           class="modern-access-filter"
@@ -443,6 +448,7 @@ onScopeDispose(() => {
       <AppIconButton
         v-if="isMobile"
         :icon="SlidersHorizontal"
+        :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
         :label="t('ui.mobile.filters')"
         @click="mobileFilters = true"
       />

@@ -526,8 +526,12 @@ onScopeDispose(() => {
           class="modern-settings-back"
           variant="ghost"
           :icon="ArrowLeft"
+          :aria-label="t('settingsForm.categories')"
           @click="backToCategories"
-          >{{ t('settingsForm.categories') }}</AppButton
+          ><span>{{ t('settingsForm.categories') }}</span
+          ><span class="modern-settings-back-current">{{
+            t('settingsForm.sections.' + mobileSection)
+          }}</span></AppButton
         >
         <AppCollectionState
           v-if="!visibleSections.length"
@@ -1247,7 +1251,23 @@ onScopeDispose(() => {
     color: var(--modern-muted);
   }
   .modern-settings-back {
-    justify-self: start;
+    position: sticky;
+    top: 0;
+    z-index: var(--modern-layer-header);
+    flex: none;
+    width: 100%;
+    justify-content: flex-start;
+    background: var(--modern-surface);
+    border-bottom: var(--modern-line-width) solid var(--modern-border);
+    border-radius: 0;
+  }
+  .modern-settings-back-current {
+    margin-inline-start: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--modern-font-size-small);
+    color: var(--modern-muted);
   }
   .modern-settings-body {
     padding-top: var(--modern-space-3);

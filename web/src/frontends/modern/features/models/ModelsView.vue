@@ -38,6 +38,7 @@ import ModelDetailPanel from './ModelDetailPanel.vue'
 
 const { t } = useI18n()
 const isMobile = useMobileLayout()
+const mobileFilterCount = computed(() => (state.value.groups === 'all' ? 1 : 0))
 const mobileFilters = ref(false)
 function openCatalog(): void {
   mobileFilters.value = false
@@ -230,6 +231,7 @@ useMessageSource(() =>
       <AppIconButton
         v-if="isMobile && admin"
         :icon="SlidersHorizontal"
+        :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
         :label="t('ui.mobile.filters')"
         @click="mobileFilters = true"
       />
@@ -237,6 +239,8 @@ useMessageSource(() =>
         v-model:open="mobileFilters"
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="change({ groups: 'enabled' })"
       >
         <AppSelect
           v-if="admin"
