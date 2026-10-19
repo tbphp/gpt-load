@@ -101,7 +101,6 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 		eventType  string
 		errorType  string
 		code       string
-		status     int
 		wantHint   execution.FailureHint
 		wantOrigin execution.ErrorOrigin
 		wantScope  execution.ErrorScope
@@ -111,7 +110,6 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 			eventType:  "response.failed",
 			errorType:  "invalid_request_error",
 			code:       "context_length_exceeded",
-			status:     http.StatusBadRequest,
 			wantHint:   execution.FailureHintRequestRejected,
 			wantOrigin: execution.ErrorOriginClient,
 			wantScope:  execution.ErrorScopeRequest,
@@ -121,7 +119,6 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 			eventType:  "error",
 			errorType:  "server_error",
 			code:       "server_is_overloaded",
-			status:     http.StatusBadGateway,
 			wantHint:   execution.FailureHintHostError,
 			wantOrigin: execution.ErrorOriginUpstream,
 			wantScope:  execution.ErrorScopeGroup,
@@ -131,7 +128,7 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			result := streamErrorResult(
 				&schemas.BifrostError{
-					Type: schemas.Ptr(test.eventType), StatusCode: schemas.Ptr(test.status),
+					Type: schemas.Ptr(test.eventType),
 					Error: &schemas.ErrorField{
 						Type: schemas.Ptr(test.errorType), Code: schemas.Ptr(test.code), Message: "safe provider error",
 					},
