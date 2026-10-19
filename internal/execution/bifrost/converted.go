@@ -608,6 +608,7 @@ func (r *Runtime) executeConvertedResponsesStream(
 	defer preResponse.stop()
 
 	bifrostContext := r.newStreamingSDKContext(callContext, spec, prepared.directKey)
+	captureStreamErrorStatus(bifrostContext, prepared.upstreamProtocol)
 	enableConvertedWireCapture(bifrostContext, prepared)
 	if prepared.request != nil && prepared.upstreamProtocol == protocol.Anthropic {
 		body, err := anthropic.BuildAnthropicChatRequestBody(bifrostContext, prepared.request, anthropic.AnthropicRequestBuildConfig{

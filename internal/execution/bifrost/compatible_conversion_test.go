@@ -130,8 +130,7 @@ func TestCompatibleRequestKeepsSDKToolPreparation(t *testing.T) {
 	for _, tc := range []struct{ name, model, tools, pattern string }{
 		{"flat schema", "deepseek-flash", function, `^a\x00b$`},
 		{"other model unchanged", "other-model", function, `^a\0(?=b)b$`},
-		// 锁定 SDK 先处理 schema 再解包；嵌套 schema 保持其原有行为。
-		{"default namespace", "deepseek-flash", `{"type":"namespace","name":"functions","tools":[` + function + `]}`, `^a\0(?=b)b$`},
+		{"default namespace", "deepseek-flash", `{"type":"namespace","name":"functions","tools":[` + function + `]}`, `^a\x00b$`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

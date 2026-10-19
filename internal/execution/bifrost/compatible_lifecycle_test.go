@@ -81,6 +81,32 @@ func TestCompatibleStreamRejectsMissingFinish(t *testing.T) {
 	}
 }
 
+func TestCompatibleStreamEndsOnHeartbeatsAfterFinish(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, "data: {\"id\":\"chat\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n: keepalive\n\n: keepalive\n\n")
+		writer.(http.Flusher).Flush()
+		select {
+		case <-request.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+	runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var data bytes.Buffer
+	result := runtime.ExecuteStream(ctx, compatibleTestSpec(t, server.URL, `{"model":"client-model","input":"hi"}`, true), func(event execution.StreamEvent) error {
+		data.Write(event.Data)
+		return nil
+	})
+	if result.Error != nil || !strings.Contains(data.String(), "hello") || strings.Count(data.String(), "event: response.completed\n") != 1 {
+		t.Fatalf("post-finish heartbeat did not complete the stream: result=%+v data=%s", result, data.String())
+	}
+}
+
 func TestCompatiblePreservesHTTPErrors(t *testing.T) {
 	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
 		for _, stream := range []bool{false, true} {

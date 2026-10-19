@@ -97,6 +97,47 @@ func TestOpenAIEmbeddingsRuntimeUsesOneTypedRawWireForSupportedChannels(t *testi
 	}
 }
 
+func TestOpenAIEmbeddingsRuntimePreservesProviderInputValidation(t *testing.T) {
+	for _, channelID := range []channel.ID{channel.OpenAI, channel.OpenAICompatible, channel.OpenRouter} {
+		for _, test := range []struct{ name, input string }{
+			{name: "empty text", input: `""`},
+			{name: "text array with empty item", input: `["hello",""]`},
+			{name: "empty array", input: `[]`},
+			{name: "token IDs beyond Go integer bounds", input: `[1,-2,123456789012345678901234567890]`},
+			{name: "token arrays with empty item", input: `[[1,-2],[]]`},
+			{name: "empty token array", input: `[[]]`},
+		} {
+			t.Run(string(channelID)+"/"+test.name, func(t *testing.T) {
+				const responseBody = `{"object":"list","data":[],"model":"provider-model"}`
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					body, err := io.ReadAll(request.Body)
+					if err != nil {
+						t.Errorf("read request: %v", err)
+						return
+					}
+					var object map[string]json.RawMessage
+					if err := json.Unmarshal(body, &object); err != nil || string(object["input"]) != test.input {
+						t.Errorf("input changed: body=%s err=%v", body, err)
+					}
+					writer.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(writer, responseBody)
+				}))
+				defer server.Close()
+				runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+					allowPrivateNetwork: true,
+					openAIBaseURL:       server.URL,
+				})
+				spec := openAIEmbeddingsSpec(channelID, server.URL+"/v1",
+					[]byte(`{"model":"provider-model","input":`+test.input+`}`))
+				result := runtime.Execute(t.Context(), spec)
+				if result.Error != nil || result.StatusCode != http.StatusOK || string(result.Body) != responseBody {
+					t.Fatalf("input did not reach provider: result=%+v error=%+v", result, result.Error)
+				}
+			})
+		}
+	}
+}
+
 func TestOpenAIEmbeddingsRequestShapeAndCapabilityAreExact(t *testing.T) {
 	t.Parallel()
 

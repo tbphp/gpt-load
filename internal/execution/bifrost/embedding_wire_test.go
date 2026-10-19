@@ -11,38 +11,39 @@ import (
 	"testing"
 
 	core "github.com/maximhq/bifrost/core"
+	"github.com/maximhq/bifrost/core/providers/openai"
 	"github.com/maximhq/bifrost/core/schemas"
 )
 
 func TestBifrostEmbeddingWirePreservesRawOpenAIContract(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    *schemas.EmbeddingInput
+		input    *openai.OpenAIEmbeddingInput
 		body     string
 		response string
 	}{
 		{
 			name:  "string input with optional and unknown fields",
-			input: &schemas.EmbeddingInput{Text: schemas.Ptr("hello")},
+			input: &openai.OpenAIEmbeddingInput{Text: schemas.Ptr("hello")},
 			body:  `{"model":"provider-model","input":"hello","dimensions":3,"encoding_format":"float","user":"user-1","vendor_extension":{"precise":1.2300}}`,
 			response: `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.12345678901234567,-0.00000000000000001234]}],` +
 				`"model":"provider-model","usage":{"prompt_tokens":1,"total_tokens":1},"vendor":{"precise":1.2300}}`,
 		},
 		{
 			name:     "string array input and base64 response",
-			input:    &schemas.EmbeddingInput{Texts: []string{"hello", "world"}},
+			input:    &openai.OpenAIEmbeddingInput{Texts: []string{"hello", "world"}},
 			body:     `{"model":"provider-model","input":["hello","world"],"encoding_format":"base64"}`,
 			response: `{"object":"list","data":[{"object":"embedding","index":0,"embedding":"AQIDBA=="}],"model":"provider-model","usage":{"prompt_tokens":2,"total_tokens":2}}`,
 		},
 		{
 			name:     "token array input",
-			input:    &schemas.EmbeddingInput{Embedding: []int{10, 20, 30}},
+			input:    &openai.OpenAIEmbeddingInput{Embedding: []int{10, 20, 30}},
 			body:     `{"model":"provider-model","input":[10,20,30],"encoding_format":"float"}`,
 			response: `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.25,-0.5]}],"model":"provider-model","usage":{"prompt_tokens":3,"total_tokens":3}}`,
 		},
 		{
 			name:     "token matrix input",
-			input:    &schemas.EmbeddingInput{Embeddings: [][]int{{10, 20}, {30, 40}}},
+			input:    &openai.OpenAIEmbeddingInput{Embeddings: [][]int{{10, 20}, {30, 40}}},
 			body:     `{"model":"provider-model","input":[[10,20],[30,40]],"encoding_format":"float"}`,
 			response: `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.25,-0.5]},{"object":"embedding","index":1,"embedding":[0.75,-1]}],"model":"provider-model","usage":{"prompt_tokens":4,"total_tokens":4}}`,
 		},
@@ -113,7 +114,7 @@ func TestBifrostEmbeddingWireUsesCompleteCompatiblePrefix(t *testing.T) {
 
 			wire := newEmbeddingWireTestRuntime(t, schemas.OpenAI, server.URL+test.baseSuffix, true)
 			response, bifrostErr := wire.request(
-				&schemas.EmbeddingInput{Text: schemas.Ptr("hello")},
+				&openai.OpenAIEmbeddingInput{Text: schemas.Ptr("hello")},
 				[]byte(`{"model":"provider-model","input":"hello"}`),
 				nil,
 			)
@@ -155,7 +156,7 @@ func TestBifrostEmbeddingWireSupportsOpenRouterTypedRequest(t *testing.T) {
 	wire := newEmbeddingWireTestRuntime(t, schemas.OpenRouter, server.URL, false)
 	dimensions := 8
 	response, bifrostErr := wire.request(
-		&schemas.EmbeddingInput{Text: schemas.Ptr("hello")},
+		&openai.OpenAIEmbeddingInput{Text: schemas.Ptr("hello")},
 		nil,
 		&schemas.EmbeddingParameters{
 			Dimensions: &dimensions,
@@ -186,7 +187,7 @@ func TestBifrostEmbeddingWirePreservesNon2xxEvidence(t *testing.T) {
 
 	wire := newEmbeddingWireTestRuntime(t, schemas.OpenAI, server.URL+"/v1", true)
 	response, bifrostErr := wire.request(
-		&schemas.EmbeddingInput{Text: schemas.Ptr("hello")},
+		&openai.OpenAIEmbeddingInput{Text: schemas.Ptr("hello")},
 		[]byte(`{"model":"provider-model","input":"hello"}`),
 		nil,
 	)
@@ -247,7 +248,7 @@ func newEmbeddingWireTestRuntime(
 }
 
 func (runtime *embeddingWireTestRuntime) request(
-	input *schemas.EmbeddingInput,
+	input *openai.OpenAIEmbeddingInput,
 	rawBody []byte,
 	params *schemas.EmbeddingParameters,
 ) (*schemas.BifrostEmbeddingResponse, *schemas.BifrostError) {
@@ -270,7 +271,7 @@ func (runtime *embeddingWireTestRuntime) request(
 	return runtime.core.EmbeddingRequest(bifrostContext, &schemas.BifrostEmbeddingRequest{
 		Provider:       runtime.provider,
 		Model:          "provider-model",
-		Input:          input,
+		Input:          (&openai.OpenAIEmbeddingRequest{Input: input}).ToBifrostEmbeddingRequest(bifrostContext).Input,
 		Params:         params,
 		RawRequestBody: bytes.Clone(rawBody),
 	})
