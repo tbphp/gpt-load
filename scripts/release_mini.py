@@ -75,19 +75,14 @@ def check_mini_access(source: Path) -> None:
 
 
 def _run_real_request(base_url: str, auth_key: str) -> None:
-    access_keys = _request(base_url, "GET", "/api/access-keys?q=dbx&page_size=100", auth_key)
-    items = access_keys.get("data", {}).get("items")
-    if not isinstance(items, list):
-        raise ReleaseMiniError("mini 副本没有返回访问密钥列表")
-    matches = [item for item in items if isinstance(item, dict) and item.get("name") == "dbx"]
-    if len(matches) != 1 or not isinstance(matches[0].get("id"), int):
-        raise ReleaseMiniError("mini 副本中找不到唯一的 dbx 访问密钥")
-    revealed = _request(
-        base_url, "POST", f"/api/access-keys/{matches[0]['id']}/reveal", auth_key, {}
+    # 仅在隔离副本创建，随副本清理，不依赖源库中的访问密钥。
+    created = _request(
+        base_url, "POST", "/api/access-keys", auth_key, {"name": "release-acceptance"}
     )
-    key = revealed.get("data", {}).get("key")
-    if not isinstance(key, str) or not key:
-        raise ReleaseMiniError("无法在隔离副本中读取 dbx 访问密钥")
+    access_key = created.get("data", {})
+    key = access_key.get("key")
+    if not isinstance(access_key.get("id"), int) or not isinstance(key, str) or not key:
+        raise ReleaseMiniError("mini 隔离副本未返回新建的验收访问密钥")
     body = json.dumps(
         {"model": "gpt-6-luna", "input": "Reply with the word OK.", "stream": False}
     ).encode("utf-8")
@@ -107,7 +102,7 @@ def _run_real_request(base_url: str, auth_key: str) -> None:
         raise ReleaseMiniError("真实 Responses 请求缺少响应 ID")
     logs_path = (
         "/api/logs?"
-        f"from_ms={started_ms}&access_key_id={matches[0]['id']}"
+        f"from_ms={started_ms}&access_key_id={access_key['id']}"
         "&client_model=gpt-6-luna&protocol=openai-responses&status=success&limit=10"
     )
     for _ in range(30):
