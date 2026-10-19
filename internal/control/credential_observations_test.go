@@ -1384,10 +1384,12 @@ func TestSubscriptionCredentialCollectionDefersActivityUntilDetailAndExposesEmai
 	now := time.UnixMilli(1_800_000_000_000)
 	fixture.service.now = func() time.Time { return now }
 	lastUsedAtMS := now.Add(-2 * time.Minute).UnixMilli()
+	const failureSummary = "Selected model is at capacity. Please try a different model."
 	reader := &recordingCredentialActivityReader{result: map[uint]requestlog.CredentialActivity{
 		credentialID: {
 			CredentialID: credentialID, LastUsedAtMS: &lastUsedAtMS,
 			SuccessCount: 12, FailureCount: 3, DataComplete: true,
+			LastFailureSummary: failureSummary,
 		},
 	}}
 	fixture.service.credentialActivity = reader
@@ -1425,6 +1427,9 @@ func TestSubscriptionCredentialCollectionDefersActivityUntilDetailAndExposesEmai
 		*detail.Credential.LastUsedAtMS != lastUsedAtMS || detail.Credential.DailyUsage == nil ||
 		detail.Credential.DailyUsage.SuccessCount != 12 || detail.Credential.DailyUsage.FailureCount != 3 {
 		t.Fatalf("detail activity = %#v / %#v", reader.queries, detail.Credential)
+	}
+	if detail.Credential.LastFailureSummary != failureSummary {
+		t.Fatalf("detail latest failure = %q", detail.Credential.LastFailureSummary)
 	}
 }
 
