@@ -35,8 +35,9 @@ func TestCodexWSSessionInterruptAndContinue(t *testing.T) {
 }
 
 func TestCodexWSSessionInterruptBlockedAfterTurnCompletes(t *testing.T) {
+	// 保留足够大的帧制造写入背压，避免 race 下处理 9 MiB 数据耗尽写入等待窗口。
 	interrupt, err := json.Marshal(map[string]string{
-		"type": "response.interrupt", "response_id": "resp_blocked", "extension": strings.Repeat("x", 9<<20),
+		"type": "response.interrupt", "response_id": "resp_blocked", "extension": strings.Repeat("x", 1<<20),
 	})
 	if err != nil {
 		t.Fatal(err)
