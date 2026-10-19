@@ -96,6 +96,7 @@ type CredentialItemResponse struct {
 	RecentFailureCount      uint64                         `json:"recent_failure_count"`
 	ConsecutiveFailureCount uint64                         `json:"consecutive_failure_count"`
 	LastFailureCategory     string                         `json:"last_failure_category"`
+	LastFailureSummary      string                         `json:"last_failure_summary,omitempty"`
 	LastStatusCode          *int                           `json:"last_status_code"`
 	CooldownUntilMS         *int64                         `json:"cooldown_until_ms"`
 	LastUsedAtMS            *int64                         `json:"last_used_at_ms,omitempty"`

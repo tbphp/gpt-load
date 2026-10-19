@@ -123,6 +123,59 @@ func TestQueryCredentialActivityReturnsZeroActivityAndIncompleteRetention(t *tes
 	}
 }
 
+func TestQueryCredentialActivityRetainsLatestFailureAfterSuccess(t *testing.T) {
+	assertCredentialLatestFailureSummary(t, openRequestLogQueryDB(t))
+}
+
+func assertCredentialLatestFailureSummary(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.October, 19, 10, 0, 0, 0, time.UTC)
+	const message = "Selected model is at capacity. Please try a different model."
+	for index, test := range []struct {
+		credentialID uint
+		age          time.Duration
+		category     telemetry.FailureCategory
+		dispatch     execution.DispatchState
+		summary      string
+	}{
+		{91, 26 * time.Hour, telemetry.FailureCategoryUpstreamHost, execution.DispatchMaybeSent, "older failure"},
+		{91, 25 * time.Hour, telemetry.FailureCategoryUpstreamHost, execution.DispatchMaybeSent, message},
+		{91, time.Minute, telemetry.FailureCategoryOK, execution.DispatchMaybeSent, ""},
+		{91, 50 * time.Second, telemetry.FailureCategoryDownstreamCancel, execution.DispatchMaybeSent, "client canceled"},
+		{91, 40 * time.Second, telemetry.FailureCategoryClientError, execution.DispatchLocal, "local rejection"},
+		{92, time.Minute, telemetry.FailureCategoryUpstreamHost, execution.DispatchMaybeSent, "other credential"},
+		{91, -time.Minute, telemetry.FailureCategoryUpstreamHost, execution.DispatchMaybeSent, "future failure"},
+		{93, time.Minute, telemetry.FailureCategoryOK, execution.DispatchMaybeSent, ""},
+	} {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", 9000+index)
+		at := now.Add(-test.age)
+		row := requestLogQueryRow(id, at, 1, "latest-failure", []Attempt{{
+			CredentialID: test.credentialID, FailureCategory: test.category,
+			DispatchState: test.dispatch, ErrorSummary: test.summary,
+		}})
+		row.AttemptRows[0].CompletedAtMS = at.UnixMilli()
+		createRequestLogQueryRow(t, db, row)
+		t.Cleanup(func() {
+			if err := db.Where("id = ?", id).Delete(&models.RequestLog{}).Error; err != nil {
+				t.Errorf("delete diagnostic request: %v", err)
+			}
+		})
+	}
+	result, err := service.QueryCredentialActivity(t.Context(), CredentialActivityQuery{
+		CredentialIDs: []uint{91, 92, 93, 94},
+		FromMS:        now.Add(-24 * time.Hour).UnixMilli(), ToMS: now.UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[uint]string{91: message, 92: "other credential", 93: "", 94: ""} {
+		if got := result[id].LastFailureSummary; got != want {
+			t.Errorf("credential %d latest failure = %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestQueryCredentialActivityValidatesScope(t *testing.T) {
 	service := newRequestLogTestService(openRequestLogQueryDB(t))
 	valid := CredentialActivityQuery{CredentialIDs: []uint{1}, FromMS: 1, ToMS: 2}

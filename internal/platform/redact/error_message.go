@@ -43,6 +43,13 @@ func extractJSONErrorMessage(body []byte) (string, bool) {
 			return message, true
 		}
 	}
+	if response, ok := payload["response"].(map[string]any); ok {
+		if nested, ok := response["error"].(map[string]any); ok {
+			if message := firstErrorMessage(nested); message != "" {
+				return message, true
+			}
+		}
+	}
 	if message := firstErrorMessage(payload); message != "" {
 		return message, true
 	}

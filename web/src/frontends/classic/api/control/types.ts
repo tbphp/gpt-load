@@ -316,6 +316,7 @@ export interface CredentialItemDto {
   recent_failure_count: number
   consecutive_failure_count: number
   last_failure_category: FailureCategory
+  last_failure_summary?: string
   last_status_code: number | null
   cooldown_until_ms: number | null
   last_used_at_ms?: number
