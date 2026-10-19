@@ -281,6 +281,7 @@ export interface CredentialRow {
   lastRefresh?: number
   authError?: string
   failureCategory: string
+  lastFailureSummary?: string
   lastStatusCode: number | null
   modelCooldowns: { model: string; until: number }[]
   recovery: {
@@ -355,6 +356,8 @@ export function readCredential(value: unknown): CredentialRow {
       account?.last_refresh_at_ms === undefined ? undefined : integer(account.last_refresh_at_ms),
     authError: row.auth_error_code === undefined ? undefined : text(row.auth_error_code),
     failureCategory: text(row.last_failure_category),
+    lastFailureSummary:
+      row.last_failure_summary === undefined ? undefined : text(row.last_failure_summary),
     lastStatusCode: row.last_status_code === null ? null : integer(row.last_status_code),
     modelCooldowns: list(row.model_cooldowns).map((value) => {
       const cooldown = record(value)
