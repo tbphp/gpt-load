@@ -98,24 +98,30 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 	tests := []struct {
 		name       string
+		eventType  string
 		errorType  string
 		code       string
+		status     int
 		wantHint   execution.FailureHint
 		wantOrigin execution.ErrorOrigin
 		wantScope  execution.ErrorScope
 	}{
 		{
 			name:       "request rejected",
+			eventType:  "response.failed",
 			errorType:  "invalid_request_error",
 			code:       "context_length_exceeded",
+			status:     http.StatusBadRequest,
 			wantHint:   execution.FailureHintRequestRejected,
 			wantOrigin: execution.ErrorOriginClient,
 			wantScope:  execution.ErrorScopeRequest,
 		},
 		{
 			name:       "server overloaded",
+			eventType:  "error",
 			errorType:  "server_error",
 			code:       "server_is_overloaded",
+			status:     http.StatusBadGateway,
 			wantHint:   execution.FailureHintHostError,
 			wantOrigin: execution.ErrorOriginUpstream,
 			wantScope:  execution.ErrorScopeGroup,
@@ -124,9 +130,12 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := streamErrorResult(
-				&schemas.BifrostError{Error: &schemas.ErrorField{
-					Type: schemas.Ptr(test.errorType), Code: schemas.Ptr(test.code), Message: "safe provider error",
-				}},
+				&schemas.BifrostError{
+					Type: schemas.Ptr(test.eventType), StatusCode: schemas.Ptr(test.status),
+					Error: &schemas.ErrorField{
+						Type: schemas.Ptr(test.errorType), Code: schemas.Ptr(test.code), Message: "safe provider error",
+					},
+				},
 				schemas.NewBifrostContext(context.Background(), schemas.NoDeadline),
 				nil,
 				true,
@@ -137,6 +146,7 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 			)
 			if result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
 				result.StatusCode != http.StatusOK || result.Error == nil ||
+				result.Error.Kind != execution.ErrorKindProvider || result.Error.StatusCode != 0 ||
 				result.Error.Type != test.errorType || result.Error.Code != test.code ||
 				result.Error.Hint != test.wantHint || result.Error.OriginHint != test.wantOrigin ||
 				result.Error.ScopeHint != test.wantScope {

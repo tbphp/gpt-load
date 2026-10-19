@@ -645,6 +645,14 @@ func errorEvidence(
 		}
 		return evidence, false, 0
 	}
+	// SDK 1.12 为 Responses SSE 错误推断状态码；它不是上游的真实 HTTP 状态。
+	// 保留事件错误语义，避免首帧前误标响应已开始，或首帧后误标为 HTTP 拒绝。
+	if stream && bifrostError.Type != nil &&
+		(*bifrostError.Type == "response.failed" || *bifrostError.Type == "error") {
+		copyError := *bifrostError
+		copyError.StatusCode = nil
+		bifrostError = &copyError
+	}
 	typeValue := errorType(bifrostError)
 	codeValue := ""
 	messageValue := ""
