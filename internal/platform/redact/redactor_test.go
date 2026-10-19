@@ -51,6 +51,12 @@ func TestExtractErrorMessageUsesOnlySafeMessageShapes(t *testing.T) {
 			body: []byte(`auth_unavailable: no auth available`),
 			want: "auth_unavailable: no auth available",
 		},
+		{
+			name: "failed response message",
+			body: []byte(`{"type":"response.failed","response":{"error":{"message":"Selected model is at capacity."}}}`),
+			want: "Selected model is at capacity.",
+		},
+		{name: "response content is not an error", body: []byte(`{"response":{"message":"do not retain"}}`)},
 		{name: "unknown JSON", body: []byte(`{"debug":{"message":"do not retain"}}`)},
 		{name: "HTML", body: []byte(`<html><body>do not retain</body></html>`)},
 		{name: "binary", body: []byte("do not\x00retain")},

@@ -177,8 +177,9 @@ func TestModernCredentialRoutesLoadActivity(t *testing.T) {
 			now := time.UnixMilli(1_800_000_000_000)
 			fixture.service.now = func() time.Time { return now }
 			lastUsed := now.Add(-time.Minute).UnixMilli()
+			const failureSummary = "Selected model is at capacity. Please try a different model."
 			reader := &recordingCredentialActivityReader{result: map[uint]requestlog.CredentialActivity{
-				credentialID: {CredentialID: credentialID, LastUsedAtMS: &lastUsed, SuccessCount: 17, FailureCount: 3, DataComplete: true},
+				credentialID: {CredentialID: credentialID, LastUsedAtMS: &lastUsed, SuccessCount: 17, FailureCount: 3, DataComplete: true, LastFailureSummary: failureSummary},
 			}}
 			fixture.service.credentialActivity = reader
 			engine := gin.New()
@@ -206,6 +207,9 @@ func TestModernCredentialRoutesLoadActivity(t *testing.T) {
 						t.Fatalf("items = %d, want 1", len(envelope.Data.Items))
 					}
 					item = envelope.Data.Items[0]
+				}
+				if item.LastFailureSummary != failureSummary {
+					t.Errorf("%s missing latest failure: %q", path, item.LastFailureSummary)
 				}
 				if item.DailyUsage == nil || item.DailyUsage.SuccessCount != 17 || item.DailyUsage.FailureCount != 3 ||
 					item.LastUsedAtMS == nil || *item.LastUsedAtMS != lastUsed {
