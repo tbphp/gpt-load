@@ -165,3 +165,25 @@ func TestSanitizeRejectsNonObjectBody(t *testing.T) {
 		t.Fatal("expected non-JSON body to be rejected")
 	}
 }
+
+func TestStripEncryptedContentDigestsRemovesOnlyRejectedValues(t *testing.T) {
+	body := []byte(`{
+		"input": [
+			{"type":"reasoning","id":"rs_bad","encrypted_content":"opaque-bad","summary":[{"type":"summary_text","text":"bad"}]},
+			{"type":"reasoning","id":"rs_good","encrypted_content":"opaque-good","summary":[{"type":"summary_text","text":"good"}]},
+			{"type":"message","role":"user","content":"continue"}
+		]
+	}`)
+	digests := map[string]struct{}{EncryptedContentDigest("opaque-bad"): {}}
+	stripped, removals, ok := StripEncryptedContentDigests(body, digests)
+	if !ok || removals.Total() != 1 {
+		t.Fatalf("strip result = %t %+v", ok, removals)
+	}
+	text := string(stripped)
+	if bytes.Contains(stripped, []byte("opaque-bad")) || !bytes.Contains(stripped, []byte("opaque-good")) {
+		t.Fatalf("digest-specific strip was not preserved: %s", text)
+	}
+	if !bytes.Contains(stripped, []byte(`"id":"rs_good"`)) {
+		t.Fatalf("valid item ID was not preserved: %s", text)
+	}
+}

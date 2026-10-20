@@ -20,6 +20,12 @@ type Removals struct {
 	HistoryItemID                  int
 }
 
+type sanitizeOptions struct {
+	removeHistoryIDs     bool
+	rejectItemReferences bool
+	shouldStrip          func(string) bool
+}
+
 // Empty reports whether nothing was removed.
 func (r Removals) Empty() bool {
 	return r.ReasoningEncryptedContent == 0 &&
@@ -46,6 +52,30 @@ func (r Removals) Total() int {
 // identifiers are preserved. The caller keeps the original body when there
 // is nothing to remove or the history requires server-side item references.
 func Sanitize(body []byte) ([]byte, Removals, bool) {
+	return sanitizeBody(body, sanitizeOptions{
+		removeHistoryIDs:     true,
+		rejectItemReferences: true,
+		shouldStrip:          func(string) bool { return true },
+	})
+}
+
+// StripEncryptedContentDigests removes only encrypted_content values whose
+// digests were explicitly rejected for this session. Item IDs and valid
+// account-bound state are preserved so a later turn does not need to repeat
+// the upstream rejection before it can continue.
+func StripEncryptedContentDigests(body []byte, digests map[string]struct{}) ([]byte, Removals, bool) {
+	if len(digests) == 0 {
+		return nil, Removals{}, false
+	}
+	return sanitizeBody(body, sanitizeOptions{
+		shouldStrip: func(value string) bool {
+			_, rejected := digests[EncryptedContentDigest(value)]
+			return rejected
+		},
+	})
+}
+
+func sanitizeBody(body []byte, options sanitizeOptions) ([]byte, Removals, bool) {
 	object, ok := decodeJSONObject(body)
 	if !ok {
 		return nil, Removals{}, false
@@ -54,9 +84,14 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 	if inputItems == nil {
 		return nil, Removals{}, false
 	}
-	for _, item := range inputItems {
-		if record, ok := item.(map[string]any); ok && record["type"] == "item_reference" {
-			return nil, Removals{}, false
+	if options.shouldStrip == nil {
+		options.shouldStrip = func(string) bool { return true }
+	}
+	if options.rejectItemReferences {
+		for _, item := range inputItems {
+			if record, ok := item.(map[string]any); ok && record["type"] == "item_reference" {
+				return nil, Removals{}, false
+			}
 		}
 	}
 
@@ -70,13 +105,13 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 		}
 
 		itemType, _ := record["type"].(string)
-		if _, hasID := record["id"]; hasID && replayableHistoryItem(record) {
+		if _, hasID := record["id"]; hasID && options.removeHistoryIDs && replayableHistoryItem(record) {
 			record = cloneJSONMap(record)
 			delete(record, "id")
 			removals.HistoryItemID++
 		}
 		if itemType == "reasoning" {
-			if _, isString := record["encrypted_content"].(string); isString {
+			if encrypted, isString := record["encrypted_content"].(string); isString && options.shouldStrip(encrypted) {
 				copy := cloneJSONMap(record)
 				delete(copy, "encrypted_content")
 				removals.ReasoningEncryptedContent++
@@ -89,14 +124,14 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 			}
 		}
 
-		if isCompactionItemWithEncryptedContent(record) {
+		if isCompactionItemWithEncryptedContent(record) && options.shouldStrip(record["encrypted_content"].(string)) {
 			removals.CompactionEncryptedContent++
 			removals.CompactionItem++
 			continue
 		}
 
 		if itemType == "function_call_output" || itemType == "custom_tool_call_output" {
-			stripped := stripEncryptedContentItems(record["output"])
+			stripped := stripEncryptedContentItems(record["output"], options.shouldStrip)
 			if stripped.changed {
 				replacement := cloneJSONMap(record)
 				replacement["output"] = stripped.output
@@ -107,7 +142,7 @@ func Sanitize(body []byte) ([]byte, Removals, bool) {
 		}
 
 		if itemType == "agent_message" {
-			stripped := stripEncryptedContentItems(record["content"])
+			stripped := stripEncryptedContentItems(record["content"], options.shouldStrip)
 			if stripped.changed {
 				removals.AgentMessageEncryptedContent += stripped.removedCount
 				if contentArray, isArray := stripped.output.([]any); isArray && len(contentArray) == 0 {
@@ -203,13 +238,13 @@ type strippedItems struct {
 	removedCount int
 }
 
-func stripEncryptedContentItems(value any) strippedItems {
+func stripEncryptedContentItems(value any, shouldStrip func(string) bool) strippedItems {
 	switch typed := value.(type) {
 	case []any:
 		removedCount := 0
 		output := make([]any, 0, len(typed))
 		for _, item := range typed {
-			if isEncryptedContentItem(item) {
+			if encryptedContentItemMatches(item, shouldStrip) {
 				removedCount++
 				continue
 			}
@@ -217,23 +252,21 @@ func stripEncryptedContentItems(value any) strippedItems {
 		}
 		return strippedItems{output: output, changed: removedCount > 0, removedCount: removedCount}
 	case map[string]any:
-		if isEncryptedContentItem(typed) {
+		if encryptedContentItemMatches(typed, shouldStrip) {
 			return strippedItems{output: []any{}, changed: true, removedCount: 1}
 		}
 	}
 	return strippedItems{output: value, changed: false}
 }
 
-// isEncryptedContentItem reports an object with type `encrypted_content` and a
-// string `encrypted_content` value.
-func isEncryptedContentItem(value any) bool {
+func encryptedContentItemMatches(value any, shouldStrip func(string) bool) bool {
 	record, isObject := value.(map[string]any)
 	if !isObject {
 		return false
 	}
 	itemType, _ := record["type"].(string)
-	_, encryptedIsString := record["encrypted_content"].(string)
-	return itemType == "encrypted_content" && encryptedIsString
+	encrypted, encryptedIsString := record["encrypted_content"].(string)
+	return itemType == "encrypted_content" && encryptedIsString && shouldStrip(encrypted)
 }
 
 // isEmptyReasoningItem reports a reasoning item that carries nothing but

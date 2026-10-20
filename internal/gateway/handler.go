@@ -123,6 +123,7 @@ type Handler struct {
 	routeNotFoundEvents *utils.RateLimitedEventCounter
 	lifecycle           *httplifecycle.Coordinator
 	affinityCache       *affinity.Cache
+	encryptedLineage    *codexrecovery.InvalidLineage
 	responseBindings    *state.ResponseBindings
 	websocketLimits     websocketLimits
 	websocketBudget     websocketBudget
@@ -184,6 +185,7 @@ func NewHandler(
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:    affinity.NewCache(),
+		encryptedLineage: codexrecovery.NewInvalidLineage(),
 		responseBindings: state.NewResponseBindings(),
 		websocketLimits:  defaultWebsocketLimits(),
 		liveSessions:     newLiveSessions(),
@@ -1042,6 +1044,26 @@ func (handler *Handler) executeAttempts(
 		cachedPrepared = &prepared
 		return prepared
 	}
+	replacePreparedBody := func(prepared preparedRequest, body []byte) preparedRequest {
+		prepared.request = withRequestBody(prepared.request, body)
+		prepared.observations = originalMetadata
+		prepared.observationsAvailable = false
+		if metadata, inspectErr := selectedDialect.InspectRequest(prepared.request); inspectErr == nil {
+			prepared.observations = dialect.RequestMetadata{
+				ObserveUsage:     originalMetadata.ObserveUsage,
+				PricingMode:      metadata.PricingMode,
+				UsageDiagnostics: metadata.UsageDiagnostics,
+				Reasoning:        metadata.Reasoning,
+			}
+			prepared.observationsAvailable = true
+		}
+		return prepared
+	}
+	encryptedLineageSession := handler.encryptedLineageKey(
+		recorder.accessKeyID,
+		selectedDialect.Protocol(),
+		originalMetadata,
+	)
 	decisionContextForSelection := func(selection scheduler.Selection) health.DecisionContext {
 		defaultRateLimitCooldown := fixedCooldown
 		credentialRefreshable := false
@@ -1204,18 +1226,27 @@ func (handler *Handler) executeAttempts(
 				recoveryBody = cleaned
 			}
 			if recoveryBody != nil {
-				prepared.request = withRequestBody(prepared.request, recoveryBody)
+				prepared = replacePreparedBody(prepared, recoveryBody)
 			}
-			prepared.observations = originalMetadata
-			prepared.observationsAvailable = false
-			if metadata, inspectErr := selectedDialect.InspectRequest(prepared.request); inspectErr == nil {
-				prepared.observations = dialect.RequestMetadata{
-					ObserveUsage:     originalMetadata.ObserveUsage,
-					PricingMode:      metadata.PricingMode,
-					UsageDiagnostics: metadata.UsageDiagnostics,
-					Reasoning:        metadata.Reasoning,
+		}
+		if encryptedRetry == nil && !encryptedReplayUsed && encryptedLineageSession != "" && handler.encryptedLineage != nil {
+			lineageKey := codexrecovery.InvalidLineageKey(selection.GroupID, encryptedLineageSession)
+			if rejected := handler.encryptedLineage.Lookup(lineageKey, handler.encryptedLineageNow()); len(rejected) > 0 {
+				if stripped, removals, ok := codexrecovery.StripEncryptedContentDigests(prepared.request.Body, rejected); ok {
+					prepared = replacePreparedBody(prepared, stripped)
+					utils.LogPlaneBestEffort(
+						handler.logger,
+						logrus.InfoLevel,
+						utils.LogPlaneData,
+						logrus.Fields{
+							"event":         "codex_encrypted_content_lineage_strip",
+							"credential_id": selection.CredentialID,
+							"group_id":      selection.GroupID,
+							"removed":       removals.Total(),
+						},
+						"Removed encrypted continuation state already rejected by this session's upstream",
+					)
 				}
-				prepared.observationsAvailable = true
 			}
 		}
 		if prepared.err != nil {
@@ -1541,6 +1572,28 @@ func (handler *Handler) executeAttempts(
 				)
 				handler.completeReason(ginContext, recorder, reasonEncryptedContentRecoveryExhausted)
 				return
+			}
+			if handler.encryptedLineage != nil && encryptedLineageSession != "" &&
+				codexrecovery.InvalidEncryptedContentSignal(signal) {
+				digests := codexrecovery.EncryptedContentDigests(prepared.request.Body)
+				if added := handler.encryptedLineage.Mark(
+					codexrecovery.InvalidLineageKey(selection.GroupID, encryptedLineageSession),
+					digests,
+					handler.encryptedLineageNow(),
+				); added > 0 {
+					utils.LogPlaneBestEffort(
+						handler.logger,
+						logrus.InfoLevel,
+						utils.LogPlaneData,
+						logrus.Fields{
+							"event":         "codex_encrypted_content_lineage_mark",
+							"credential_id": selection.CredentialID,
+							"group_id":      selection.GroupID,
+							"digests":       added,
+						},
+						"Remembered rejected encrypted continuation state for this client session",
+					)
+				}
 			}
 			if sanitized, removals, ok := codexrecovery.Sanitize(prepared.request.Body); ok {
 				utils.LogPlaneBestEffort(

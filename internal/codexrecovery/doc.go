@@ -5,6 +5,9 @@
 // contents and tool call associations. Normal requests are never rewritten.
 // The gateway replays once on the current credential and retains this recovery
 // for subsequent candidate failover within the existing retry budget.
+// Rejected encrypted-content digests are also remembered per client session
+// and routing group, so later turns remove only the already-rejected opaque
+// values before contacting the upstream instead of repeating the same failure.
 // Reference-only history cannot be rebuilt without its original server state.
 //
 // The package is pure: it classifies upstream error evidence and rewrites a

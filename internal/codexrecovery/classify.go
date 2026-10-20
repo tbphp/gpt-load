@@ -23,6 +23,20 @@ const (
 	SignalItemNotFound            Signal = "response_item_not_found"
 )
 
+// InvalidEncryptedContentSignal reports whether the rejection is specifically
+// about opaque encrypted content and can therefore be remembered by digest.
+func InvalidEncryptedContentSignal(signal Signal) bool {
+	switch signal {
+	case SignalThinkingSignatureInvalid,
+		SignalInvalidEncryptedContent,
+		SignalEncryptedContentDecryptionFailed,
+		SignalEncryptedContextInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Classify maps an upstream error body (or error text) to a recovery signal.
 // It accepts a bare error code, a JSON error payload, or an SSE-framed payload;
 // anything else yields the empty signal.

@@ -81,6 +81,24 @@ func TestClassifyPartsPrefersExactCode(t *testing.T) {
 	}
 }
 
+func TestInvalidEncryptedContentSignalRecognizesOnlyOpaqueStateRejections(t *testing.T) {
+	for _, signal := range []Signal{
+		SignalThinkingSignatureInvalid,
+		SignalInvalidEncryptedContent,
+		SignalEncryptedContentDecryptionFailed,
+		SignalEncryptedContextInvalid,
+	} {
+		if !InvalidEncryptedContentSignal(signal) {
+			t.Fatalf("encrypted-content signal %q was ignored", signal)
+		}
+	}
+	for _, signal := range []Signal{SignalItemResourceMismatch, SignalItemNotFound, ""} {
+		if InvalidEncryptedContentSignal(signal) {
+			t.Fatalf("non-encrypted signal %q was remembered by digest", signal)
+		}
+	}
+}
+
 func TestClassifyRecognizesResponseItemScopeErrors(t *testing.T) {
 	message := "OpenAI Responses bad request: The requested item was created under a different Azure OpenAI resource. Use the same resource that created the item to access it."
 	for _, value := range []string{

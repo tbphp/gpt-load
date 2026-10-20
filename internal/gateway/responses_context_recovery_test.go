@@ -106,9 +106,10 @@ func TestResponsesContextRecoveryKeepsCleanedHistoryAcrossFailover(t *testing.T)
 			if crossGroup && (strings.Contains(string(forwarder.inputs[2].Request.Body), "first_group") || !strings.Contains(string(forwarder.inputs[2].Request.Body), "second_group")) {
 				t.Fatal("failover inherited the previous group's parameter overrides")
 			}
-			serveContinuation(t, engine, "gl-client", contextRecoveryRequest, http.StatusOK)
+			otherSession := strings.TrimSuffix(contextRecoveryRequest, "}") + `,"prompt_cache_key":"another-session"}`
+			serveContinuation(t, engine, "gl-client", otherSession, http.StatusOK)
 			if !strings.Contains(string(forwarder.inputs[3].Request.Body), "opaque") {
-				t.Fatal("recovery state leaked into another client request")
+				t.Fatal("session lineage leaked into another client session")
 			}
 		})
 	}
@@ -231,6 +232,44 @@ func TestResponsesContextRecoveryReturnsLaterCredentialFailure(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestResponsesContextRecoveryLineageStripsRejectedItemsOnLaterTurns(t *testing.T) {
+	observed := &encryptedRecoveryBodies{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := readAllString(t, r)
+		observed.add(r.Header.Get("Authorization"), body)
+		if strings.Contains(body, "opaque-bad") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"invalid_encrypted_content","message":"The encrypted content for item rs_bad could not be verified."}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(contextRecoverySuccess))
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIResponses, "model-a",
+		dialect.NewSet(dialect.NewOpenAIResponses()),
+		dialectGatewayGroup{id: 1, name: "relay", channelID: channel.NewAPI, params: openAIBaseURLParams(t, upstream.URL), apiKeys: []string{"sk-one"}},
+	)
+	first := `{"model":"model-a","prompt_cache_key":"lineage-session","store":false,"input":[{"type":"reasoning","id":"rs_bad","encrypted_content":"opaque-bad","summary":[{"type":"summary_text","text":"bad"}]},{"type":"message","role":"user","content":"continue"}]}`
+	serveContinuation(t, engine, "gl-client", first, http.StatusOK)
+
+	second := `{"model":"model-a","prompt_cache_key":"lineage-session","store":false,"input":[{"type":"reasoning","id":"rs_bad","encrypted_content":"opaque-bad","summary":[{"type":"summary_text","text":"bad"}]},{"type":"reasoning","id":"rs_good","encrypted_content":"opaque-good","summary":[{"type":"summary_text","text":"good"}]},{"type":"message","role":"user","content":"next"}]}`
+	serveContinuation(t, engine, "gl-client", second, http.StatusOK)
+
+	_, bodies := observed.snapshot()
+	if len(bodies) != 3 {
+		t.Fatalf("attempt bodies = %d, want 3", len(bodies))
+	}
+	if !strings.Contains(bodies[0], "opaque-bad") || strings.Contains(bodies[1], "opaque-bad") {
+		t.Fatalf("first-turn recovery did not strip the rejected item")
+	}
+	if strings.Contains(bodies[2], "opaque-bad") || !strings.Contains(bodies[2], "opaque-good") {
+		t.Fatalf("later turn did not apply digest-specific lineage: %s", bodies[2])
 	}
 }
 
