@@ -138,7 +138,7 @@ defineExpose({
     flex: none;
   }
   .modern-list-frame--mobile-flow .modern-list-scroll {
-    overflow: auto;
+    overflow: visible;
   }
   .modern-list-frame--mobile-flow .modern-list-header {
     position: static;
