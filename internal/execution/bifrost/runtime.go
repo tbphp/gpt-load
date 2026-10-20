@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -276,7 +277,7 @@ func cloneProviderConfig(source *schemas.ProviderConfig) *schemas.ProviderConfig
 		return nil
 	}
 	clone := *source
-	clone.NetworkConfig.ExtraHeaders = cloneStringMap(source.NetworkConfig.ExtraHeaders)
+	clone.NetworkConfig.ExtraHeaders = maps.Clone(source.NetworkConfig.ExtraHeaders)
 	clone.NetworkConfig.BetaHeaderOverrides = cloneBoolMap(source.NetworkConfig.BetaHeaderOverrides)
 	if source.ProxyConfig != nil {
 		proxy := *source.ProxyConfig

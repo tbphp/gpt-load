@@ -8,9 +8,9 @@ import "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 const (
 	// Codex 的执行身份与模型模板共用同一份客户端契约。
 	CodexClientVersion       = modelcatalog.ClientVersion
-	ClaudeClientVersion      = "2.1.299"
-	GrokClientVersion        = "1.0.52"
-	AntigravityClientVersion = "2.23.0"
+	ClaudeClientVersion      = "2.1.304"
+	GrokClientVersion        = "1.0.62"
+	AntigravityClientVersion = "2.24.0"
 
 	claudeUserAgent          = "claude-cli/" + ClaudeClientVersion + " (external, cli)"
 	claudeBootstrapUserAgent = "claude-code/" + ClaudeClientVersion
