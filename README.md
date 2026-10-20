@@ -240,6 +240,14 @@ Environment proxies apply only when no proxy is specified on the credential, gro
 
 </details>
 
+## One-click deploy
+
+<a href="https://repocloud.io/details/GPT%20Load/"><img src="https://d16t0pc4846x52.cloudfront.net/deploylobe.svg" alt="Deploy on RepoCloud" height="42"></a>
+<a href="https://railway.com/deploy/gptload"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="42"></a>
+
+- RepoCloud: One-click template, no other instructions required.
+- Railway: The template runs the `latest` image, which remains on 1.x; its [deployment notes](https://railway.com/deploy/gptload) cover setup.
+
 ## Moving from 1.x
 
 > [!WARNING]
