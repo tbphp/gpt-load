@@ -31,11 +31,29 @@ func TestInvalidLineageIsGroupScopedAndExpires(t *testing.T) {
 	if got := lineage.LookupItemIDs(keyB, now.Add(time.Minute)); len(got) != 0 {
 		t.Fatalf("group B inherited group A item IDs: %v", got)
 	}
-	if got := lineage.Lookup(keyA, now.Add(InvalidLineageTTL+time.Second)); len(got) != 0 {
+	if got := lineage.Lookup(keyA, now.Add(InvalidLineageTTL+2*time.Minute)); len(got) != 0 {
 		t.Fatalf("expired lineage remained: %v", got)
 	}
-	if got := lineage.LookupItemIDs(keyA, now.Add(InvalidLineageTTL+time.Second)); len(got) != 0 {
+	if got := lineage.LookupItemIDs(keyA, now.Add(InvalidLineageTTL+3*time.Minute)); len(got) != 0 {
 		t.Fatalf("expired item-ID lineage remained: %v", got)
+	}
+}
+
+func TestInvalidLineageUsesIdleTTLForActiveSessions(t *testing.T) {
+	lineage := NewInvalidLineage()
+	now := time.Unix(1_700_000_000, 0)
+	key := InvalidLineageKey(1, "session-a")
+	if added := lineage.Mark(key, []string{EncryptedContentDigest("opaque")}, now); added != 1 {
+		t.Fatalf("added digests = %d, want 1", added)
+	}
+	if got := lineage.Lookup(key, now.Add(59*time.Minute)); len(got) != 1 {
+		t.Fatalf("active lineage expired too early: %v", got)
+	}
+	if got := lineage.Lookup(key, now.Add(118*time.Minute)); len(got) != 1 {
+		t.Fatalf("active lineage did not renew idle TTL: %v", got)
+	}
+	if got := lineage.Lookup(key, now.Add(179*time.Minute)); len(got) != 0 {
+		t.Fatalf("idle lineage remained: %v", got)
 	}
 }
 

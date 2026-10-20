@@ -73,6 +73,9 @@ func (lineage *InvalidLineage) lookupSet(key string, now time.Time, itemIDs bool
 		delete(lineage.entries, key)
 		return nil
 	}
+	// Keep active sessions covered. Cleanup is still bounded by the idle TTL.
+	entry.expiresAt = now.Add(InvalidLineageTTL)
+	lineage.entries[key] = entry
 	set := entry.digests
 	if itemIDs {
 		set = entry.itemIDs
