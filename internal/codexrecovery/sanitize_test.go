@@ -187,3 +187,34 @@ func TestStripEncryptedContentDigestsRemovesOnlyRejectedValues(t *testing.T) {
 		t.Fatalf("valid item ID was not preserved: %s", text)
 	}
 }
+
+func TestStripHistoryItemIDsPreservesReadableItemsAndDropsBareReferences(t *testing.T) {
+	body := []byte(`{
+		"input": [
+			{"type":"message","id":"msg_bad","role":"assistant","content":[{"type":"output_text","text":"keep"}]},
+			{"type":"function_call","id":"fc_bad","call_id":"call_keep","name":"lookup","arguments":"{}"},
+			{"type":"item_reference","id":"rs_server_only"},
+			{"type":"reasoning","id":"rs_good","summary":[{"type":"summary_text","text":"keep good"}]}
+		]
+	}`)
+	rejected := map[string]struct{}{
+		"msg_bad":        {},
+		"fc_bad":         {},
+		"rs_server_only": {},
+	}
+	stripped, removals, ok := StripHistoryItemIDs(body, rejected)
+	if !ok || removals.HistoryItemID != 3 {
+		t.Fatalf("strip result = %t %+v", ok, removals)
+	}
+	text := string(stripped)
+	for _, removed := range []string{"msg_bad", "fc_bad", "rs_server_only"} {
+		if bytes.Contains(stripped, []byte(removed)) {
+			t.Fatalf("rejected item ID %q survived: %s", removed, text)
+		}
+	}
+	for _, preserved := range []string{"keep", "call_keep", "lookup", "rs_good", "keep good"} {
+		if !bytes.Contains(stripped, []byte(preserved)) {
+			t.Fatalf("readable item state %q was lost: %s", preserved, text)
+		}
+	}
+}

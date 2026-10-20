@@ -123,7 +123,7 @@ type Handler struct {
 	routeNotFoundEvents *utils.RateLimitedEventCounter
 	lifecycle           *httplifecycle.Coordinator
 	affinityCache       *affinity.Cache
-	encryptedLineage    *codexrecovery.InvalidLineage
+	invalidLineage      *codexrecovery.InvalidLineage
 	responseBindings    *state.ResponseBindings
 	websocketLimits     websocketLimits
 	websocketBudget     websocketBudget
@@ -185,7 +185,7 @@ func NewHandler(
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		affinityCache:    affinity.NewCache(),
-		encryptedLineage: codexrecovery.NewInvalidLineage(),
+		invalidLineage:   codexrecovery.NewInvalidLineage(),
 		responseBindings: state.NewResponseBindings(),
 		websocketLimits:  defaultWebsocketLimits(),
 		liveSessions:     newLiveSessions(),
@@ -1059,7 +1059,7 @@ func (handler *Handler) executeAttempts(
 		}
 		return prepared
 	}
-	encryptedLineageSession := handler.encryptedLineageKey(
+	invalidLineageSession := handler.invalidLineageKey(
 		recorder.accessKeyID,
 		selectedDialect.Protocol(),
 		originalMetadata,
@@ -1229,9 +1229,9 @@ func (handler *Handler) executeAttempts(
 				prepared = replacePreparedBody(prepared, recoveryBody)
 			}
 		}
-		if encryptedRetry == nil && !encryptedReplayUsed && encryptedLineageSession != "" && handler.encryptedLineage != nil {
-			lineageKey := codexrecovery.InvalidLineageKey(selection.GroupID, encryptedLineageSession)
-			if rejected := handler.encryptedLineage.Lookup(lineageKey, handler.encryptedLineageNow()); len(rejected) > 0 {
+		if encryptedRetry == nil && !encryptedReplayUsed && invalidLineageSession != "" && handler.invalidLineage != nil {
+			lineageKey := codexrecovery.InvalidLineageKey(selection.GroupID, invalidLineageSession)
+			if rejected := handler.invalidLineage.Lookup(lineageKey, handler.invalidLineageNow()); len(rejected) > 0 {
 				if stripped, removals, ok := codexrecovery.StripEncryptedContentDigests(prepared.request.Body, rejected); ok {
 					prepared = replacePreparedBody(prepared, stripped)
 					utils.LogPlaneBestEffort(
@@ -1245,6 +1245,23 @@ func (handler *Handler) executeAttempts(
 							"removed":       removals.Total(),
 						},
 						"Removed encrypted continuation state already rejected by this session's upstream",
+					)
+				}
+			}
+			if rejected := handler.invalidLineage.LookupItemIDs(lineageKey, handler.invalidLineageNow()); len(rejected) > 0 {
+				if stripped, removals, ok := codexrecovery.StripHistoryItemIDs(prepared.request.Body, rejected); ok {
+					prepared = replacePreparedBody(prepared, stripped)
+					utils.LogPlaneBestEffort(
+						handler.logger,
+						logrus.InfoLevel,
+						utils.LogPlaneData,
+						logrus.Fields{
+							"event":         "codex_response_item_id_lineage_strip",
+							"credential_id": selection.CredentialID,
+							"group_id":      selection.GroupID,
+							"removed":       removals.Total(),
+						},
+						"Removed history item IDs already rejected by this session's upstream",
 					)
 				}
 			}
@@ -1573,13 +1590,13 @@ func (handler *Handler) executeAttempts(
 				handler.completeReason(ginContext, recorder, reasonEncryptedContentRecoveryExhausted)
 				return
 			}
-			if handler.encryptedLineage != nil && encryptedLineageSession != "" &&
+			if handler.invalidLineage != nil && invalidLineageSession != "" &&
 				codexrecovery.InvalidEncryptedContentSignal(signal) {
 				digests := codexrecovery.EncryptedContentDigests(prepared.request.Body)
-				if added := handler.encryptedLineage.Mark(
-					codexrecovery.InvalidLineageKey(selection.GroupID, encryptedLineageSession),
+				if added := handler.invalidLineage.Mark(
+					codexrecovery.InvalidLineageKey(selection.GroupID, invalidLineageSession),
 					digests,
-					handler.encryptedLineageNow(),
+					handler.invalidLineageNow(),
 				); added > 0 {
 					utils.LogPlaneBestEffort(
 						handler.logger,
@@ -1592,6 +1609,36 @@ func (handler *Handler) executeAttempts(
 							"digests":       added,
 						},
 						"Remembered rejected encrypted continuation state for this client session",
+					)
+				}
+			}
+			if handler.invalidLineage != nil && invalidLineageSession != "" &&
+				codexrecovery.InvalidItemIDSignal(signal) {
+				lineageKey := codexrecovery.InvalidLineageKey(selection.GroupID, invalidLineageSession)
+				itemIDs := codexrecovery.HistoryItemIDs(prepared.request.Body)
+				itemIDsAdded := handler.invalidLineage.MarkItemIDs(
+					lineageKey,
+					itemIDs,
+					handler.invalidLineageNow(),
+				)
+				digestsAdded := handler.invalidLineage.Mark(
+					lineageKey,
+					codexrecovery.EncryptedContentDigests(prepared.request.Body),
+					handler.invalidLineageNow(),
+				)
+				if itemIDsAdded > 0 || digestsAdded > 0 {
+					utils.LogPlaneBestEffort(
+						handler.logger,
+						logrus.InfoLevel,
+						utils.LogPlaneData,
+						logrus.Fields{
+							"event":         "codex_response_item_id_lineage_mark",
+							"credential_id": selection.CredentialID,
+							"group_id":      selection.GroupID,
+							"item_ids":      itemIDsAdded,
+							"digests":       digestsAdded,
+						},
+						"Remembered rejected history item IDs for this client session",
 					)
 				}
 			}

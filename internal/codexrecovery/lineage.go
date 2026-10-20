@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	// InvalidLineageTTL bounds how long an upstream-rejected encrypted item is
+	// InvalidLineageTTL bounds how long rejected upstream-bound state is
 	// remembered for one client session.
 	InvalidLineageTTL = time.Hour
 	// InvalidLineageCapacity bounds the number of sessions retained in memory.
@@ -20,13 +20,14 @@ const (
 
 type invalidLineageEntry struct {
 	digests   map[string]struct{}
+	itemIDs   map[string]struct{}
 	expiresAt time.Time
 }
 
-// InvalidLineage remembers encrypted-content digests that one upstream has
-// explicitly rejected for a client session. Client history commonly carries
-// those items into every later turn, so matching items are removed before the
-// next upstream attempt instead of being rejected again.
+// InvalidLineage remembers encrypted-content digests and history item IDs that
+// one upstream has explicitly rejected for a client session. Client history
+// commonly carries those items into every later turn, so matching state is
+// removed before the next upstream attempt instead of being rejected again.
 type InvalidLineage struct {
 	mu      sync.Mutex
 	entries map[string]invalidLineageEntry
@@ -38,8 +39,8 @@ func NewInvalidLineage() *InvalidLineage {
 }
 
 // InvalidLineageKey scopes a session lineage to one routing group. The same
-// encrypted item can be valid for the account that created it and invalid for
-// another group's account.
+// item can be valid for the account that created it and invalid for another
+// group's account.
 func InvalidLineageKey(groupID uint, sessionKey string) string {
 	sessionKey = strings.TrimSpace(sessionKey)
 	if groupID == 0 || sessionKey == "" {
@@ -50,6 +51,15 @@ func InvalidLineageKey(groupID uint, sessionKey string) string {
 
 // Lookup returns a copy of the rejected digests for key.
 func (lineage *InvalidLineage) Lookup(key string, now time.Time) map[string]struct{} {
+	return lineage.lookupSet(key, now, false)
+}
+
+// LookupItemIDs returns a copy of the rejected history item IDs for key.
+func (lineage *InvalidLineage) LookupItemIDs(key string, now time.Time) map[string]struct{} {
+	return lineage.lookupSet(key, now, true)
+}
+
+func (lineage *InvalidLineage) lookupSet(key string, now time.Time, itemIDs bool) map[string]struct{} {
 	if lineage == nil || key == "" {
 		return nil
 	}
@@ -63,8 +73,12 @@ func (lineage *InvalidLineage) Lookup(key string, now time.Time) map[string]stru
 		delete(lineage.entries, key)
 		return nil
 	}
-	copied := make(map[string]struct{}, len(entry.digests))
-	for digest := range entry.digests {
+	set := entry.digests
+	if itemIDs {
+		set = entry.itemIDs
+	}
+	copied := make(map[string]struct{}, len(set))
+	for digest := range set {
 		copied[digest] = struct{}{}
 	}
 	return copied
@@ -72,7 +86,17 @@ func (lineage *InvalidLineage) Lookup(key string, now time.Time) map[string]stru
 
 // Mark records rejected digests for key and returns the number of new digests.
 func (lineage *InvalidLineage) Mark(key string, digests []string, now time.Time) int {
-	if lineage == nil || key == "" || len(digests) == 0 {
+	return lineage.markSet(key, digests, now, false)
+}
+
+// MarkItemIDs records rejected history item IDs for key and returns the number
+// of new IDs.
+func (lineage *InvalidLineage) MarkItemIDs(key string, itemIDs []string, now time.Time) int {
+	return lineage.markSet(key, itemIDs, now, true)
+}
+
+func (lineage *InvalidLineage) markSet(key string, values []string, now time.Time, itemIDs bool) int {
+	if lineage == nil || key == "" || len(values) == 0 {
 		return 0
 	}
 	lineage.mu.Lock()
@@ -80,26 +104,41 @@ func (lineage *InvalidLineage) Mark(key string, digests []string, now time.Time)
 
 	lineage.pruneExpiredLocked(now)
 	entry, exists := lineage.entries[key]
-	if !exists || now.After(entry.expiresAt) || entry.digests == nil {
+	if !exists || !now.Before(entry.expiresAt) {
 		if !exists && len(lineage.entries) >= InvalidLineageCapacity {
 			lineage.evictOldestLocked()
 		}
-		entry = invalidLineageEntry{digests: make(map[string]struct{}, len(digests))}
+		entry = invalidLineageEntry{
+			digests: make(map[string]struct{}, 4),
+			itemIDs: make(map[string]struct{}, 4),
+		}
+	}
+	set := entry.digests
+	if itemIDs {
+		set = entry.itemIDs
+	}
+	if set == nil {
+		set = make(map[string]struct{}, len(values))
 	}
 	added := 0
-	for _, digest := range digests {
-		digest = strings.TrimSpace(digest)
-		if digest == "" {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
 			continue
 		}
-		if _, duplicate := entry.digests[digest]; duplicate {
+		if _, duplicate := set[value]; duplicate {
 			continue
 		}
-		if len(entry.digests) >= invalidLineageMaxItems {
+		if len(set) >= invalidLineageMaxItems {
 			continue
 		}
-		entry.digests[digest] = struct{}{}
+		set[value] = struct{}{}
 		added++
+	}
+	if itemIDs {
+		entry.itemIDs = set
+	} else {
+		entry.digests = set
 	}
 	entry.expiresAt = now.Add(InvalidLineageTTL)
 	lineage.entries[key] = entry
@@ -169,4 +208,40 @@ func EncryptedContentDigests(body []byte) []string {
 	}
 	walk(items)
 	return digests
+}
+
+// HistoryItemIDs collects IDs from replayable Responses input items and item
+// references. Only these IDs can be removed safely before a later attempt.
+func HistoryItemIDs(body []byte) []string {
+	object, ok := decodeJSONObject(body)
+	if !ok {
+		return nil
+	}
+	items, _ := responseInputItems(object["input"])
+	if items == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	ids := make([]string, 0, 4)
+	for _, item := range items {
+		record, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemType, _ := record["type"].(string)
+		if itemType != "item_reference" && !replayableHistoryItem(record) {
+			continue
+		}
+		id, _ := record["id"].(string)
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }

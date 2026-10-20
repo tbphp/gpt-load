@@ -8,10 +8,10 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-// encryptedLineageKey derives the same tenant- and protocol-scoped session
+// invalidLineageKey derives the same tenant- and protocol-scoped session
 // identity used for affinity. Explicit client signals win; the prompt prefix
-// is the stable fallback when Codex sends full growing history.
-func (handler *Handler) encryptedLineageKey(
+// is the stable fallback when a client sends full growing history.
+func (handler *Handler) invalidLineageKey(
 	accessKeyID uint,
 	clientProtocol protocol.Protocol,
 	metadata dialect.RequestMetadata,
@@ -28,7 +28,7 @@ func (handler *Handler) encryptedLineageKey(
 			handler.encryption,
 			accessKeyID,
 			clientProtocol,
-			[]byte("codex-encrypted-lineage\x00previous-response\x00"+metadata.PreviousResponseID),
+			[]byte("codex-invalid-lineage\x00previous-response\x00"+metadata.PreviousResponseID),
 		)
 	case len(metadata.AffinityPrefix) > 0:
 		key = affinity.DeriveKey(handler.encryption, accessKeyID, clientProtocol, metadata.AffinityPrefix)
@@ -39,7 +39,7 @@ func (handler *Handler) encryptedLineageKey(
 	return string(key)
 }
 
-func (handler *Handler) encryptedLineageNow() time.Time {
+func (handler *Handler) invalidLineageNow() time.Time {
 	if handler != nil && handler.now != nil {
 		return handler.now()
 	}

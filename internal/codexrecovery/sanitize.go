@@ -75,6 +75,66 @@ func StripEncryptedContentDigests(body []byte, digests map[string]struct{}) ([]b
 	})
 }
 
+// StripHistoryItemIDs removes IDs that were rejected as belonging to another
+// upstream resource. Replayable items keep their readable content; a bare
+// item_reference is removed because it has no content to replay without its ID.
+func StripHistoryItemIDs(body []byte, itemIDs map[string]struct{}) ([]byte, Removals, bool) {
+	if len(itemIDs) == 0 {
+		return nil, Removals{}, false
+	}
+	object, ok := decodeJSONObject(body)
+	if !ok {
+		return nil, Removals{}, false
+	}
+	inputItems, originalIsArray := responseInputItems(object["input"])
+	if inputItems == nil {
+		return nil, Removals{}, false
+	}
+
+	var removals Removals
+	kept := make([]any, 0, len(inputItems))
+	for _, item := range inputItems {
+		record, ok := item.(map[string]any)
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		id, _ := record["id"].(string)
+		if _, rejected := itemIDs[strings.TrimSpace(id)]; !rejected {
+			kept = append(kept, item)
+			continue
+		}
+		itemType, _ := record["type"].(string)
+		if itemType == "item_reference" {
+			removals.HistoryItemID++
+			continue
+		}
+		if !replayableHistoryItem(record) {
+			kept = append(kept, item)
+			continue
+		}
+		replacement := cloneJSONMap(record)
+		delete(replacement, "id")
+		removals.HistoryItemID++
+		kept = append(kept, replacement)
+	}
+	if removals.Empty() {
+		return nil, Removals{}, false
+	}
+	if originalIsArray {
+		object["input"] = kept
+	} else if len(kept) > 0 {
+		object["input"] = kept[0]
+	} else {
+		object["input"] = []any{}
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, Removals{}, false
+	}
+	return encoded, removals, true
+}
+
 func sanitizeBody(body []byte, options sanitizeOptions) ([]byte, Removals, bool) {
 	object, ok := decodeJSONObject(body)
 	if !ok {

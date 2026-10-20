@@ -273,6 +273,52 @@ func TestResponsesContextRecoveryLineageStripsRejectedItemsOnLaterTurns(t *testi
 	}
 }
 
+func TestResponsesContextRecoveryLineageStripsRejectedItemIDsOnLaterTurns(t *testing.T) {
+	observed := &encryptedRecoveryBodies{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := readAllString(t, r)
+		observed.add(r.Header.Get("Authorization"), body)
+		if strings.Contains(body, "msg_bad") || strings.Contains(body, "fc_bad") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"The requested item was created under a different Azure OpenAI resource. Use the same resource that created the item to access it."}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(contextRecoverySuccess))
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIResponses, "model-a",
+		dialect.NewSet(dialect.NewOpenAIResponses()),
+		dialectGatewayGroup{id: 1, name: "relay", channelID: channel.NewAPI, params: openAIBaseURLParams(t, upstream.URL), apiKeys: []string{"sk-one"}},
+	)
+	first := `{"model":"model-a","prompt_cache_key":"item-id-lineage","store":false,"input":[{"type":"message","id":"msg_bad","role":"assistant","content":"history"},{"type":"function_call","id":"fc_bad","call_id":"call_keep","name":"lookup","arguments":"{}"},{"type":"reasoning","id":"rs_bad","encrypted_content":"opaque_old","summary":[{"type":"summary_text","text":"old summary"}]},{"type":"message","role":"user","content":"continue"}]}`
+	serveContinuation(t, engine, "gl-client", first, http.StatusOK)
+
+	second := `{"model":"model-a","prompt_cache_key":"item-id-lineage","store":false,"input":[{"type":"message","id":"msg_bad","role":"assistant","content":"history"},{"type":"function_call","id":"fc_bad","call_id":"call_keep","name":"lookup","arguments":"{}"},{"type":"reasoning","id":"rs_bad","encrypted_content":"opaque_old","summary":[{"type":"summary_text","text":"old summary"}]},{"type":"reasoning","id":"rs_good","encrypted_content":"opaque_good","summary":[{"type":"summary_text","text":"good summary"}]},{"type":"message","id":"msg_good","role":"assistant","content":"valid account state"},{"type":"message","role":"user","content":"next"}]}`
+	serveContinuation(t, engine, "gl-client", second, http.StatusOK)
+
+	_, bodies := observed.snapshot()
+	if len(bodies) != 3 {
+		t.Fatalf("attempt bodies = %d, want 3", len(bodies))
+	}
+	if !strings.Contains(bodies[0], "msg_bad") || strings.Contains(bodies[1], "msg_bad") {
+		t.Fatalf("first-turn recovery did not strip the rejected item ID")
+	}
+	if strings.Contains(bodies[2], "msg_bad") || strings.Contains(bodies[2], "fc_bad") {
+		t.Fatalf("later turn did not pre-strip rejected item IDs: %s", bodies[2])
+	}
+	if strings.Contains(bodies[2], "opaque_old") || !strings.Contains(bodies[2], "opaque_good") {
+		t.Fatalf("later turn did not preserve only current encrypted state: %s", bodies[2])
+	}
+	for _, preserved := range []string{"msg_good", "rs_good", "call_keep", "lookup", "valid account state", "old summary"} {
+		if !strings.Contains(bodies[2], preserved) {
+			t.Fatalf("later turn lost readable state %q: %s", preserved, bodies[2])
+		}
+	}
+}
+
 func assertRecoveredContext(t *testing.T, body string) {
 	t.Helper()
 	for _, removed := range []string{"msg_old", "fc_old", "rs_old", "opaque"} {

@@ -99,6 +99,25 @@ func TestInvalidEncryptedContentSignalRecognizesOnlyOpaqueStateRejections(t *tes
 	}
 }
 
+func TestInvalidItemIDSignalRecognizesOwnershipAndMissingItemRejections(t *testing.T) {
+	for _, signal := range []Signal{SignalItemResourceMismatch, SignalItemNotFound} {
+		if !InvalidItemIDSignal(signal) {
+			t.Fatalf("item-ID signal %q was ignored", signal)
+		}
+	}
+	for _, signal := range []Signal{
+		SignalThinkingSignatureInvalid,
+		SignalInvalidEncryptedContent,
+		SignalEncryptedContentDecryptionFailed,
+		SignalEncryptedContextInvalid,
+		"",
+	} {
+		if InvalidItemIDSignal(signal) {
+			t.Fatalf("non-item-ID signal %q was remembered as an item ID", signal)
+		}
+	}
+}
+
 func TestClassifyRecognizesResponseItemScopeErrors(t *testing.T) {
 	message := "OpenAI Responses bad request: The requested item was created under a different Azure OpenAI resource. Use the same resource that created the item to access it."
 	for _, value := range []string{

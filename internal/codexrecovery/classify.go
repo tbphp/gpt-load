@@ -37,6 +37,17 @@ func InvalidEncryptedContentSignal(signal Signal) bool {
 	}
 }
 
+// InvalidItemIDSignal reports whether the rejection is about a history item's
+// upstream identity rather than its opaque encrypted content.
+func InvalidItemIDSignal(signal Signal) bool {
+	switch signal {
+	case SignalItemResourceMismatch, SignalItemNotFound:
+		return true
+	default:
+		return false
+	}
+}
+
 // Classify maps an upstream error body (or error text) to a recovery signal.
 // It accepts a bare error code, a JSON error payload, or an SSE-framed payload;
 // anything else yields the empty signal.
