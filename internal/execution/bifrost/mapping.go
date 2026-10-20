@@ -532,7 +532,9 @@ func convertedUnaryErrorResult(
 ) execution.AttemptResult {
 	result := unaryErrorResult(bifrostError, bifrostContext, secrets)
 	if convertedSDKPreflightFailure(bifrostError, result.ResponseStarted) {
-		result.DispatchState = execution.DispatchNotSent
+		if bifrostError.ExtraFields.BilledUsage == nil {
+			result.DispatchState = execution.DispatchNotSent
+		}
 		result.Error = convertedSerializationEvidence()
 	}
 	return result
@@ -601,7 +603,9 @@ func convertedStreamErrorResult(
 		usageEvidence,
 	)
 	if !alreadyStarted && convertedSDKPreflightFailure(bifrostError, result.ResponseStarted) {
-		result.DispatchState = execution.DispatchNotSent
+		if bifrostError.ExtraFields.BilledUsage == nil {
+			result.DispatchState = execution.DispatchNotSent
+		}
 		result.Error = convertedSerializationEvidence()
 	}
 	return result
@@ -609,7 +613,6 @@ func convertedStreamErrorResult(
 
 func convertedSDKPreflightFailure(bifrostError *schemas.BifrostError, responseStarted bool) bool {
 	return !responseStarted && bifrostError != nil && bifrostError.IsBifrostError &&
-		bifrostError.ExtraFields.BilledUsage == nil &&
 		strings.EqualFold(strings.TrimSpace(errorType(bifrostError)), "invalid_request_error")
 }
 

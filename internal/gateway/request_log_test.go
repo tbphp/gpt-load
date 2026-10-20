@@ -709,16 +709,37 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 	}
 }
 
-func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
-	sink := &recordingRequestLogSink{}
-	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
-	index := recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
-	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Decision{Category: health.FailureCategoryRateLimited}, "provider", index)
-	recorder.emit()
+func TestRequestRecorderNon2xxUsesReportedUsageOnly(t *testing.T) {
+	complete := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}
+	partial := usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{Output: 12}}
+	notApplicable := usage.Result{State: usage.StateNotApplicable}
+	for _, test := range []struct {
+		name     string
+		result   usage.Result
+		excluded bool
+		want     usage.Result
+	}{
+		{name: "absent", want: notApplicable},
+		{name: "missing", result: usage.Result{State: usage.StateMissing}, want: notApplicable},
+		{name: "not applicable", result: notApplicable, want: notApplicable},
+		{name: "reported complete", result: complete, want: complete},
+		{name: "reported partial", result: partial, want: partial},
+		{name: "excluded operation", result: partial, excluded: true, want: notApplicable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
+			recorder.setUsageApplicable(!test.excluded)
+			result := UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: test.result}
+			index := recorder.appendAttempt(requestLogSelection(12, 22, "second"), result, telemetry.FailureCategoryRateLimited, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+			recorder.completeResponse(result, health.Decision{Category: health.FailureCategoryRateLimited}, "provider", index)
+			recorder.emit()
 
-	event := sink.events[0]
-	if event.Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || event.Usage.GroupID != 12 || event.Usage.ChannelID != channel.OpenAI || event.Usage.CredentialID != 22 || event.Usage.AttemptSequence != 1 {
-		t.Fatalf("Usage = %#v", event.Usage)
+			event := sink.events[0]
+			if event.Usage.Result != test.want || event.Usage.GroupID != 12 || event.Usage.ChannelID != channel.OpenAI || event.Usage.CredentialID != 22 || event.Usage.AttemptSequence != 1 {
+				t.Fatalf("Usage = %#v, want %#v", event.Usage, test.want)
+			}
+		})
 	}
 }
 
@@ -1781,10 +1802,10 @@ func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
 	}
 }
 
-func TestHandlerFinalNon2xxPublishesNotApplicableWithResponseAttribution(t *testing.T) {
+func TestHandlerFinalNon2xxWithoutUsagePublishesNotApplicableWithResponseAttribution(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	forwarder := &scriptedForwarder{results: []UpstreamResult{{
-		StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 99}}, RequestWritten: true,
+		StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), Usage: usage.Result{State: usage.StateMissing}, RequestWritten: true,
 	}}}
 	engine, _, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first")
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))

@@ -83,21 +83,34 @@ func TestStreamBilledUsageReplacesSnapshotWithoutDoubleCounting(t *testing.T) {
 		Normalized: usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{UncachedInput: 10, Output: 2}},
 		Raw:        []byte(`{"input_tokens":10,"output_tokens":2}`),
 	}
-	for _, billed := range []*schemas.BifrostLLMUsage{nil, {PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12}} {
-		failure := &schemas.BifrostError{
-			Error: &schemas.ErrorField{Message: "upstream failure"},
-			ExtraFields: schemas.BifrostErrorExtraFields{
-				BilledUsage: billed,
-			},
-		}
-		result := streamErrorResult(failure, nil, nil, true, http.StatusOK, nil, "model", snapshot)
-		if result.Usage == nil || result.Usage.Normalized != snapshot.Normalized {
-			t.Fatalf("usage = %+v, want %+v", result.Usage, snapshot.Normalized)
-		}
-		result.Usage.Raw[0] = ' '
-		if snapshot.Raw[0] != '{' {
-			t.Fatal("error result changed the existing usage snapshot")
-		}
+	for _, test := range []struct {
+		name   string
+		billed *schemas.BifrostLLMUsage
+		want   usage.Result
+	}{
+		{name: "preserve snapshot without billed usage", want: snapshot.Normalized},
+		{
+			name:   "replace snapshot with cumulative billed usage",
+			billed: &schemas.BifrostLLMUsage{PromptTokens: 30, CompletionTokens: 7, TotalTokens: 37},
+			want:   usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{UncachedInput: 30, Output: 7}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failure := &schemas.BifrostError{
+				Error: &schemas.ErrorField{Message: "upstream failure"},
+				ExtraFields: schemas.BifrostErrorExtraFields{
+					BilledUsage: test.billed,
+				},
+			}
+			result := streamErrorResult(failure, nil, nil, true, http.StatusOK, nil, "model", snapshot)
+			if result.Usage == nil || result.Usage.Normalized != test.want {
+				t.Fatalf("usage = %+v, want %+v", result.Usage, test.want)
+			}
+			result.Usage.Raw[0] = ' '
+			if snapshot.Raw[0] != '{' {
+				t.Fatal("error result changed the existing usage snapshot")
+			}
+		})
 	}
 }
 

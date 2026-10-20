@@ -551,7 +551,9 @@ func (recorder *requestRecorder) completeResponse(
 		status: telemetry.RequestStatusError, statusCode: result.StatusCode,
 		errorCode: code, errorSummary: summary, upstreamModel: upstreamModel,
 	}
-	recorder.bindUsage(attemptIndex, result.Usage, false)
+	// 后续上游调用失败时，执行层仍可能报告此前已消耗的用量。
+	usageReported := result.Usage.State == usage.StateComplete || result.Usage.State == usage.StatePartial
+	recorder.bindUsage(attemptIndex, result.Usage, usageReported)
 }
 
 func (recorder *requestRecorder) completeProviderError(
