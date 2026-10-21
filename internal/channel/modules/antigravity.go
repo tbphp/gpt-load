@@ -38,7 +38,7 @@ func Antigravity() spec.Module {
 			Provider: spec.ProviderBinding{
 				ProviderKind:    spec.ProviderAntigravity,
 				EndpointPolicy:  spec.EndpointSDKDefault,
-				DefaultBaseURLs: []string{"https://daily-cloudcode-pa.googleapis.com", "https://cloudcode-pa.googleapis.com"},
+				DefaultBaseURLs: []string{"https://daily-cloudcode-pa.googleapis.com"},
 			},
 			Routes: []spec.Route{
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteNative),

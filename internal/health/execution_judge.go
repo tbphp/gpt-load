@@ -351,6 +351,8 @@ func classifyExecutionEvidence(attempt ExecutionAttempt) FailureCategory {
 		return FailureCategoryInvalidKey
 	case statusCode >= http.StatusInternalServerError && statusCode <= 599:
 		return FailureCategoryUpstreamHostError
+	case attempt.Evidence != nil && attempt.Evidence.Kind == execution.ErrorKindConversionUnsupported:
+		return FailureCategoryConversionUnsupported
 	case attempt.Evidence != nil && attempt.Evidence.Kind == execution.ErrorKindInvalidRequest:
 		return FailureCategoryClientError
 	default:

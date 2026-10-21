@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/execution"
 	platformheader "gpt-load/internal/platform/httpheader"
 	platformredact "gpt-load/internal/platform/redact"
+	"gpt-load/internal/usage"
 )
 
 type openAIChatResponse struct {
@@ -140,6 +141,26 @@ func usageEvidenceFromResponses(source *schemas.ResponsesResponseUsage) (*execut
 		return nil, fmt.Errorf("normalize Responses usage")
 	}
 	return &execution.UsageEvidence{Normalized: normalized, Raw: rawUsage}, nil
+}
+
+func errorUsageEvidence(bifrostError *schemas.BifrostError, previous *execution.UsageEvidence) *execution.UsageEvidence {
+	if bifrostError == nil || bifrostError.ExtraFields.BilledUsage == nil {
+		return cloneUsage(previous)
+	}
+	evidence, err := usageEvidenceFromResponses(bifrostError.ExtraFields.BilledUsage.ToResponsesResponseUsage())
+	if err != nil {
+		evidence = cloneUsage(previous)
+		if evidence == nil {
+			evidence = &execution.UsageEvidence{Normalized: usage.Result{State: usage.StateMissing}}
+		}
+		evidence.Normalized.Diagnostics.Add(usage.DiagnosticInvalidPayload)
+		return evidence
+	}
+	// SDK 已累计此前完成的轮次；覆盖流快照以免重复计数，失败轮次的未报告用量仍未知。
+	if evidence.Normalized.State == usage.StateComplete {
+		evidence.Normalized.State = usage.StatePartial
+	}
+	return evidence
 }
 
 func openAIResponseModel(body []byte, fallback string) string {
@@ -493,6 +514,7 @@ func unaryErrorResult(bifrostError *schemas.BifrostError, bifrostContext *schema
 		StatusCode:        status,
 		Header:            nil,
 		UpstreamRequestID: "",
+		Usage:             errorUsageEvidence(bifrostError, nil),
 		Error:             evidence,
 	}
 	if started {
@@ -510,7 +532,9 @@ func convertedUnaryErrorResult(
 ) execution.AttemptResult {
 	result := unaryErrorResult(bifrostError, bifrostContext, secrets)
 	if convertedSDKPreflightFailure(bifrostError, result.ResponseStarted) {
-		result.DispatchState = execution.DispatchNotSent
+		if bifrostError.ExtraFields.BilledUsage == nil {
+			result.DispatchState = execution.DispatchNotSent
+		}
 		result.Error = convertedSerializationEvidence()
 	}
 	return result
@@ -533,7 +557,7 @@ func streamErrorResult(
 	result := execution.StreamResult{
 		DispatchState: sdkErrorDispatchState(bifrostError, alreadyStarted || started),
 		Model:         model,
-		Usage:         cloneUsage(usageEvidence),
+		Usage:         errorUsageEvidence(bifrostError, usageEvidence),
 		Error:         evidence,
 	}
 	if started {
@@ -579,7 +603,9 @@ func convertedStreamErrorResult(
 		usageEvidence,
 	)
 	if !alreadyStarted && convertedSDKPreflightFailure(bifrostError, result.ResponseStarted) {
-		result.DispatchState = execution.DispatchNotSent
+		if bifrostError.ExtraFields.BilledUsage == nil {
+			result.DispatchState = execution.DispatchNotSent
+		}
 		result.Error = convertedSerializationEvidence()
 	}
 	return result
@@ -602,6 +628,9 @@ func convertedSerializationEvidence() *execution.ErrorEvidence {
 
 func sdkErrorDispatchState(bifrostError *schemas.BifrostError, responseStarted bool) execution.DispatchState {
 	if responseStarted || bifrostError == nil || bifrostError.Error == nil || bifrostError.Error.Error == nil {
+		return execution.DispatchMaybeSent
+	}
+	if bifrostError.ExtraFields.BilledUsage != nil {
 		return execution.DispatchMaybeSent
 	}
 	underlying := bifrostError.Error.Error

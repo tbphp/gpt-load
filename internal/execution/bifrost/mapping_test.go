@@ -259,29 +259,41 @@ func TestSDKTransportErrorAfterStreamStartIsAlwaysMaybeSent(t *testing.T) {
 func TestConvertedSDKPreflightFailureIsAGroupScopedConversionFailure(t *testing.T) {
 	t.Parallel()
 
-	errorType := "invalid_request_error"
-	bifrostError := &schemas.BifrostError{
-		IsBifrostError: true,
-		Error: &schemas.ErrorField{
-			Type:    &errorType,
-			Message: "cannot marshal target request",
-		},
-	}
-	context := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
-	unary := convertedUnaryErrorResult(bifrostError, context, nil)
-	if unary.DispatchState != execution.DispatchNotSent || unary.ResponseStarted || unary.Error == nil ||
-		unary.Error.Kind != execution.ErrorKindConversionUnsupported ||
-		unary.Error.Code != execution.ErrorCodeTargetSerializationFailed ||
-		unary.Error.OriginHint != execution.ErrorOriginInternal ||
-		unary.Error.ScopeHint != execution.ErrorScopeGroup {
-		t.Fatalf("converted unary result = %+v", unary)
-	}
-
-	stream := convertedStreamErrorResult(bifrostError, context, nil, false, 0, nil, "", nil)
-	if stream.DispatchState != execution.DispatchNotSent || stream.ResponseStarted || stream.Error == nil ||
-		stream.Error.Kind != execution.ErrorKindConversionUnsupported ||
-		stream.Error.Code != execution.ErrorCodeTargetSerializationFailed {
-		t.Fatalf("converted stream result = %+v", stream)
+	for _, billed := range []bool{false, true} {
+		name := "before upstream work"
+		wantDispatch := execution.DispatchNotSent
+		if billed {
+			name = "after billed upstream work"
+			wantDispatch = execution.DispatchMaybeSent
+		}
+		t.Run(name, func(t *testing.T) {
+			bifrostError := &schemas.BifrostError{
+				IsBifrostError: true,
+				Error: &schemas.ErrorField{
+					Type:    schemas.Ptr("invalid_request_error"),
+					Message: "cannot marshal target request",
+				},
+			}
+			if billed {
+				bifrostError.ExtraFields.BilledUsage = &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12}
+			}
+			context := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
+			unary := convertedUnaryErrorResult(bifrostError, context, nil)
+			stream := convertedStreamErrorResult(bifrostError, context, nil, false, 0, nil, "", nil)
+			if unary.DispatchState != wantDispatch || stream.DispatchState != wantDispatch ||
+				unary.ResponseStarted || stream.ResponseStarted {
+				t.Fatalf("converted results: unary=%+v stream=%+v", unary, stream)
+			}
+			for _, evidence := range []*execution.ErrorEvidence{unary.Error, stream.Error} {
+				if evidence == nil || evidence.Kind != execution.ErrorKindConversionUnsupported ||
+					evidence.Code != execution.ErrorCodeTargetSerializationFailed ||
+					evidence.OriginHint != execution.ErrorOriginInternal ||
+					evidence.ScopeHint != execution.ErrorScopeGroup ||
+					evidence.Summary != "target request serialization failed" {
+					t.Errorf("conversion error = %+v", evidence)
+				}
+			}
+		})
 	}
 }
 
