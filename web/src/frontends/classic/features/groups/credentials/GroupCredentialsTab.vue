@@ -617,6 +617,9 @@ function withPreservedDetail(
     ...item,
     ...(source.last_used_at_ms === undefined ? {} : { last_used_at_ms: source.last_used_at_ms }),
     ...(source.daily_usage === undefined ? {} : { daily_usage: source.daily_usage }),
+    ...(item.last_failure_summary === undefined && source.last_failure_summary !== undefined
+      ? { last_failure_summary: source.last_failure_summary }
+      : {}),
   }
   const sourceObservation = source.observation
   const targetObservation = item.observation

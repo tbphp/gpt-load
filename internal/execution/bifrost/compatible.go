@@ -30,20 +30,11 @@ func (r *Runtime) compatibleResponsesRequest(ctx *schemas.BifrostContext, reques
 	return converted, nil
 }
 
-// 对齐锁定 SDK core/v1.11.0 的 prepareResponsesRequest 中适用于 Compatible 的准备。
+// 对齐锁定 SDK core/v1.13.1 的 prepareResponsesRequest 中适用于 Compatible 的准备。
 // 该渠道没有 SDK 自动缓存注入或 Anthropic 私有计费头元数据；转换入口恢复后可删除此衔接。
 func prepareCompatibleChatRequest(ctx *schemas.BifrostContext, request *schemas.BifrostResponsesRequest) (*schemas.BifrostChatRequest, map[string]schemas.NamespaceToolAlias, *schemas.BifrostError) {
 	ctx.SetValue(schemas.BifrostContextKeyBaseProviderType, schemas.OpenAI)
-	model := schemas.ResolveCanonicalModel(ctx, request.Model)
-	if request.Params != nil && (schemas.IsDeepSeekModel(model) || schemas.IsMoonshotModel(model)) {
-		rewrite := providerUtils.ComposePatternRewriters(providerUtils.NormalizeRegexNULEscape, providerUtils.StripRegexLookaround)
-		if tools, changed := providerUtils.RewriteResponsesToolSchemas(request.Params.Tools, rewrite); changed {
-			copyRequest, params := *request, *request.Params
-			params.Tools = tools
-			copyRequest.Params = &params
-			request = &copyRequest
-		}
-	}
+	// 工具 schema 统一由 SDK 的 Chat 调度入口规范化，覆盖解包及提升后的工具。
 	var err *schemas.BifrostError
 	supported := providerUtils.ResponsesNamespaceToolsSupported(ctx, schemas.OpenAI, request.Model)
 	if !supported {

@@ -41,14 +41,10 @@ func buildEmbeddingRequest(
 	if err != nil {
 		return nil, err
 	}
-	input, err := embeddingInputMarker(sanitized.Body)
-	if err != nil {
-		return nil, err
-	}
 	return &schemas.BifrostEmbeddingRequest{
 		Provider:       provider,
 		Model:          spec.UpstreamModel,
-		Input:          input,
+		Input:          embeddingInputMarker(),
 		Fallbacks:      nil,
 		RawRequestBody: bytes.Clone(sanitized.Body),
 	}, nil
@@ -66,53 +62,17 @@ func newEmbeddingProbeRequest(
 	return &schemas.BifrostEmbeddingRequest{
 		Provider:       provider,
 		Model:          model,
-		Input:          &schemas.EmbeddingInput{Text: &input},
+		Input:          embeddingInputMarker(),
 		RawRequestBody: body,
 	}
 }
 
-// embeddingInputMarker preserves only the validated input shape needed by
-// Bifrost's typed preflight. The selected provider receives RawRequestBody, so
-// GPT-Load does not impose Go integer bounds on token IDs or rebuild the wire.
-func embeddingInputMarker(body []byte) (*schemas.EmbeddingInput, error) {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(body, &object); err != nil {
-		return nil, fmt.Errorf("decode Embeddings request")
-	}
-	raw := bytes.TrimSpace(object["input"])
-	if len(raw) == 0 {
-		return nil, fmt.Errorf("Embeddings input is required")
-	}
-	if raw[0] == '"' {
-		var text string
-		if err := json.Unmarshal(raw, &text); err != nil {
-			return nil, fmt.Errorf("decode Embeddings text input")
-		}
-		return &schemas.EmbeddingInput{Text: &text}, nil
-	}
-	var values []json.RawMessage
-	if err := json.Unmarshal(raw, &values); err != nil || values == nil {
-		return nil, fmt.Errorf("decode Embeddings array input")
-	}
-	if len(values) == 0 {
-		return &schemas.EmbeddingInput{Texts: []string{}}, nil
-	}
-	first := bytes.TrimSpace(values[0])
-	if len(first) == 0 {
-		return nil, fmt.Errorf("decode Embeddings array input")
-	}
-	switch first[0] {
-	case '"':
-		var texts []string
-		if err := json.Unmarshal(raw, &texts); err != nil {
-			return nil, fmt.Errorf("decode Embeddings text array")
-		}
-		return &schemas.EmbeddingInput{Texts: texts}, nil
-	case '[':
-		return &schemas.EmbeddingInput{Embeddings: [][]int{}}, nil
-	default:
-		return &schemas.EmbeddingInput{Embedding: []int{}}, nil
-	}
+// 请求已由原生方言校验；此非空占位仅供 SDK 1.12 的 typed preflight 使用。
+// Provider 始终发送 RawRequestBody，保持空输入、token 整数及原始 JSON 不变。
+func embeddingInputMarker() []schemas.EmbeddingInputItem {
+	return []schemas.EmbeddingInputItem{{Content: schemas.EmbeddingContent{
+		{Type: schemas.EmbeddingContentPartTypeTokens, Tokens: []int{0}},
+	}}}
 }
 
 func embeddingTypedTarget(

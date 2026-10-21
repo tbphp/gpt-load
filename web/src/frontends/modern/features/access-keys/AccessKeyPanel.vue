@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { protocolLabel } from '@modern/i18n/protocols'
 import { Eye, EyeOff, RefreshCw, Trash2 } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -59,6 +60,8 @@ import {
   type AccessDraft,
 } from './access-key-draft'
 
+const isMobile = useMobileLayout()
+const mobileTab = ref('basic')
 const props = defineProps<{
   mode: 'create' | 'detail' | 'copy'
   id?: number
@@ -273,7 +276,13 @@ async function requestSave(): Promise<void> {
   attempted.value = true
   if (Object.keys(errors.value).length) {
     await nextTick()
-    form.value?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+    const invalid = form.value?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    if (isMobile.value) {
+      mobileTab.value =
+        invalid?.closest<HTMLElement>('[data-mobile-section]')?.dataset.mobileSection ?? 'basic'
+      await nextTick()
+    }
+    invalid?.focus()
     return
   }
   const input = inputFor(draft.value)
@@ -440,8 +449,26 @@ onScopeDispose(() => {
         ><AppButton @click="query.refetch()">{{ t('ui.retry') }}</AppButton></AppCollectionState
       >
       <form v-else ref="form" class="modern-access-editor" novalidate @submit.prevent="requestSave">
+        <AppSegmentedControl
+          v-if="isMobile"
+          v-model="mobileTab"
+          class="modern-access-editor-tabs"
+          :label="t('accessKeys.edit')"
+          :options="[
+            { value: 'basic', label: t('accessKeys.basic') },
+            { value: 'scope', label: t('accessKeys.scope') },
+            { value: 'quota', label: t('accessKeys.limits') },
+            ...(usageRow ? [{ value: 'usage', label: t('accessKeys.usage') }] : []),
+          ]"
+        />
         <div class="modern-access-editor-body">
-          <AppFormSection v-if="usageRow" :title="t('accessKeys.usage')" compact>
+          <AppFormSection
+            v-if="usageRow"
+            v-show="!isMobile || mobileTab === 'usage'"
+            data-mobile-section="usage"
+            :title="t('accessKeys.usage')"
+            compact
+          >
             <template #actions
               ><AppBadge :tone="accessState(usageRow).tone" size="xs" dot>{{
                 t('accessKeys.' + accessState(usageRow).key)
@@ -483,8 +510,17 @@ onScopeDispose(() => {
               {{ t('accessKeys.lastUsed') }} · {{ accessTime(usageRow.last_request_at_ms, locale) }}
             </p>
           </AppFormSection>
-          <RPMTrend v-if="mode === 'detail' && base" :scope="{ kind: 'access_key', id: base.id }" />
-          <AppFormSection :title="t('accessKeys.basic')" compact>
+          <RPMTrend
+            v-if="mode === 'detail' && base"
+            v-show="!isMobile || mobileTab === 'usage'"
+            :scope="{ kind: 'access_key', id: base.id }"
+          />
+          <AppFormSection
+            v-show="!isMobile || mobileTab === 'basic'"
+            data-mobile-section="basic"
+            :title="t('accessKeys.basic')"
+            compact
+          >
             <template #actions
               ><AppSwitch
                 :model-value="draft.enabled"
@@ -571,6 +607,7 @@ onScopeDispose(() => {
             <AppDateTimePicker
               v-if="!draft.never"
               v-model="draft.expires"
+              :mobile="isMobile"
               :label="t('accessKeys.expires')"
               label-hidden
               :shortcuts="expiryShortcuts"
@@ -595,6 +632,8 @@ onScopeDispose(() => {
             </p>
           </AppFormSection>
           <AppFormSection
+            v-show="!isMobile || mobileTab === 'scope'"
+            data-mobile-section="scope"
             :title="t('accessKeys.scope')"
             :hint="
               [
@@ -693,14 +732,21 @@ onScopeDispose(() => {
             <p v-if="modelMismatch" class="modern-access-note">{{ t('accessKeys.mismatch') }}</p>
           </AppFormSection>
           <AccessKeyQuotaEditor
+            v-show="!isMobile || mobileTab === 'quota'"
             v-model="draft.rules"
+            data-mobile-section="quota"
             :runtime="base?.cost_limit_status"
             :disabled="pending"
             :reset-disabled="dirty"
             :error="fieldError('rules')"
             @reset="openReset"
           />
-          <AppFormSection :title="t('accessKeys.policy')" compact>
+          <AppFormSection
+            v-show="!isMobile || mobileTab === 'scope'"
+            data-mobile-section="scope"
+            :title="t('accessKeys.policy')"
+            compact
+          >
             <AppTextField
               v-model="draft.concurrency"
               :label="t('concurrency.label')"
@@ -829,6 +875,14 @@ onScopeDispose(() => {
   />
 </template>
 <style scoped>
+.modern-access-editor-tabs {
+  width: 100%;
+  border-radius: 0;
+  flex: none;
+  padding: var(--modern-space-2) var(--modern-space-4);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+
 .modern-access-editor {
   display: flex;
   flex-direction: column;

@@ -98,6 +98,7 @@ func TestPassthroughHTTPErrorProducesNeutralFailureHints(t *testing.T) {
 func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 	tests := []struct {
 		name       string
+		eventType  string
 		errorType  string
 		code       string
 		wantHint   execution.FailureHint
@@ -106,6 +107,7 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 	}{
 		{
 			name:       "request rejected",
+			eventType:  "response.failed",
 			errorType:  "invalid_request_error",
 			code:       "context_length_exceeded",
 			wantHint:   execution.FailureHintRequestRejected,
@@ -114,6 +116,7 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 		},
 		{
 			name:       "server overloaded",
+			eventType:  "error",
 			errorType:  "server_error",
 			code:       "server_is_overloaded",
 			wantHint:   execution.FailureHintHostError,
@@ -124,9 +127,12 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := streamErrorResult(
-				&schemas.BifrostError{Error: &schemas.ErrorField{
-					Type: schemas.Ptr(test.errorType), Code: schemas.Ptr(test.code), Message: "safe provider error",
-				}},
+				&schemas.BifrostError{
+					Type: schemas.Ptr(test.eventType),
+					Error: &schemas.ErrorField{
+						Type: schemas.Ptr(test.errorType), Code: schemas.Ptr(test.code), Message: "safe provider error",
+					},
+				},
 				schemas.NewBifrostContext(context.Background(), schemas.NoDeadline),
 				nil,
 				true,
@@ -137,6 +143,7 @@ func TestSDKInBandResponseErrorsProduceNeutralFailureHints(t *testing.T) {
 			)
 			if result.DispatchState != execution.DispatchMaybeSent || !result.ResponseStarted ||
 				result.StatusCode != http.StatusOK || result.Error == nil ||
+				result.Error.Kind != execution.ErrorKindProvider || result.Error.StatusCode != 0 ||
 				result.Error.Type != test.errorType || result.Error.Code != test.code ||
 				result.Error.Hint != test.wantHint || result.Error.OriginHint != test.wantOrigin ||
 				result.Error.ScopeHint != test.wantScope {
@@ -252,29 +259,41 @@ func TestSDKTransportErrorAfterStreamStartIsAlwaysMaybeSent(t *testing.T) {
 func TestConvertedSDKPreflightFailureIsAGroupScopedConversionFailure(t *testing.T) {
 	t.Parallel()
 
-	errorType := "invalid_request_error"
-	bifrostError := &schemas.BifrostError{
-		IsBifrostError: true,
-		Error: &schemas.ErrorField{
-			Type:    &errorType,
-			Message: "cannot marshal target request",
-		},
-	}
-	context := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
-	unary := convertedUnaryErrorResult(bifrostError, context, nil)
-	if unary.DispatchState != execution.DispatchNotSent || unary.ResponseStarted || unary.Error == nil ||
-		unary.Error.Kind != execution.ErrorKindConversionUnsupported ||
-		unary.Error.Code != execution.ErrorCodeTargetSerializationFailed ||
-		unary.Error.OriginHint != execution.ErrorOriginInternal ||
-		unary.Error.ScopeHint != execution.ErrorScopeGroup {
-		t.Fatalf("converted unary result = %+v", unary)
-	}
-
-	stream := convertedStreamErrorResult(bifrostError, context, nil, false, 0, nil, "", nil)
-	if stream.DispatchState != execution.DispatchNotSent || stream.ResponseStarted || stream.Error == nil ||
-		stream.Error.Kind != execution.ErrorKindConversionUnsupported ||
-		stream.Error.Code != execution.ErrorCodeTargetSerializationFailed {
-		t.Fatalf("converted stream result = %+v", stream)
+	for _, billed := range []bool{false, true} {
+		name := "before upstream work"
+		wantDispatch := execution.DispatchNotSent
+		if billed {
+			name = "after billed upstream work"
+			wantDispatch = execution.DispatchMaybeSent
+		}
+		t.Run(name, func(t *testing.T) {
+			bifrostError := &schemas.BifrostError{
+				IsBifrostError: true,
+				Error: &schemas.ErrorField{
+					Type:    schemas.Ptr("invalid_request_error"),
+					Message: "cannot marshal target request",
+				},
+			}
+			if billed {
+				bifrostError.ExtraFields.BilledUsage = &schemas.BifrostLLMUsage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12}
+			}
+			context := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
+			unary := convertedUnaryErrorResult(bifrostError, context, nil)
+			stream := convertedStreamErrorResult(bifrostError, context, nil, false, 0, nil, "", nil)
+			if unary.DispatchState != wantDispatch || stream.DispatchState != wantDispatch ||
+				unary.ResponseStarted || stream.ResponseStarted {
+				t.Fatalf("converted results: unary=%+v stream=%+v", unary, stream)
+			}
+			for _, evidence := range []*execution.ErrorEvidence{unary.Error, stream.Error} {
+				if evidence == nil || evidence.Kind != execution.ErrorKindConversionUnsupported ||
+					evidence.Code != execution.ErrorCodeTargetSerializationFailed ||
+					evidence.OriginHint != execution.ErrorOriginInternal ||
+					evidence.ScopeHint != execution.ErrorScopeGroup ||
+					evidence.Summary != "target request serialization failed" {
+					t.Errorf("conversion error = %+v", evidence)
+				}
+			}
+		})
 	}
 }
 

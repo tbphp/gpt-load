@@ -50,10 +50,6 @@ Thanks to Modelflare for sponsoring this project! Modelflare: Full strength, sta
 <td><strong>PackyCode</strong><br>Access leading AI models through PackyCode with one API endpoint and one API key. Enjoy fast, reliable access with automatic failover and dedicated high-speed routes for Codex and Claude Code. Get started with $1 in free credits, a discount on your first top-up, and savings of up to 80% on eligible routes. Pay in RMB with no currency conversion markups or extra top-up fees. <a href="https://www.packyapi.ai/register?aff=ahiS" target="_blank" rel="sponsored noopener noreferrer">Sign up through the link and start building today.</a></td>
 </tr>
 <tr>
-<td width="180"><a href="https://sidrune.ai/register?source=github&amp;campaign=gptload&amp;promo=gptload" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/sidrune-ai.png" alt="Sidrune AI" width="150"></a></td>
-<td><strong>One entry point to connect and manage the world's leading AI models</strong><br>Sidrune AI serves individual developers, technical teams, and enterprises with a unified API for connecting to and managing leading AI models worldwide. Dynamic multi-route scheduling improves availability, while model performance, response times, and costs remain transparent and easy to review. Depending on the model and route, API calls can cost 40%–98% less than official or benchmark prices. Visit and sign up now to receive $3 in API credits. (<a href="https://sidrune.ai/register?source=github&amp;campaign=gptload&amp;promo=gptload" target="_blank" rel="sponsored noopener noreferrer">Dedicated link</a>)</td>
-</tr>
-<tr>
 <td width="180"><a href="https://www.axisnow.io/zh"><img src="./screenshot/axisnow.jpg" alt="AxisNow" width="150"></a></td>
 <td>Protect and accelerate websites and APIs, <strong>serving users in mainland China</strong> and around the world, and extend acceleration and security capabilities to native/mobile apps through a client SDK — <strong>self-built private-deployment CDN | subscription-based high-protection CDN | an independently controllable, flexibly composable CDN network.</strong></td>
 </tr>

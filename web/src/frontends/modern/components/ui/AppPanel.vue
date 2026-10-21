@@ -2,17 +2,28 @@
 import { useId } from 'vue'
 import AppOverflowText from './AppOverflowText.vue'
 
-defineProps<{ title: string; description?: string; compact?: boolean; flush?: boolean }>()
+defineProps<{
+  title: string
+  description?: string
+  compact?: boolean
+  flush?: boolean
+  plain?: boolean
+}>()
 const titleId = useId()
 </script>
 
 <template>
   <section
     class="modern-panel"
-    :class="{ 'modern-panel--compact': compact, 'modern-panel--flush': flush }"
-    :aria-labelledby="titleId"
+    :class="{
+      'modern-panel--compact': compact,
+      'modern-panel--flush': flush,
+      'modern-panel--plain': plain,
+    }"
+    :aria-labelledby="plain ? undefined : titleId"
+    :aria-label="plain ? title : undefined"
   >
-    <header class="modern-panel-header">
+    <header v-if="!plain" class="modern-panel-header">
       <div>
         <h2 :id="titleId"><AppOverflowText :text="title" /></h2>
         <p v-if="description">{{ description }}</p>
@@ -29,6 +40,11 @@ const titleId = useId()
   border: var(--modern-line-width) solid var(--modern-border);
   border-radius: var(--modern-radius-panel);
   background: var(--modern-surface);
+}
+.modern-panel--plain {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .modern-panel-header {
   display: flex;
@@ -77,5 +93,13 @@ const titleId = useId()
 }
 .modern-panel--flush .modern-panel-body {
   padding: 0;
+}
+@media (max-width: 760px) {
+  .modern-panel-header > div:first-child {
+    flex-basis: auto;
+  }
+  .modern-panel-actions {
+    flex-shrink: 1;
+  }
 }
 </style>

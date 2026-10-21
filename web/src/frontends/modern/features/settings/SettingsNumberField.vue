@@ -37,6 +37,7 @@ const { t } = useI18n()
       :id="'settings-' + setting"
       v-model="model"
       :label="t('settingsForm.fields.' + setting)"
+      :aria-label="t('settingsForm.fields.' + setting)"
       label-hidden
       inputmode="numeric"
       autocomplete="off"

@@ -14,7 +14,7 @@ func TestSubscriptionTargetsKeepOfficialDefaultsOutOfConfiguration(t *testing.T)
 	}{
 		{Codex, []string{"https://chatgpt.com"}},
 		{Claude, []string{"https://api.anthropic.com"}},
-		{Antigravity, []string{"https://daily-cloudcode-pa.googleapis.com", "https://cloudcode-pa.googleapis.com"}},
+		{Antigravity, []string{"https://daily-cloudcode-pa.googleapis.com"}},
 		{Grok, []string{"https://cli-chat-proxy.grok.com"}},
 	} {
 		t.Run(string(test.id), func(t *testing.T) {

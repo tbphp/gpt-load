@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { useRoute, useRouter } from 'vue-router'
+import { ArrowLeft, ChevronRight } from '@lucide/vue'
 import ProxySelect from '../proxies/ProxySelect.vue'
 import { codexLiveModes } from '@shared/codex-live'
 import {
@@ -55,6 +58,9 @@ import type { HeaderSetting } from './settings-draft'
 import { useSettingsEditor } from './use-settings-editor'
 
 const { t, n } = useI18n()
+const isMobile = useMobileLayout()
+const route = useRoute()
+const router = useRouter()
 const liveOptions = computed(() =>
   codexLiveModes.map((value) => ({ value, label: t('settingsForm.liveModes.' + value) })),
 )
@@ -177,6 +183,14 @@ const state = useURLState(
     ...(value.section !== 'routing' ? { section: value.section } : {}),
   }),
 )
+const mobileSection = computed(() =>
+  typeof route.query.section === 'string' ? state.value.section : undefined,
+)
+function backToCategories(): void {
+  const query = { ...route.query }
+  delete query.section
+  void router.replace({ query })
+}
 const active = ref<SectionID>(state.value.section)
 const scroller = ref<HTMLElement>()
 const guard = ref<InstanceType<typeof AppDraftGuard>>()
@@ -283,6 +297,7 @@ function clearSearch(): void {
   state.value = { ...state.value, q: '' }
 }
 function scrollToSection(id: SectionID): void {
+  if (isMobile.value) return
   const body = scroller.value
   const target = body?.querySelector<HTMLElement>('#settings-section-' + id)
   if (!body || !target) return
@@ -297,6 +312,10 @@ function scrollToSection(id: SectionID): void {
   })
 }
 function selectSection(id: SectionID): void {
+  if (isMobile.value) {
+    void router.replace({ query: { ...route.query, section: id } })
+    return
+  }
   if (state.value.section === id) {
     scrollToSection(id)
     return
@@ -304,6 +323,7 @@ function selectSection(id: SectionID): void {
   state.value = { ...state.value, section: id }
 }
 function updateActive(): void {
+  if (isMobile.value) return
   if (scrollFrame !== undefined) return
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = undefined
@@ -352,11 +372,34 @@ watch(
   },
   { immediate: true },
 )
+async function revealMobileError(section: SectionID): Promise<void> {
+  await router.replace({ query: { ...route.query, q: undefined, section } })
+  await nextTick()
+  const input = scroller.value?.querySelector<HTMLElement>(
+    `#settings-section-${section} [aria-invalid="true"]`,
+  )
+  input?.scrollIntoView({ block: 'center' })
+  input?.focus({ preventScroll: true })
+}
 async function submit(): Promise<void> {
-  if (saving.value || redactionBlocksSave.value) return
-  if (errorRulesEditor.value && !(await errorRulesEditor.value.prepareSave())) return
+  if (saving.value) return
+  if (redactionBlocksSave.value) {
+    if (isMobile.value) await revealMobileError('redaction')
+    return
+  }
+  if (errorRulesEditor.value && !(await errorRulesEditor.value.prepareSave())) {
+    if (isMobile.value) await revealMobileError('routing')
+    return
+  }
   const result = await save()
   if (result !== 'invalid') return
+  if (isMobile.value) {
+    const section = sectionIDs.find((id) =>
+      sectionFields[id].some((key) => key in fieldErrors.value),
+    )
+    await revealMobileError(section ?? mobileSection.value ?? 'routing')
+    return
+  }
   clearSearch()
   await nextTick()
   const input = scroller.value?.querySelector<HTMLElement>('[aria-invalid="true"]')
@@ -407,7 +450,12 @@ onScopeDispose(() => {
 
 <template>
   <div class="modern-settings-workspace">
-    <form class="modern-settings-search" role="search" @submit.prevent>
+    <form
+      v-if="!isMobile || !mobileSection"
+      class="modern-settings-search"
+      role="search"
+      @submit.prevent
+    >
       <AppTextField
         v-model="state.q"
         :label="t('settingsForm.search')"
@@ -435,19 +483,26 @@ onScopeDispose(() => {
       <AppButton v-if="query.isError.value" @click="refresh">{{ t('ui.retry') }}</AppButton>
     </AppCollectionState>
     <div v-else-if="draft" class="modern-settings-layout">
-      <nav class="modern-settings-navigation" :aria-label="t('settingsForm.categories')">
+      <nav
+        v-show="!isMobile || !mobileSection"
+        class="modern-settings-navigation"
+        :aria-label="t('settingsForm.categories')"
+      >
         <p class="modern-settings-nav-caption">{{ t('settingsForm.categories') }}</p>
         <div class="modern-settings-nav-items">
           <AppButton
             v-for="id in visibleSections"
             :key="id"
-            :variant="active === id ? 'brand' : 'ghost'"
+            :variant="!isMobile && active === id ? 'brand' : 'ghost'"
             :aria-current="active === id ? 'location' : undefined"
             :icon="sectionIcons[id]"
             class="modern-settings-nav-item"
             @click="selectSection(id)"
           >
-            <span class="modern-settings-nav-label">{{ t('settingsForm.sections.' + id) }}</span>
+            <span class="modern-settings-nav-label"
+              ><span>{{ t('settingsForm.sections.' + id) }}</span
+              ><small v-if="isMobile">{{ t('settingsForm.sectionHelp.' + id) }}</small></span
+            ><AppIcon v-if="isMobile" :icon="ChevronRight" size="sm" />
             <AppBadge
               v-if="sectionFields[id].some((key) => changed.includes(key))"
               size="xs"
@@ -458,6 +513,7 @@ onScopeDispose(() => {
         </div>
       </nav>
       <form
+        v-show="!isMobile || mobileSection || !visibleSections.length"
         id="modern-settings-form"
         ref="scroller"
         class="modern-settings-body"
@@ -465,6 +521,18 @@ onScopeDispose(() => {
         @submit.prevent="submit"
         @scroll.passive="updateActive"
       >
+        <AppButton
+          v-if="isMobile && mobileSection"
+          class="modern-settings-back"
+          variant="ghost"
+          :icon="ArrowLeft"
+          :aria-label="t('settingsForm.categories')"
+          @click="backToCategories"
+          ><span>{{ t('settingsForm.categories') }}</span
+          ><span class="modern-settings-back-current">{{
+            t('settingsForm.sections.' + mobileSection)
+          }}</span></AppButton
+        >
         <AppCollectionState
           v-if="!visibleSections.length"
           :icon="Search"
@@ -474,6 +542,7 @@ onScopeDispose(() => {
         </AppCollectionState>
         <AppPanel
           v-for="id in visibleSections"
+          v-show="!isMobile || mobileSection === id"
           :id="'settings-section-' + id"
           :key="id"
           :title="t('settingsForm.sections.' + id)"
@@ -957,7 +1026,7 @@ onScopeDispose(() => {
           variant="primary"
           :icon="Save"
           :loading="saving"
-          :disabled="redactionBlocksSave"
+          :disabled="redactionBlocksSave && !isMobile"
           >{{ t('settingsForm.save') }}</AppButton
         >
       </div>
@@ -1010,6 +1079,9 @@ onScopeDispose(() => {
 .modern-settings-nav-items {
   display: grid;
   gap: var(--modern-space-1);
+}
+.modern-settings-mobile-nav {
+  display: none;
 }
 .modern-settings-nav-item {
   width: 100%;
@@ -1115,6 +1187,9 @@ onScopeDispose(() => {
   }
 }
 @media (max-width: 760px) {
+  .modern-settings-search {
+    padding-block: var(--modern-space-3) var(--modern-space-2);
+  }
   .modern-settings-layout {
     display: flex;
     flex-direction: column;
@@ -1128,8 +1203,10 @@ onScopeDispose(() => {
     display: none;
   }
   .modern-settings-nav-items {
-    display: flex;
-    width: max-content;
+    display: none;
+  }
+  .modern-settings-mobile-nav {
+    display: grid;
   }
   .modern-settings-nav-item {
     width: auto;
@@ -1140,6 +1217,60 @@ onScopeDispose(() => {
   }
   .modern-settings-body {
     flex: 1;
+  }
+}
+@media (max-width: 760px) {
+  .modern-settings-navigation {
+    padding: 0;
+    border: 0;
+  }
+  .modern-settings-nav-items {
+    display: grid;
+  }
+  .modern-settings-nav-caption {
+    display: none;
+  }
+  .modern-settings-nav-item {
+    width: 100%;
+    height: auto;
+    min-height: 76px;
+    border-radius: 0;
+    border-bottom: var(--modern-line-width) solid var(--modern-border);
+    padding: var(--modern-space-3) 0;
+    gap: var(--modern-space-3);
+  }
+  .modern-settings-nav-label {
+    display: grid;
+    gap: var(--modern-space-1);
+    text-align: left;
+    white-space: normal;
+  }
+  .modern-settings-nav-label small {
+    font-size: var(--modern-font-size-small);
+    font-weight: var(--modern-weight-regular);
+    color: var(--modern-muted);
+  }
+  .modern-settings-back {
+    position: sticky;
+    top: 0;
+    z-index: var(--modern-layer-header);
+    flex: none;
+    width: 100%;
+    justify-content: flex-start;
+    background: var(--modern-surface);
+    border-bottom: var(--modern-line-width) solid var(--modern-border);
+    border-radius: 0;
+  }
+  .modern-settings-back-current {
+    margin-inline-start: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--modern-font-size-small);
+    color: var(--modern-muted);
+  }
+  .modern-settings-body {
+    padding-top: var(--modern-space-3);
   }
 }
 </style>

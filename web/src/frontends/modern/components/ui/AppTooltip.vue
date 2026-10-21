@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
   useForwardExpose,
 } from 'reka-ui'
-import { computed, getCurrentInstance, ref, watch } from 'vue'
+import { computed, getCurrentInstance, nextTick, ref, watch } from 'vue'
 import { overlaySideOffset, tooltipDelay } from './overlay'
 
 defineOptions({ inheritAttrs: false })
@@ -15,8 +15,19 @@ const props = defineProps<{
   label?: string
   side?: 'top' | 'right' | 'bottom' | 'left'
   disabled?: boolean
+  touchable?: boolean
 }>()
 const open = ref(false)
+let touchInteraction = false
+function pointerStart(event: PointerEvent): void {
+  touchInteraction = event.pointerType === 'touch'
+}
+async function showTouchHint(): Promise<void> {
+  if (!props.touchable || !touchInteraction || props.disabled || !props.label) return
+  // 等 Reka 完成本次点击的关闭处理，再响应触屏的显式查看操作。
+  await nextTick()
+  open.value = true
+}
 // 已启用过提示的控件保留组件树，避免菜单打开时禁用提示导致焦点节点被替换。
 const activated = ref(Boolean(props.label && !props.disabled))
 const { forwardRef } = useForwardExpose()
@@ -58,7 +69,12 @@ watch(
     :delay-duration="tooltipDelay"
     ignore-non-keyboard-focus
   >
-    <TooltipTrigger :ref="forwardRef" v-bind="{ ...triggerScopeAttrs, ...$attrs }" as-child
+    <TooltipTrigger
+      :ref="forwardRef"
+      v-bind="{ ...triggerScopeAttrs, ...$attrs }"
+      as-child
+      @pointerdown.capture="pointerStart"
+      @click="showTouchHint"
       ><slot
     /></TooltipTrigger>
     <TooltipPortal v-if="open && label && !disabled">

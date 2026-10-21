@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { numberFormatter, dateFormatter } from '@modern/components/ui/intl-formatters'
-import { ChevronDown, ChevronUp, KeyRound, Plus, UserRound } from '@lucide/vue'
+import { ChevronDown, ChevronUp, ChevronRight, KeyRound, Plus, UserRound } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, useId } from 'vue'
 import { useURLState } from '@modern/app/url-state'
@@ -25,6 +25,7 @@ import type { SemanticTone } from '@modern/components/ui/types'
 import { useApiClient } from '@shared/http/client-context'
 
 const props = defineProps<{
+  mobile?: boolean
   group: GroupRow
   expanded: boolean
   pending?: 'toggle' | 'priority' | 'weight'
@@ -167,7 +168,33 @@ const lastActive = computed(() =>
 </script>
 
 <template>
-  <article class="modern-group-entry" :aria-labelledby="`${id}-name`">
+  <RouterLink
+    v-if="mobile"
+    class="modern-group-mobile"
+    :to="{ name: 'modern-group-detail', params: { id: group.id }, query: { from: route.fullPath } }"
+  >
+    <AppChannelIcon :icon="group.channelIcon" :mark="group.channelMark" :name="group.channelName" />
+    <div class="modern-group-mobile-content">
+      <div class="modern-group-mobile-title">
+        <strong>{{ group.name }}</strong
+        ><AppIcon :icon="ChevronRight" size="sm" />
+      </div>
+      <div class="modern-group-mobile-meta">
+        <AppBadge :tone="tone" variant="plain" size="xs" dot>{{
+          t(`groups.row.state.${state}`)
+        }}</AppBadge
+        ><span>{{ group.channelName }}</span>
+      </div>
+      <div class="modern-group-mobile-facts">
+        <span
+          >{{ n(group.credentials.available) }}/{{ n(group.credentials.total) }}
+          {{ t('groups.board.credentials') }}</span
+        ><span>{{ n(group.modelCount) }} {{ t('groupDetail.models') }}</span
+        ><span>{{ t('groups.row.successRate', { value: successRate }) }}</span>
+      </div>
+    </div>
+  </RouterLink>
+  <article v-show="!mobile" class="modern-group-entry" :aria-labelledby="`${id}-name`">
     <div class="modern-group-row">
       <div class="modern-group-identity">
         <AppChannelIcon
@@ -302,39 +329,45 @@ const lastActive = computed(() =>
         </span>
       </div>
       <div class="modern-group-actions">
-        <AppSwitch
-          :model-value="enabledOverride ?? group.enabled"
-          :label="t('groups.toggle', { name: group.name })"
-          :loading="pending === 'toggle'"
-          :disabled="Boolean(pending)"
-          @update:model-value="emit('toggle', $event)"
-        />
-        <AppInlineNumber
-          :model-value="group.priority"
-          :label="t('groups.edit.priority')"
-          :min="-2147483648"
-          :max="2147483647"
-          :pending="pending === 'priority'"
-          :disabled="Boolean(pending)"
-          :error="priorityError"
-          @submit="emit('priority', $event)"
-          @editing="emit('priorityEditing', $event)"
-          @dirty="emit('priorityDirty', $event)"
-          @clear-error="emit('clearPriorityError')"
-        />
-        <AppInlineNumber
-          :model-value="group.weight"
-          :label="t('groups.edit.weight')"
-          :min="1"
-          :max="100"
-          :pending="pending === 'weight'"
-          :disabled="Boolean(pending)"
-          :error="weightError"
-          @submit="emit('weight', $event)"
-          @editing="emit('weightEditing', $event)"
-          @dirty="emit('weightDirty', $event)"
-          @clear-error="emit('clearWeightError')"
-        />
+        <div class="modern-group-setting" :data-label="t('groups.row.enabled')">
+          <AppSwitch
+            :model-value="enabledOverride ?? group.enabled"
+            :label="t('groups.toggle', { name: group.name })"
+            :loading="pending === 'toggle'"
+            :disabled="Boolean(pending)"
+            @update:model-value="emit('toggle', $event)"
+          />
+        </div>
+        <div class="modern-group-setting" :data-label="t('groups.edit.priority')">
+          <AppInlineNumber
+            :model-value="group.priority"
+            :label="t('groups.edit.priority')"
+            :min="-2147483648"
+            :max="2147483647"
+            :pending="pending === 'priority'"
+            :disabled="Boolean(pending)"
+            :error="priorityError"
+            @submit="emit('priority', $event)"
+            @editing="emit('priorityEditing', $event)"
+            @dirty="emit('priorityDirty', $event)"
+            @clear-error="emit('clearPriorityError')"
+          />
+        </div>
+        <div class="modern-group-setting" :data-label="t('groups.edit.weight')">
+          <AppInlineNumber
+            :model-value="group.weight"
+            :label="t('groups.edit.weight')"
+            :min="1"
+            :max="100"
+            :pending="pending === 'weight'"
+            :disabled="Boolean(pending)"
+            :error="weightError"
+            @submit="emit('weight', $event)"
+            @editing="emit('weightEditing', $event)"
+            @dirty="emit('weightDirty', $event)"
+            @clear-error="emit('clearWeightError')"
+          />
+        </div>
       </div>
     </div>
     <div v-if="expanded" :id="`${id}-models`" class="modern-group-expanded">
@@ -369,6 +402,45 @@ const lastActive = computed(() =>
 </template>
 
 <style scoped>
+.modern-group-mobile {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--modern-space-3);
+  padding: var(--modern-space-4) 0;
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-group-mobile-content {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: var(--modern-space-2);
+}
+.modern-group-mobile-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+}
+.modern-group-mobile-title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-group-mobile-meta,
+.modern-group-mobile-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-2) var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-group-mobile-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .modern-group-entry {
   min-width: var(--modern-group-list-width);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
@@ -467,6 +539,9 @@ const lastActive = computed(() =>
   gap: var(--modern-space-2);
   text-align: left;
 }
+.modern-group-setting {
+  display: contents;
+}
 .modern-group-bar-line {
   display: flex;
   min-height: var(--modern-badge-xs);
@@ -523,6 +598,17 @@ const lastActive = computed(() =>
   .modern-group-identity {
     grid-column: 1 / -1;
   }
+  .modern-group-name-line {
+    flex-wrap: wrap;
+    row-gap: var(--modern-space-1);
+  }
+  .modern-group-name-line h2 {
+    flex-basis: 100%;
+  }
+  .modern-group-connection {
+    flex-wrap: wrap;
+    row-gap: var(--modern-space-1);
+  }
   .modern-group-mobile-label {
     display: inline;
   }
@@ -533,6 +619,22 @@ const lastActive = computed(() =>
     grid-column: 1 / -1;
     width: 100%;
     justify-content: start;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: var(--modern-line-width) solid var(--modern-border);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-group-setting {
+    display: grid;
+    gap: var(--modern-space-1);
+    min-width: 0;
+  }
+  .modern-group-setting::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
+  }
+  .modern-group-metric {
+    grid-template-rows: auto minmax(var(--modern-control-xs), auto) auto;
   }
   .modern-group-details > :first-child {
     margin-right: 0;

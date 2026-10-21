@@ -55,3 +55,33 @@
   color: var(--modern-danger);
   font-size: var(--modern-font-size-small);
 }
+@media (max-width: 760px) {
+  .modern-date-popover {
+    max-height: min(
+      calc(100dvh - var(--modern-space-8)),
+      var(--reka-popper-available-height, 100dvh)
+    );
+  }
+}
+
+.modern-date-portal,
+.modern-date-body {
+  display: contents;
+}
+.modern-date-sheet .modern-date-body {
+  display: block;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--modern-space-4);
+}
+.modern-date-sheet .modern-date-footer {
+  flex: none;
+  margin: 0;
+  padding: var(--modern-space-3) var(--modern-space-4);
+}
+.modern-date-sheet .modern-date-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: var(--modern-space-4);
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { isValidGroupPriority } from '@shared/group-priority'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 const client = useApiClient()
 const cache = useQueryClient()
 const { t } = useI18n()
+const isMobile = useMobileLayout()
 const saved = ref<GroupBasics>()
 const name = ref('')
 const priority = ref('0')
@@ -139,6 +141,7 @@ async function save(): Promise<void> {
           ? weightInput
           : priceInput
     field.value?.focus()
+    if (isMobile.value) field.value?.$el?.scrollIntoView({ block: 'center' })
     return
   }
   const patch: GroupBasicsPatch = {}
@@ -330,9 +333,15 @@ useMessageSource(() =>
   font-size: var(--modern-font-size-small);
 }
 
-@container modern-group-workspace (max-width: 980px) {
+@media (max-width: 760px) {
   .modern-group-settings-fields {
     overflow: visible;
+  }
+  .modern-group-settings-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: var(--modern-layer-header);
+    background: var(--modern-surface);
   }
 }
 </style>

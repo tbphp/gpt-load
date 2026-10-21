@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { RadioGroupItem, RadioGroupRoot } from 'reka-ui'
+import { nextTick, ref, watch } from 'vue'
 import AppOverflowText from './AppOverflowText.vue'
 import type { ControlSize, SelectOption } from './types'
 
 type SegmentedSize = 'xxs' | ControlSize
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     label: string
     modelValue: string
@@ -17,6 +18,21 @@ withDefaults(
   { appearance: 'filter', size: 'md' },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const root = ref<{ $el: HTMLElement }>()
+watch(
+  () => props.modelValue,
+  async () => {
+    await nextTick()
+    const element = root.value?.$el
+    const selected = element?.querySelector<HTMLElement>('[data-state="checked"]')
+    if (!element || !selected || element.scrollWidth <= element.clientWidth) return
+    const bounds = element.getBoundingClientRect()
+    const item = selected.getBoundingClientRect()
+    if (item.left < bounds.left) element.scrollLeft += item.left - bounds.left
+    else if (item.right > bounds.right) element.scrollLeft += item.right - bounds.right
+  },
+  { immediate: true, flush: 'post' },
+)
 function select(value: unknown): void {
   if (typeof value === 'string') emit('update:modelValue', value)
 }
@@ -24,6 +40,7 @@ function select(value: unknown): void {
 
 <template>
   <RadioGroupRoot
+    ref="root"
     class="modern-segmented"
     :class="[`modern-segmented--${appearance}`, `modern-segmented--${size}`]"
     :aria-label="label"
@@ -151,6 +168,15 @@ function select(value: unknown): void {
   }
   .modern-segmented-option {
     min-height: var(--modern-touch-target);
+  }
+  .modern-segmented--filter {
+    flex-wrap: nowrap;
+    /* 贴边选项保留自己的圆角，避免滚动容器再次裁切边框。 */
+    border-radius: 0;
+    overflow-x: auto;
+  }
+  .modern-segmented--filter .modern-segmented-option {
+    flex: none;
   }
   .modern-segmented--field {
     --modern-segmented-size: var(--modern-touch-target);

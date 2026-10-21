@@ -214,5 +214,8 @@ function preventInactiveOrSelectionClick(event: MouseEvent): void {
   .modern-button {
     --modern-button-size: var(--modern-touch-target);
   }
+  .modern-button--icon {
+    min-height: var(--modern-touch-target);
+  }
 }
 </style>

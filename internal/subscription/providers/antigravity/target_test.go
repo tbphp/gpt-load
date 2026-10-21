@@ -39,7 +39,7 @@ func TestBusinessTargetPreservesNativeEndpoints(t *testing.T) {
 				{"observation", func(ctx context.Context, c subscriptionruntime.Credential, target subscriptionruntime.Target) error {
 					_, err := driver.Observe(ctx, c, target)
 					return err
-				}, []string{"https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist", "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"}},
+				}, []string{"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist", "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"}},
 				{"refresh official", func(ctx context.Context, c subscriptionruntime.Credential, _ subscriptionruntime.Target) error {
 					_, err := driver.Refresh(ctx, c)
 					return err
@@ -112,7 +112,7 @@ func TestCustomBusinessTargetKeepsImportedIdentityAndProjectPreparationOfficial(
 			status = http.StatusTeapot
 		case "https://www.googleapis.com/oauth2/v2/userinfo?alt=json":
 			payload = `{"id":"account-one","email":"owner@example.com","verified_email":true}`
-		case "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
+		case "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
 			payload = `{"allowedTiers":[{"id":"free-tier","isDefault":true}]}`
 		case "https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser":
 			payload = `{"done":true,"response":{"projectId":"project-one"}}`
@@ -133,7 +133,7 @@ func TestCustomBusinessTargetKeepsImportedIdentityAndProjectPreparationOfficial(
 	want := []string{
 		"https://relay.example/team-a/v1internal:fetchAvailableModels",
 		"https://www.googleapis.com/oauth2/v2/userinfo?alt=json",
-		"https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
 		"https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser",
 	}
 	if !reflect.DeepEqual(got, want) {

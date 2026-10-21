@@ -1827,7 +1827,7 @@ func transportReason(result UpstreamResult) reason {
 }
 
 func isConversionUnsupportedResult(result UpstreamResult) bool {
-	return result.DispatchState == execution.DispatchNotSent && result.ExecutionError != nil &&
+	return result.ExecutionError != nil &&
 		result.ExecutionError.Kind == execution.ErrorKindConversionUnsupported
 }
 

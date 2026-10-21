@@ -6,7 +6,7 @@ withDefaults(
   defineProps<{
     title: string
     description: string
-    placement?: 'dialog' | 'sidebar' | 'editor'
+    placement?: 'dialog' | 'sidebar' | 'editor' | 'bottom'
     size?: 'default' | 'wide' | 'sheet' | 'confirm'
   }>(),
   { placement: 'dialog', size: 'default' },
@@ -85,9 +85,45 @@ defineEmits<{ openAutoFocus: [event: Event] }>()
   background: var(--modern-surface);
   box-shadow: var(--modern-shadow-dialog);
 }
+.modern-dialog--bottom {
+  inset: auto 0 0;
+  max-height: calc(100dvh - max(var(--modern-space-6), env(safe-area-inset-top)));
+  border-radius: var(--modern-radius-dialog) var(--modern-radius-dialog) 0 0;
+  background: var(--modern-surface);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: var(--modern-shadow-dialog);
+}
 @media (max-width: 760px) {
   .modern-dialog--dialog {
-    --modern-dialog-top: 12dvh;
+    --modern-dialog-top: max(var(--modern-space-2), env(safe-area-inset-top));
+    width: calc(100% - var(--modern-space-4));
+    max-height: calc(
+      100dvh - var(--modern-dialog-top) - max(var(--modern-space-2), env(safe-area-inset-bottom))
+    );
+  }
+  .modern-dialog--dialog.modern-dialog--wide,
+  .modern-dialog--dialog.modern-dialog--sheet {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    transform: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .modern-dialog--confirm {
+    max-height: calc(100dvh - var(--modern-space-8));
+  }
+  .modern-dialog--editor {
+    width: 100%;
+    border-left: 0;
+  }
+  .modern-dialog--editor,
+  .modern-dialog--sidebar {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 </style>

@@ -1057,7 +1057,10 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			recorder.finishTiming()
 		}
 		if providerError {
-			observer.observeError(body, "Upstream WebSocket request failed.")
+			observer.observeError(body, summarizeErrorBody(
+				recorder.redactor, body, "Upstream WebSocket request failed.",
+				resolvedErrorSummarySecretValues(input.APIKey, input.Group.HeaderRules, input.CredentialSecrets...)...,
+			))
 			body = recorder.redactor.Bytes(body, input.CredentialSecrets...)
 			var fields map[string]json.RawMessage
 			if json.Unmarshal(body, &fields) != nil || fields == nil {

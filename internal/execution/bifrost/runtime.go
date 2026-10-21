@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -136,7 +137,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	bifrostCore, err := core.Init(ctx, schemas.BifrostConfig{
 		Account:         r.account,
-		LLMPlugins:      []schemas.LLMPlugin{anthropicUsageStreamHook{}},
+		LLMPlugins:      []schemas.LLMPlugin{anthropicUsageStreamHook{}, streamErrorStatusHook{}},
 		MCPPlugins:      []schemas.MCPPlugin{},
 		Logger:          r.logger,
 		InitialPoolSize: 64,
@@ -276,7 +277,7 @@ func cloneProviderConfig(source *schemas.ProviderConfig) *schemas.ProviderConfig
 		return nil
 	}
 	clone := *source
-	clone.NetworkConfig.ExtraHeaders = cloneStringMap(source.NetworkConfig.ExtraHeaders)
+	clone.NetworkConfig.ExtraHeaders = maps.Clone(source.NetworkConfig.ExtraHeaders)
 	clone.NetworkConfig.BetaHeaderOverrides = cloneBoolMap(source.NetworkConfig.BetaHeaderOverrides)
 	if source.ProxyConfig != nil {
 		proxy := *source.ProxyConfig

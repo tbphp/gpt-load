@@ -1292,6 +1292,10 @@ func TestProductionRuntimeManagerUsesNativeProviderListModelsPaths(t *testing.T)
 				if request.URL.Path != test.wantPath {
 					t.Errorf("path = %q, want %q", request.URL.Path, test.wantPath)
 				}
+				if test.channelID == channel.OpenRouter && request.URL.RawQuery == "output_modalities=decisions" {
+					_, _ = io.WriteString(writer, `{"object":"list","data":[{"id":"decision-only","architecture":{"output_modalities":["decisions"]}}]}`)
+					return
+				}
 				if request.URL.RawQuery != "cursor=%2F&limit=10" {
 					t.Errorf("query = %q", request.URL.RawQuery)
 				}
@@ -1316,11 +1320,12 @@ func TestProductionRuntimeManagerUsesNativeProviderListModelsPaths(t *testing.T)
 			}
 			wantCalls := int64(1)
 			if test.channelID == channel.OpenRouter {
-				wantCalls = 2
+				wantCalls = 3
 			}
 			wantEmbeddingModel := test.channelID == channel.OpenRouter
 			if calls.Load() != wantCalls || !bytes.Contains(result.Body, []byte(`"id":"model-one"`)) ||
-				bytes.Contains(result.Body, []byte(`"id":"embedding-only"`)) != wantEmbeddingModel {
+				bytes.Contains(result.Body, []byte(`"id":"embedding-only"`)) != wantEmbeddingModel ||
+				bytes.Contains(result.Body, []byte(`"id":"decision-only"`)) != (test.channelID == channel.OpenRouter) {
 				t.Fatalf("calls/body = %d/%s", calls.Load(), result.Body)
 			}
 		})

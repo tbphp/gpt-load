@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { SlidersHorizontal } from '@lucide/vue'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -25,6 +27,9 @@ import { resolveTimeRange, timeRangeQuery } from '@modern/app/time-range'
 import { channelSearchOption } from '@modern/components/channel-options'
 import {
   AppButton,
+  AppFilterSheet,
+  AppIconButton,
+  AppSelect,
   AppBadge,
   AppChannelIcon,
   AppCollectionState,
@@ -58,6 +63,33 @@ import UsageMetrics from './UsageMetrics.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
+const isMobile = useMobileLayout()
+const mobileFilters = ref(false)
+const mobileView = useURLState(
+  ['mobile_view', 'mobile_dimension'],
+  (query) => ({
+    section: ['sources', 'composition'].includes(String(query.mobile_view))
+      ? String(query.mobile_view)
+      : 'trend',
+    dimension: usageDimensions.find((value) => value === query.mobile_dimension) ?? 'model',
+  }),
+  (value) => ({
+    ...(value.section !== 'trend' ? { mobile_view: value.section } : {}),
+    ...(value.dimension !== 'model' ? { mobile_dimension: value.dimension } : {}),
+  }),
+)
+const mobileSection = computed({
+  get: () => mobileView.value.section,
+  set: (section) => {
+    mobileView.value = { ...mobileView.value, section }
+  },
+})
+const mobileDimension = computed({
+  get: () => mobileView.value.dimension,
+  set: (dimension: UsageDimension) => {
+    mobileView.value = { ...mobileView.value, dimension }
+  },
+})
 const client = useApiClient()
 const session = useAuthSession()
 const admin = computed(() => session.state.principalType === 'admin')
@@ -239,6 +271,11 @@ function applyDate(): void {
     state.value = { ...state.value, range }
   }
 }
+function resetMobileFilters(): void {
+  clearTimeout(modelTimer)
+  model.value = ''
+  state.value = { ...state.value, filters: {} }
+}
 function reset(key?: string): void {
   if (!key) {
     state.value = { ...state.value, filters: {}, range: { preset: '24h' } }
@@ -377,6 +414,7 @@ const bucketLabel = computed(() => {
       <AppDateTimeRangePicker
         v-model:from="from"
         v-model:to="to"
+        :mobile="isMobile"
         :preset="preset"
         :label="t('logs.timeRange')"
         size="md"
@@ -385,88 +423,105 @@ const bucketLabel = computed(() => {
         @update:preset="preset = $event"
         @apply="applyDate"
       />
-      <AppSearchSelect
-        v-if="admin"
-        :model-value="state.filters.group_id ?? ''"
-        :options="groupOptions"
-        :label="t('usage.filters.group_id')"
-        label-hidden
-        :loading="groups.isFetching.value"
-        class="modern-usage-choice"
-        @update:model-value="setFilter('group_id', $event)"
+      <AppIconButton
+        v-if="isMobile"
+        :icon="SlidersHorizontal"
+        :variant="usageFilterKeys.some((key) => state.filters[key]) ? 'brand' : 'ghost'"
+        :label="t('ui.mobile.filters')"
+        @click="mobileFilters = true"
+      />
+      <AppFilterSheet
+        v-model:open="mobileFilters"
+        :mobile="isMobile"
+        :title="t('ui.mobile.filters')"
+        :active-count="usageFilterKeys.filter((key) => state.filters[key]).length"
+        @reset="resetMobileFilters"
       >
-        <template #option="{ option }">
-          <AppChannelIcon
-            v-if="groupMap.get(option.value)"
-            :icon="groupMap.get(option.value)!.channelIcon"
-            :name="groupMap.get(option.value)!.channelName"
-            :mark="groupMap.get(option.value)!.channelMark"
-            size="sm"
-          />
-          <span>{{ option.label }}</span>
-        </template>
-      </AppSearchSelect>
-      <AppSearchSelect
-        v-if="admin"
-        :key="state.filters.group_id || 'all'"
-        :model-value="state.filters.credential_id ?? ''"
-        :options="[{ value: '', label: t('usage.allCredentials') }]"
-        :load-options="loadCredentials"
-        :selected-option="
-          state.filters.credential_id
-            ? {
-                value: state.filters.credential_id,
-                label: label('credential_id', state.filters.credential_id),
-              }
-            : undefined
-        "
-        :label="t('usage.filters.credential_id')"
-        label-hidden
-        :placeholder="t(state.filters.group_id ? 'usage.allCredentials' : 'logs.selectGroupFirst')"
-        :disabled="!state.filters.group_id"
-        class="modern-usage-choice"
-        @update:model-value="setFilter('credential_id', $event)"
-      />
-      <AppSearchSelect
-        v-if="admin"
-        :model-value="state.filters.channel_id ?? ''"
-        :options="channelOptions"
-        :label="t('usage.filters.channel_id')"
-        label-hidden
-        class="modern-usage-choice"
-        @update:model-value="setFilter('channel_id', $event)"
-      >
-        <template #option="{ option }">
-          <AppChannelIcon
-            v-if="channelMap.get(option.value)"
-            :icon="channelMap.get(option.value)!.icon"
-            :name="channelMap.get(option.value)!.name"
-            :mark="channelMap.get(option.value)!.mark"
-            size="sm"
-          />
-          <span>{{ option.label }}</span>
-        </template>
-      </AppSearchSelect>
-      <AppSearchSelect
-        v-if="admin"
-        :model-value="state.filters.access_key_id ?? ''"
-        :options="keyOptions"
-        :label="t('usage.filters.access_key_id')"
-        label-hidden
-        :loading="keys.isFetching.value"
-        class="modern-usage-choice"
-        @update:model-value="setFilter('access_key_id', $event)"
-      />
-      <AppModelSelect
-        :model-value="model"
-        :models="models"
-        :label="t('usage.filters.upstream_model')"
-        :error="modelError"
-        label-hidden
-        fuzzy
-        class="modern-usage-model"
-        @update:model-value="setModel"
-      />
+        <AppSearchSelect
+          v-if="admin"
+          :model-value="state.filters.group_id ?? ''"
+          :options="groupOptions"
+          :label="t('usage.filters.group_id')"
+          :label-hidden="!isMobile"
+          :loading="groups.isFetching.value"
+          class="modern-usage-choice"
+          @update:model-value="setFilter('group_id', $event)"
+        >
+          <template #option="{ option }">
+            <AppChannelIcon
+              v-if="groupMap.get(option.value)"
+              :icon="groupMap.get(option.value)!.channelIcon"
+              :name="groupMap.get(option.value)!.channelName"
+              :mark="groupMap.get(option.value)!.channelMark"
+              size="sm"
+            />
+            <span>{{ option.label }}</span>
+          </template>
+        </AppSearchSelect>
+        <AppSearchSelect
+          v-if="admin"
+          :key="state.filters.group_id || 'all'"
+          :model-value="state.filters.credential_id ?? ''"
+          :options="[{ value: '', label: t('usage.allCredentials') }]"
+          :load-options="loadCredentials"
+          :selected-option="
+            state.filters.credential_id
+              ? {
+                  value: state.filters.credential_id,
+                  label: label('credential_id', state.filters.credential_id),
+                }
+              : undefined
+          "
+          :label="t('usage.filters.credential_id')"
+          :label-hidden="!isMobile"
+          :placeholder="
+            t(state.filters.group_id ? 'usage.allCredentials' : 'logs.selectGroupFirst')
+          "
+          :disabled="!state.filters.group_id"
+          class="modern-usage-choice"
+          @update:model-value="setFilter('credential_id', $event)"
+        />
+        <AppSearchSelect
+          v-if="admin"
+          :model-value="state.filters.channel_id ?? ''"
+          :options="channelOptions"
+          :label="t('usage.filters.channel_id')"
+          :label-hidden="!isMobile"
+          class="modern-usage-choice"
+          @update:model-value="setFilter('channel_id', $event)"
+        >
+          <template #option="{ option }">
+            <AppChannelIcon
+              v-if="channelMap.get(option.value)"
+              :icon="channelMap.get(option.value)!.icon"
+              :name="channelMap.get(option.value)!.name"
+              :mark="channelMap.get(option.value)!.mark"
+              size="sm"
+            />
+            <span>{{ option.label }}</span>
+          </template>
+        </AppSearchSelect>
+        <AppSearchSelect
+          v-if="admin"
+          :model-value="state.filters.access_key_id ?? ''"
+          :options="keyOptions"
+          :label="t('usage.filters.access_key_id')"
+          :label-hidden="!isMobile"
+          :loading="keys.isFetching.value"
+          class="modern-usage-choice"
+          @update:model-value="setFilter('access_key_id', $event)"
+        />
+        <AppModelSelect
+          :model-value="model"
+          :models="models"
+          :label="t('usage.filters.upstream_model')"
+          :error="modelError"
+          :label-hidden="!isMobile"
+          fuzzy
+          class="modern-usage-model"
+          @update:model-value="setModel"
+        />
+      </AppFilterSheet>
     </form>
     <div class="modern-usage-filterbar">
       <AppTooltip
@@ -502,10 +557,35 @@ const bucketLabel = computed(() => {
       :class="{ 'is-updating': query.isPlaceholderData.value }"
     >
       <UsageMetrics :report="report" />
-      <div class="modern-usage-visuals">
-        <AppPanel :title="t('usage.trend')" compact>
+      <AppSegmentedControl
+        v-if="isMobile"
+        v-model="mobileSection"
+        class="modern-usage-mobile-tabs"
+        :label="t('pages.usage.title')"
+        :options="[
+          { value: 'trend', label: t('ui.mobile.trend') },
+          { value: 'sources', label: t('ui.mobile.sources') },
+          { value: 'composition', label: t('ui.mobile.composition') },
+        ]"
+      />
+      <div v-show="!isMobile || mobileSection !== 'sources'" class="modern-usage-visuals">
+        <AppPanel v-show="!isMobile || mobileSection === 'trend'" :title="t('usage.trend')" compact>
           <template #actions>
+            <AppSelect
+              v-if="isMobile"
+              :model-value="state.trend"
+              :options="trendOptions"
+              :label="t('usage.trend')"
+              label-hidden
+              @update:model-value="
+                state = {
+                  ...state,
+                  trend: trendMetrics.find((value) => value === $event) ?? 'requests',
+                }
+              "
+            />
             <AppSegmentedControl
+              v-else
               :model-value="state.trend"
               :options="trendOptions"
               :label="t('usage.trend')"
@@ -525,11 +605,33 @@ const bucketLabel = computed(() => {
           </div>
           <UsageTrend :report="report" :metric="state.trend" />
         </AppPanel>
-        <UsageComposition :summary="report.summary" />
+        <UsageComposition
+          v-show="!isMobile || mobileSection === 'composition'"
+          :summary="report.summary"
+        />
       </div>
-      <AppPanel :title="t('usage.sources')" compact class="modern-usage-sources">
+      <AppPanel
+        v-show="!isMobile || mobileSection === 'sources'"
+        :title="t('usage.sources')"
+        compact
+        class="modern-usage-sources"
+      >
         <template #actions>
+          <AppSelect
+            v-if="isMobile"
+            :model-value="state.metric"
+            :options="rankOptions"
+            :label="t('usage.rankMetric')"
+            label-hidden
+            @update:model-value="
+              state = {
+                ...state,
+                metric: usageMetrics.find((value) => value === $event) ?? 'requests',
+              }
+            "
+          />
           <AppSegmentedControl
+            v-else
             :model-value="state.metric"
             :options="rankOptions"
             :label="t('usage.rankMetric')"
@@ -543,9 +645,22 @@ const bucketLabel = computed(() => {
             "
           />
         </template>
+        <AppSelect
+          v-if="isMobile"
+          v-model="mobileDimension"
+          :label="t('usage.sources')"
+          label-hidden
+          :options="dimensions.map((value) => ({ value, label: t('usage.dimensions.' + value) }))"
+        />
         <div class="modern-usage-ranks">
-          <div v-for="dimension in dimensions" :key="dimension" class="modern-usage-rank-cell">
+          <div
+            v-for="dimension in dimensions"
+            v-show="!isMobile || dimension === mobileDimension"
+            :key="dimension"
+            class="modern-usage-rank-cell"
+          >
             <UsageRank
+              :mobile="isMobile"
               :dimension="dimension"
               :distribution="report.distributions[dimension]![state.metric]"
               :metric="state.metric"
@@ -568,6 +683,14 @@ const bucketLabel = computed(() => {
 </template>
 
 <style scoped>
+.modern-usage-mobile-tabs {
+  position: sticky;
+  top: 0;
+  z-index: var(--modern-layer-header);
+  width: 100%;
+  padding-block: var(--modern-space-2);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
 .modern-usage-workspace {
   display: flex;
   flex: 1;
@@ -676,8 +799,22 @@ const bucketLabel = computed(() => {
   }
 }
 @media (max-width: 760px) {
+  .modern-usage-workspace {
+    flex: none;
+  }
+  .modern-usage-report {
+    flex: none;
+    overflow: visible;
+  }
   .modern-usage-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--modern-space-2);
+    padding-top: var(--modern-space-3);
+  }
+  .modern-usage-date,
+  .modern-usage-model {
+    grid-column: 1 / -1;
   }
 }
 /* 排行按实际内容宽度换列，展开侧栏时也能保留足够的名称空间。 */
@@ -708,6 +845,28 @@ const bucketLabel = computed(() => {
     padding-top: var(--modern-space-4);
     border-top: var(--modern-line-width) solid var(--modern-border);
     border-left: 0;
+  }
+}
+@media (max-width: 760px) {
+  .modern-usage-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .modern-usage-date {
+    grid-column: auto;
+  }
+  .modern-usage-visuals,
+  .modern-usage-ranks {
+    display: block;
+  }
+  .modern-usage-report {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+  .modern-usage-rank-cell + .modern-usage-rank-cell {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
   }
 }
 </style>

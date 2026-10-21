@@ -13,7 +13,7 @@ const { forwardRef } = useForwardExpose()
 </script>
 
 <template>
-  <AppTooltip :label="label">
+  <AppTooltip :label="label" touchable>
     <component
       :is="icon"
       :ref="forwardRef"

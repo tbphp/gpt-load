@@ -419,4 +419,21 @@ useLoadingActivity(() => Boolean(props.pending))
   font-size: var(--modern-font-size-caption);
   font-variant-numeric: tabular-nums;
 }
+@media (max-width: 760px) {
+  .modern-subscription-card-name-line {
+    flex-wrap: wrap;
+  }
+  .modern-subscription-card-name {
+    flex-basis: 100%;
+  }
+  .modern-subscription-card-rpm {
+    margin-left: auto;
+  }
+  .modern-subscription-card-subtitle {
+    flex-wrap: wrap;
+  }
+  .modern-subscription-card-status-actions {
+    max-width: 100%;
+  }
+}
 </style>

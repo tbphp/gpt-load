@@ -73,6 +73,7 @@ defineExpose({ add, canAdd })
       <span class="modern-redaction-mode-label">
         {{ t('requestRedaction.pattern') }}
         <AppIconButton
+          touchable
           :icon="CircleHelp"
           :label="t('requestRedaction.syntax')"
           size="xxs"
@@ -82,6 +83,7 @@ defineExpose({ add, canAdd })
       <span class="modern-redaction-mode-label">
         {{ t('requestRedaction.mode') }}
         <AppIconButton
+          touchable
           :icon="CircleHelp"
           :label="t('requestRedaction.modeHelp')"
           size="xxs"
@@ -96,6 +98,7 @@ defineExpose({ add, canAdd })
           <span class="modern-redaction-mode-label">
             {{ t('requestRedaction.pattern') }}
             <AppIconButton
+              touchable
               :icon="CircleHelp"
               :label="t('requestRedaction.syntax')"
               size="xxs"
@@ -127,6 +130,7 @@ defineExpose({ add, canAdd })
           <span class="modern-redaction-mode-label">
             {{ t('requestRedaction.mode') }}
             <AppIconButton
+              touchable
               :icon="CircleHelp"
               :label="t('requestRedaction.modeHelp')"
               size="xxs"
@@ -260,7 +264,7 @@ defineExpose({ add, canAdd })
     display: none;
   }
   .modern-redaction-row {
-    grid-template-columns: minmax(0, 1fr) var(--modern-control-sm);
+    grid-template-columns: minmax(0, 1fr) var(--modern-touch-target);
   }
   .modern-redaction-row > :first-child {
     grid-column: 1 / -1;

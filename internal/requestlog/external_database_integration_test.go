@@ -191,6 +191,9 @@ func TestExternalDatabaseRequestLogLifecycle(t *testing.T) {
 	if journals != 0 {
 		t.Fatalf("usage aggregation journals for %q = %d, want 0", requestID, journals)
 	}
+	t.Run("latest credential failure", func(t *testing.T) {
+		assertCredentialLatestFailureSummary(t, db)
+	})
 }
 
 func assertExternalCredentialAttemptStat(

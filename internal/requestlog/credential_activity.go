@@ -27,11 +27,12 @@ type CredentialActivityQuery struct {
 }
 
 type CredentialActivity struct {
-	CredentialID uint
-	LastUsedAtMS *int64
-	SuccessCount int64
-	FailureCount int64
-	DataComplete bool
+	CredentialID       uint
+	LastUsedAtMS       *int64
+	LastFailureSummary string
+	SuccessCount       int64
+	FailureCount       int64
+	DataComplete       bool
 }
 
 // QueryCredentialActivity returns the account-card activity for the requested
@@ -130,8 +131,9 @@ func validateCredentialActivityQuery(input CredentialActivityQuery) ([]uint, err
 }
 
 type credentialLatestActivityRow struct {
-	CredentialID uint   `gorm:"column:credential_id"`
-	LastUsedAtMS *int64 `gorm:"column:last_used_at_ms"`
+	CredentialID       uint   `gorm:"column:credential_id"`
+	LastUsedAtMS       *int64 `gorm:"column:last_used_at_ms"`
+	LastFailureSummary string `gorm:"column:last_failure_summary"`
 }
 
 func queryCredentialLatestActivity(
@@ -141,7 +143,7 @@ func queryCredentialLatestActivity(
 	result map[uint]CredentialActivity,
 ) error {
 	var query strings.Builder
-	args := make([]any, 0, len(credentialIDs)*3)
+	args := make([]any, 0, len(credentialIDs)*9)
 	for index, credentialID := range credentialIDs {
 		if index > 0 {
 			query.WriteString(" UNION ALL ")
@@ -152,8 +154,17 @@ func queryCredentialLatestActivity(
 			WHERE credential_id = ? AND completed_at_ms < ? AND dispatch_state <> ?
 			ORDER BY completed_at_ms DESC
 			LIMIT 1
-		) AS last_used_at_ms`)
-		args = append(args, credentialID, credentialID, toMS, string(execution.DispatchLocal))
+		) AS last_used_at_ms, (
+			SELECT error_summary
+			FROM request_log_attempts
+			WHERE credential_id = ? AND completed_at_ms < ? AND dispatch_state <> ?
+				AND failure_category NOT IN (?, ?)
+			ORDER BY completed_at_ms DESC, request_id DESC, sequence DESC
+			LIMIT 1
+		) AS last_failure_summary`)
+		args = append(args, credentialID, credentialID, toMS, string(execution.DispatchLocal),
+			credentialID, toMS, string(execution.DispatchLocal),
+			string(telemetry.FailureCategoryOK), string(telemetry.FailureCategoryDownstreamCancel))
 	}
 	var rows []credentialLatestActivityRow
 	if err := db.Raw(query.String(), args...).Scan(&rows).Error; err != nil {
@@ -165,6 +176,8 @@ func queryCredentialLatestActivity(
 			continue
 		}
 		activity.LastUsedAtMS = row.LastUsedAtMS
+		// 最近失败来自仍保留的尝试日志，与健康状态、成功请求及 24 小时计数窗口独立。
+		activity.LastFailureSummary = row.LastFailureSummary
 		result[row.CredentialID] = activity
 	}
 	return nil

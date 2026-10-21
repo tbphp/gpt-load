@@ -234,7 +234,7 @@ function escape(event: Event): void {
                 />
                 <span v-else></span>
                 <div class="modern-client-catalog-row-name">
-                  <AppOverflowText :text="modelLabel(name)" /><AppTooltip
+                  <AppOverflowText :text="modelLabel(name)" wrap-on-mobile /><AppTooltip
                     v-if="
                       Object.keys(fieldErrors(name)).length ||
                       (budget && index >= budget.includedCount && !outsideSet.has(name))
@@ -253,7 +253,11 @@ function escape(event: Event): void {
                       ><AppIcon :icon="TriangleAlert" size="xs" /></span
                   ></AppTooltip>
                 </div>
-                <span class="modern-client-catalog-context">{{ context(name) }}</span>
+                <span
+                  class="modern-client-catalog-context"
+                  :data-label="t('modelManager.profile.fields.contextWindow')"
+                  >{{ context(name) }}</span
+                >
                 <div class="modern-client-catalog-row-actions">
                   <AppIconButton
                     :icon="expanded === name ? ChevronUp : ChevronDown"
@@ -506,6 +510,10 @@ function escape(event: Event): void {
   border-top: var(--modern-line-width) solid var(--modern-border);
 }
 @media (max-width: 760px) {
+  .modern-client-catalog-form,
+  .modern-client-catalog-scroll {
+    flex: 1;
+  }
   .modern-client-catalog-toolbar,
   .modern-client-catalog-columns,
   .modern-client-catalog-scroll,
@@ -515,10 +523,48 @@ function escape(event: Event): void {
   .modern-client-catalog-notices {
     padding-inline: var(--modern-space-3);
   }
-  .modern-client-catalog-columns,
   .modern-client-catalog-row-heading {
-    grid-template-columns: var(--modern-control-xs) minmax(0, 1fr) auto auto;
+    grid-template-columns: var(--modern-touch-target) minmax(0, 1fr) auto;
     gap: var(--modern-space-1);
+    padding-block: var(--modern-space-2);
+  }
+  .modern-client-catalog-columns {
+    display: none;
+  }
+  .modern-client-catalog-row-heading > :first-child {
+    grid-column: 1;
+    grid-row: 1 / 3;
+  }
+  .modern-client-catalog-row-name {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: end;
+  }
+  .modern-client-catalog-context {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    text-align: left;
+    font-size: var(--modern-font-size-small);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .modern-client-catalog-context::before {
+    content: attr(data-label);
+    margin-inline-end: var(--modern-space-1);
+  }
+  .modern-client-catalog-row-actions {
+    grid-column: 3;
+    grid-row: 1 / 3;
+  }
+  .modern-client-catalog-footer {
+    flex-wrap: wrap;
+  }
+  .modern-client-catalog-footer-actions {
+    flex: 1 0 100%;
+  }
+  .modern-client-catalog-footer-actions > * {
+    flex: 1;
   }
   .modern-client-catalog-properties {
     margin-left: var(--modern-space-3);

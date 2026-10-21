@@ -86,6 +86,7 @@ function selectSize(value: string): void {
   <div class="modern-pagination-container">
     <nav
       class="modern-pagination"
+      :class="{ 'is-single-page': mode === 'total' && pages === 1 }"
       :aria-label="t('ui.pagination.label')"
       :aria-busy="pending || undefined"
     >
@@ -121,7 +122,7 @@ function selectSize(value: string): void {
           @update:page="selectPage"
         >
           <AppIconButton
-            class="modern-pagination-compact"
+            class="modern-pagination-compact modern-pagination-edge"
             :icon="ChevronsLeft"
             :label="t('ui.pagination.first')"
             :tooltip="false"
@@ -177,7 +178,7 @@ function selectSize(value: string): void {
             @click="move(1)"
           />
           <AppIconButton
-            class="modern-pagination-compact"
+            class="modern-pagination-compact modern-pagination-edge"
             :icon="ChevronsRight"
             :label="t('ui.pagination.last')"
             :tooltip="false"
@@ -298,6 +299,36 @@ function selectSize(value: string): void {
   }
   .modern-pagination-controls {
     justify-self: end;
+  }
+}
+@media (max-width: 760px) {
+  .modern-pagination-edge,
+  .modern-pagination.is-single-page .modern-pagination-navigation {
+    display: none;
+  }
+  .modern-pagination.is-single-page {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .modern-pagination.is-single-page .modern-pagination-controls {
+    display: contents;
+  }
+  .modern-pagination.is-single-page .modern-pagination-size {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .modern-pagination {
+    padding-block: var(--modern-space-2);
+  }
+  .modern-pagination-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .modern-pagination-navigation {
+    gap: 0;
+  }
+  .modern-pagination-position {
+    min-width: var(--modern-touch-target);
   }
 }
 </style>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import LogMobileRow from './LogMobileRow.vue'
 import { Eye, ScrollText } from '@lucide/vue'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -48,6 +50,7 @@ import {
 } from './log-filters'
 import { logTime } from './log-display'
 
+const isMobile = useMobileLayout()
 const router = useRouter()
 const client = useApiClient()
 const cache = useQueryClient()
@@ -298,6 +301,7 @@ useMessageSource(() =>
     >
       <template #actions
         ><LogColumnPicker
+          v-if="!isMobile"
           :columns="columns.available"
           :selected="columns.selected.value"
           @toggle="columns.toggle"
@@ -318,14 +322,15 @@ useMessageSource(() =>
     </div>
     <AppListFrame
       ref="frame"
+      mobile-flow
       class="modern-log-table"
-      role="table"
-      :aria-colcount="columns.cells.value.length + 1"
+      :role="isMobile ? undefined : 'table'"
+      :aria-colcount="isMobile ? undefined : columns.cells.value.length + 1"
       :label="t('logs.title')"
       :loading="fetching && Boolean(query.data.value)"
       :style="columns.style.value"
     >
-      <template #header>
+      <template v-if="!isMobile" #header>
         <div class="modern-log-row modern-log-table-head" role="row">
           <div
             v-for="cell in columns.cells.value"
@@ -364,61 +369,79 @@ useMessageSource(() =>
           t('collection.reset')
         }}</AppButton></AppCollectionState
       >
-      <article
-        v-for="row in rows"
-        v-else
-        :key="row.request_id"
-        role="row"
-        class="modern-log-row modern-log-record"
-        :class="{ 'is-selected': state.detail === row.request_id }"
-      >
-        <div
-          v-for="cell in columns.forRow(row)"
-          :key="cell.id"
-          role="cell"
-          :aria-colindex="cell.index + 1"
-          :aria-colspan="cell.span > 1 ? cell.span : undefined"
-          class="modern-log-cell"
-          :class="{ 'is-numeric': cell.numeric }"
-          :style="cell.span > 1 ? { gridColumn: 'span ' + cell.span } : undefined"
-        >
-          <div v-if="cell.error" class="modern-log-error-summary">
-            <LogFilterLink
-              v-if="row.error_code"
-              :label="t('logs.filterByValue', { value: row.error_code })"
-              @click="filterFromRow({ error_code: row.error_code })"
-            >
-              <AppOverflowText class="modern-log-error-code" :text="row.error_code" />
-            </LogFilterLink>
-            <AppOverflowText v-else class="modern-log-error-code" text="—" />
-            <AppOverflowText :text="row.error_summary || '—'" tabindex="0" />
-          </div>
-          <LogTableCell
-            v-else
+      <template v-else>
+        <template v-for="row in rows" :key="row.request_id">
+          <LogMobileRow
+            v-if="isMobile"
             :row="row"
-            :fields="cell.fields"
-            :peer="cell.peer"
             :admin="admin"
             :groups="groupMap"
             :channels="channelMap"
             @open="showDetail(row.request_id)"
-            @filter="filterFromRow"
           />
-        </div>
-        <div
-          class="modern-log-row-action"
-          role="cell"
-          :aria-colindex="columns.cells.value.length + 1"
-        >
-          <AppIconButton
-            class="modern-log-detail-action"
-            :icon="Eye"
-            :label="t('logs.details')"
-            size="xs"
-            @click="showDetail(row.request_id)"
-          />
-        </div>
-      </article>
+          <article
+            v-else
+            role="row"
+            class="modern-log-row modern-log-record"
+            :class="{ 'is-selected': state.detail === row.request_id }"
+          >
+            <div
+              v-for="cell in columns.forRow(row)"
+              :key="cell.id"
+              role="cell"
+              :aria-colindex="cell.index + 1"
+              :aria-colspan="cell.span > 1 ? cell.span : undefined"
+              class="modern-log-cell"
+              :class="{ 'is-numeric': cell.numeric }"
+              :data-label="
+                t(
+                  cell.error
+                    ? 'logs.columns.error_summary'
+                    : (cell.fields.length > 1 ? 'logs.columnGroups.' : 'logs.columns.') +
+                        cell.fields[0],
+                )
+              "
+              :style="cell.span > 1 ? { '--modern-log-cell-span': cell.span } : undefined"
+            >
+              <div v-if="cell.error" class="modern-log-error-summary">
+                <LogFilterLink
+                  v-if="row.error_code"
+                  :label="t('logs.filterByValue', { value: row.error_code })"
+                  @click="filterFromRow({ error_code: row.error_code })"
+                >
+                  <AppOverflowText class="modern-log-error-code" :text="row.error_code" />
+                </LogFilterLink>
+                <AppOverflowText v-else class="modern-log-error-code" text="—" />
+                <AppOverflowText :text="row.error_summary || '—'" tabindex="0" />
+              </div>
+              <LogTableCell
+                v-else
+                :row="row"
+                :fields="cell.fields"
+                :peer="cell.peer"
+                :admin="admin"
+                :groups="groupMap"
+                :channels="channelMap"
+                @open="showDetail(row.request_id)"
+                @filter="filterFromRow"
+              />
+            </div>
+            <div
+              class="modern-log-row-action"
+              role="cell"
+              :aria-colindex="columns.cells.value.length + 1"
+            >
+              <AppIconButton
+                class="modern-log-detail-action"
+                :icon="Eye"
+                :label="t('logs.details')"
+                size="xs"
+                @click="showDetail(row.request_id)"
+              />
+            </div>
+          </article>
+        </template>
+      </template>
       <template #footer
         ><AppPagination
           mode="total"
@@ -541,6 +564,8 @@ useMessageSource(() =>
   box-shadow: inset var(--modern-focus-width) 0 0 var(--modern-accent);
 }
 .modern-log-cell {
+  --modern-log-cell-span: 1;
+  grid-column: span var(--modern-log-cell-span);
   min-width: 0;
   overflow: hidden;
 }
@@ -602,13 +627,47 @@ useMessageSource(() =>
   padding-inline: var(--modern-space-3);
 }
 @media (max-width: 760px) {
-  .modern-logs-workspace {
-    --modern-log-action-width: calc(
-      var(--modern-touch-target) + var(--modern-space-4) + var(--modern-line-width)
-    );
+  .modern-log-table {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
-  .modern-log-action-heading {
-    width: var(--modern-touch-target);
+  .modern-logs-workspace {
+    flex: none;
+  }
+  .modern-log-table-head {
+    display: none;
+  }
+  .modern-log-record {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    gap: var(--modern-space-3);
+    padding: var(--modern-space-4) var(--modern-space-3);
+  }
+  .modern-log-cell {
+    display: grid;
+    grid-column: auto;
+    align-content: start;
+    gap: var(--modern-space-1);
+  }
+  .modern-log-cell::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-caption);
+  }
+  .modern-log-cell.is-numeric,
+  .modern-log-cell.is-numeric :deep(.modern-log-cell-stack) {
+    justify-items: start;
+    text-align: left;
+  }
+  .modern-log-cell:has(.modern-log-error-summary) {
+    grid-column: 1 / -1;
+  }
+  .modern-log-row-action {
+    position: static;
+    justify-content: flex-end;
+    padding: 0;
+    border: 0;
   }
 }
 </style>

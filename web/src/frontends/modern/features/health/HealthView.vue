@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { SlidersHorizontal, ChevronRight } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -22,6 +24,7 @@ import { useMessageSource } from '@modern/app/messages'
 import {
   AppBadge,
   AppButton,
+  AppFilterSheet,
   AppChannelIcon,
   AppCollectionState,
   AppFilterSummary,
@@ -56,6 +59,11 @@ import HealthDetailPanel from './HealthDetailPanel.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
+const isMobile = useMobileLayout()
+const mobileFilterCount = computed(
+  () => summary.value.filter((item) => ['group', 'kind', 'sort'].includes(item.key)).length,
+)
+const mobileFilters = ref(false)
 const client = useApiClient()
 const state = useURLState(healthStateKeys, parseHealthState, serializeHealthState)
 const query = useQuery({
@@ -214,6 +222,7 @@ useMessageSource(() =>
     <HealthOverview
       v-if="report"
       :report="report"
+      :mobile="isMobile"
       :unavailable="unavailable"
       @select="change({ kind: $event, group: '', q: '', severity: '' })"
     />
@@ -232,28 +241,44 @@ useMessageSource(() =>
         label-hidden
         class="modern-health-search"
       />
-      <AppSearchSelect
-        :model-value="state.group"
-        :options="groupOptions"
-        :label="t('health.group')"
-        label-hidden
-        class="modern-health-choice"
-        @update:model-value="change({ group: $event })"
+      <AppIconButton
+        v-if="isMobile"
+        :icon="SlidersHorizontal"
+        :variant="isMobile && mobileFilterCount ? 'brand' : 'ghost'"
+        :label="t('ui.mobile.filters')"
+        @click="mobileFilters = true"
       />
-      <AppSelect
-        :model-value="state.kind"
-        :options="kindOptions"
-        :label="t('health.kind')"
-        label-hidden
-        class="modern-health-choice"
-        @update:model-value="change({ kind: healthKinds.find((kind) => kind === $event) ?? '' })"
-      />
-      <AppSortMenu
-        :model-value="state.sort"
-        :options="sortOptions"
-        :label="t('health.sort')"
-        @update:model-value="change({ sort: $event === 'name' ? 'name' : 'priority' })"
-      />
+      <AppFilterSheet
+        v-model:open="mobileFilters"
+        :mobile="isMobile"
+        :title="t('ui.mobile.filters')"
+        :active-count="mobileFilterCount"
+        @reset="change({ group: '', kind: '', sort: 'priority' })"
+      >
+        <AppSearchSelect
+          :model-value="state.group"
+          :options="groupOptions"
+          :label="t('health.group')"
+          :label-hidden="!isMobile"
+          class="modern-health-choice"
+          @update:model-value="change({ group: $event })"
+        />
+        <AppSelect
+          :model-value="state.kind"
+          :options="kindOptions"
+          :label="t('health.kind')"
+          :label-hidden="!isMobile"
+          class="modern-health-choice"
+          @update:model-value="change({ kind: healthKinds.find((kind) => kind === $event) ?? '' })"
+        />
+        <component
+          :is="isMobile ? AppSelect : AppSortMenu"
+          :model-value="state.sort"
+          :options="sortOptions"
+          :label="t('health.sort')"
+          @update:model-value="change({ sort: $event === 'name' ? 'name' : 'priority' })"
+        />
+      </AppFilterSheet>
     </form>
     <div class="modern-health-statusbar">
       <AppSegmentedControl
@@ -270,6 +295,7 @@ useMessageSource(() =>
     </div>
     <AppListFrame
       ref="frame"
+      mobile-flow
       class="modern-health-list"
       :label="t('health.issues')"
       :loading="pending && Boolean(report)"
@@ -297,94 +323,115 @@ useMessageSource(() =>
         <AppButton v-if="summary.length" @click="reset()">{{ t('collection.reset') }}</AppButton>
       </AppCollectionState>
       <template v-else>
-        <article
-          v-for="row in rows"
-          :key="row.key"
-          class="modern-health-row modern-health-record"
-          :class="{ 'is-selected': state.detail === row.key }"
-          :aria-label="row.name + ' · ' + t('health.kinds.' + row.kind)"
-        >
-          <div class="modern-health-object">
-            <span class="modern-health-object-mark"
-              ><AppIcon
-                :icon="
-                  row.identityType === 'group'
-                    ? Layers2
-                    : row.identityType === 'access_key'
-                      ? KeyRound
-                      : UserRound
-                "
-                size="sm"
+        <template v-for="row in rows" :key="row.key">
+          <AppButton
+            v-if="isMobile"
+            variant="ghost"
+            class="modern-health-mobile-row"
+            @click="open(row.key)"
+          >
+            <span class="modern-health-mobile-title"
+              ><strong>{{ row.name }}</strong
+              ><AppIcon :icon="ChevronRight" size="sm"
             /></span>
-            <div class="modern-health-object-text">
-              <AppButton variant="text" class="modern-health-name" @click="open(row.key)"
-                ><AppOverflowText :text="row.name" /></AppButton
-              ><span>{{
-                t(
-                  row.identityType === 'group'
-                    ? 'health.group'
-                    : row.identityType === 'access_key'
-                      ? 'health.accessKey'
-                      : 'health.account',
-                )
-              }}</span>
+            <span class="modern-health-mobile-kind"
+              ><AppBadge :tone="row.severity" size="xs" dot>{{
+                t('health.kinds.' + row.kind)
+              }}</AppBadge
+              ><span>{{ row.groupName }}</span></span
+            >
+            <span class="modern-health-mobile-reason">{{ row.reason }}</span>
+          </AppButton>
+          <article
+            v-else
+            class="modern-health-row modern-health-record"
+            :class="{ 'is-selected': state.detail === row.key }"
+            :aria-label="row.name + ' · ' + t('health.kinds.' + row.kind)"
+          >
+            <div class="modern-health-object">
+              <span class="modern-health-object-mark"
+                ><AppIcon
+                  :icon="
+                    row.identityType === 'group'
+                      ? Layers2
+                      : row.identityType === 'access_key'
+                        ? KeyRound
+                        : UserRound
+                  "
+                  size="sm"
+              /></span>
+              <div class="modern-health-object-text">
+                <AppButton variant="text" class="modern-health-name" @click="open(row.key)"
+                  ><AppOverflowText :text="row.name" /></AppButton
+                ><span>{{
+                  t(
+                    row.identityType === 'group'
+                      ? 'health.group'
+                      : row.identityType === 'access_key'
+                        ? 'health.accessKey'
+                        : 'health.account',
+                  )
+                }}</span>
+              </div>
             </div>
-          </div>
-          <div class="modern-health-group">
-            <AppChannelIcon
-              v-if="row.groupID && groupMap.get(row.groupID)"
-              :icon="groupMap.get(row.groupID)!.channelIcon"
-              :mark="groupMap.get(row.groupID)!.channelMark"
-              :name="groupMap.get(row.groupID)!.channelName"
-              :tooltip="false"
-              size="sm"
-            /><AppButton
-              v-if="row.groupID"
-              variant="text"
-              @click="change({ group: String(row.groupID) })"
-              ><AppOverflowText :text="row.groupName ?? t('logs.deleted')" /></AppButton
-            ><span v-else class="modern-health-muted">—</span>
-          </div>
-          <div class="modern-health-stack">
-            <AppBadge :tone="row.severity" size="xs" dot>{{
-              t('health.kinds.' + row.kind)
-            }}</AppBadge
-            ><AppOverflowText :text="row.reason" class="modern-health-secondary" />
-          </div>
-          <AppOverflowText :text="row.impact" class="modern-health-impact" />
-          <div class="modern-health-stack">
-            <AppOverflowText :text="row.recovery" /><AppOverflowText
-              v-if="row.recoveryAt"
-              :text="healthTime(row.recoveryAt, locale)"
-              :full-text="healthTime(row.recoveryAt, locale, true)"
-              class="modern-health-secondary modern-health-time"
-            />
-          </div>
-          <div class="modern-health-actions">
-            <AppIconButton
-              :icon="Eye"
-              :label="t('health.details')"
-              :tooltip="true"
-              size="xs"
-              variant="text"
-              @click="open(row.key)"
-            /><AppIconButton
-              :icon="ScrollText"
-              :label="t('health.logs')"
-              :tooltip="true"
-              size="xs"
-              variant="text"
-              @click="logs(row)"
-            /><AppIconButton
-              :icon="ArrowUpRight"
-              :label="t('health.manage')"
-              :tooltip="true"
-              size="xs"
-              variant="text"
-              @click="manage(row)"
-            />
-          </div>
-        </article>
+            <div class="modern-health-group">
+              <AppChannelIcon
+                v-if="row.groupID && groupMap.get(row.groupID)"
+                :icon="groupMap.get(row.groupID)!.channelIcon"
+                :mark="groupMap.get(row.groupID)!.channelMark"
+                :name="groupMap.get(row.groupID)!.channelName"
+                :tooltip="false"
+                size="sm"
+              /><AppButton
+                v-if="row.groupID"
+                variant="text"
+                @click="change({ group: String(row.groupID) })"
+                ><AppOverflowText :text="row.groupName ?? t('logs.deleted')" /></AppButton
+              ><span v-else class="modern-health-muted">—</span>
+            </div>
+            <div class="modern-health-stack" :data-label="t('health.problem')">
+              <AppBadge :tone="row.severity" size="xs" dot>{{
+                t('health.kinds.' + row.kind)
+              }}</AppBadge
+              ><AppOverflowText :text="row.reason" class="modern-health-secondary" />
+            </div>
+            <div class="modern-health-impact" :data-label="t('health.impact')">
+              <AppOverflowText :text="row.impact" />
+            </div>
+            <div class="modern-health-stack" :data-label="t('health.recoveryColumn')">
+              <AppOverflowText :text="row.recovery" /><AppOverflowText
+                v-if="row.recoveryAt"
+                :text="healthTime(row.recoveryAt, locale)"
+                :full-text="healthTime(row.recoveryAt, locale, true)"
+                class="modern-health-secondary modern-health-time"
+              />
+            </div>
+            <div class="modern-health-actions">
+              <AppIconButton
+                :icon="Eye"
+                :label="t('health.details')"
+                :tooltip="true"
+                size="xs"
+                variant="text"
+                @click="open(row.key)"
+              /><AppIconButton
+                :icon="ScrollText"
+                :label="t('health.logs')"
+                :tooltip="true"
+                size="xs"
+                variant="text"
+                @click="logs(row)"
+              /><AppIconButton
+                :icon="ArrowUpRight"
+                :label="t('health.manage')"
+                :tooltip="true"
+                size="xs"
+                variant="text"
+                @click="manage(row)"
+              />
+            </div>
+          </article>
+        </template>
       </template>
       <template #footer
         ><AppPagination
@@ -409,6 +456,54 @@ useMessageSource(() =>
 </template>
 
 <style scoped>
+.modern-health-mobile-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  width: 100%;
+  height: auto;
+  padding: var(--modern-space-4) 0;
+  gap: var(--modern-space-2);
+  border-radius: 0;
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  text-align: left;
+  color: var(--modern-text);
+  white-space: normal;
+}
+.modern-health-mobile-title,
+.modern-health-mobile-kind {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-2);
+  min-width: 0;
+}
+.modern-health-mobile-title strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--modern-weight-semibold);
+}
+.modern-health-mobile-kind > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modern-health-mobile-kind,
+.modern-health-mobile-reason {
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  font-weight: var(--modern-weight-regular);
+}
+.modern-health-mobile-reason {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .modern-health-workspace {
   display: flex;
   flex: 1;
@@ -562,34 +657,44 @@ useMessageSource(() =>
     padding-bottom: var(--modern-space-1-5);
   }
   .modern-health-row {
-    grid-template-columns:
-      140px minmax(130px, 0.85fr) minmax(190px, 1.2fr) minmax(180px, 1.1fr)
-      minmax(170px, 1fr) 148px;
-    min-width: 1048px;
-    padding-block: 0;
-    padding-left: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    padding: var(--modern-space-4) var(--modern-space-1);
+    gap: var(--modern-space-3);
   }
-  .modern-health-row > * {
-    padding-block: var(--modern-space-1-5);
+  .modern-health-heading {
+    display: none;
   }
-  .modern-health-row > :first-child {
-    position: sticky;
-    left: 0;
-    z-index: var(--modern-layer-raised);
-    background: var(--modern-canvas);
-    align-self: stretch;
-    display: flex;
-    align-items: center;
-    padding-left: var(--modern-space-3);
+  .modern-health-object,
+  .modern-health-group,
+  .modern-health-impact,
+  .modern-health-actions {
+    grid-column: 1 / -1;
   }
-  .modern-health-record {
-    min-height: 0;
+  .modern-health-record > [data-label] {
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: var(--modern-space-1);
   }
-  .modern-health-record:hover > :first-child {
-    background: var(--modern-control-hover);
+  .modern-health-record > [data-label]::before {
+    content: attr(data-label);
+    color: var(--modern-muted);
+    font-size: var(--modern-font-size-small);
   }
-  .modern-health-record.is-selected > :first-child {
-    background: var(--modern-accent-soft);
+  .modern-health-actions {
+    justify-content: flex-end;
+    border-top: var(--modern-line-width) solid var(--modern-border);
+    padding-top: var(--modern-space-2);
+  }
+}
+@media (max-width: 760px) {
+  .modern-health-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .modern-health-search {
+    grid-column: auto;
   }
 }
 </style>

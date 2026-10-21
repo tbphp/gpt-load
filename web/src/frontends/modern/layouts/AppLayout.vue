@@ -9,9 +9,8 @@ import {
   Menu,
   RefreshCw,
   Timer,
-  X,
 } from '@lucide/vue'
-import { DialogClose, DialogRoot, DialogTrigger } from 'reka-ui'
+import { DialogRoot, DialogTrigger } from 'reka-ui'
 import { useIsFetching, useQuery } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -27,6 +26,7 @@ import {
   AppBadge,
   AppButton,
   AppDialogContent,
+  AppDialogHeader,
   AppIcon,
   AppIconButton,
   AppLoadingIndicator,
@@ -40,6 +40,9 @@ import { loginLocation } from '@modern/app/redirect'
 import AppearanceMenu from './AppearanceMenu.vue'
 import { provideLoadingActivity, useLoadingFeedback } from '@modern/components/ui/loading'
 import SidebarContent from './SidebarContent.vue'
+import MobileNavigation from './MobileNavigation.vue'
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
+import { useNavigation } from '@modern/app/use-navigation'
 
 const { t, locale } = useI18n()
 const session = useAuthSession()
@@ -76,7 +79,22 @@ function refreshPage(): void {
   void pageRefresh.run()
 }
 provideSystemStatus()
+const mobileNavigation = ref<InstanceType<typeof MobileNavigation>>()
 const mobileOpen = ref(false)
+const isMobile = useMobileLayout()
+const navigation = useNavigation()
+const moreNavigation = computed(() =>
+  navigation.value.filter(
+    (item) =>
+      ![
+        'home',
+        'groups',
+        'logs',
+        'usage',
+        ...(session.state.principalType === 'access_key' ? ['models'] : []),
+      ].includes(item.id),
+  ),
+)
 const failedNavigation = ref<string | null>(null)
 const loggingOut = ref(false)
 const { title: pageTitle } = usePageTitle()
@@ -85,6 +103,16 @@ const fetching = useIsFetching()
 const localActivity = provideLoadingActivity()
 const navigating = ref(false)
 const loadingPage = ref(true)
+const mobileScrollPositions = new Map<string, number>()
+let pendingMobileScroll: { path: string; top: number } | undefined
+function scrollKey(fullPath: string): string {
+  const url = new URL(fullPath, window.location.origin)
+  url.searchParams.sort()
+  return url.pathname + url.search
+}
+function cancelScrollRestore(): void {
+  pendingMobileScroll = undefined
+}
 let navigationTarget: string | undefined
 const contentPending = computed(
   () => pageRefresh.busy.value || fetching.value > 0 || localActivity.value,
@@ -93,6 +121,13 @@ const pageLoading = useLoadingFeedback(
   () => navigating.value || loadingPage.value || pageRefresh.running.value,
 )
 const removeBeforeEach = router.beforeEach((to, from) => {
+  if (isMobile.value && to.path !== from.path) {
+    const key = scrollKey(from.fullPath)
+    mobileScrollPositions.delete(key)
+    mobileScrollPositions.set(key, document.getElementById('modern-content')?.scrollTop ?? 0)
+    if (mobileScrollPositions.size > 50)
+      mobileScrollPositions.delete(mobileScrollPositions.keys().next().value!)
+  }
   navigationTarget = to.fullPath
   // query/hash 是页内状态，只有路径变化才作为页面导航。
   navigating.value = to.path !== from.path
@@ -113,6 +148,10 @@ watch(
     await nextTick()
     if (route.path === path && !navigating.value && !contentPending.value) {
       loadingPage.value = false
+      if (isMobile.value && pendingMobileScroll?.path === path) {
+        document.getElementById('modern-content')?.scrollTo({ top: pendingMobileScroll.top })
+        pendingMobileScroll = undefined
+      }
     }
   },
   { immediate: true, flush: 'post' },
@@ -154,6 +193,8 @@ const removeAfterEach = router.afterEach((to, from, failure) => {
   failedNavigation.value = null
   // 同页搜索和筛选只更新查询参数，保留当前控件的输入焦点。
   if (to.path === from.path) return
+  const top = isMobile.value ? mobileScrollPositions.get(scrollKey(to.fullPath)) : undefined
+  pendingMobileScroll = top === undefined ? undefined : { path: to.path, top }
   requestAnimationFrame(() =>
     document.getElementById('modern-content')?.focus({ preventScroll: true }),
   )
@@ -234,6 +275,59 @@ useMessageSource(() =>
         class="modern-topbar"
         :class="{ 'has-auto-refresh': pageRefresh.autoAvailable.value }"
       >
+        <DialogRoot v-model:open="mobileOpen">
+          <DialogTrigger as-child>
+            <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
+          </DialogTrigger>
+          <AppDialogContent
+            :placement="isMobile ? 'bottom' : 'sidebar'"
+            :title="t('navigation')"
+            :description="t('shell.mobileNavigationDescription')"
+            @close-auto-focus="
+              (event: Event) => {
+                if (isMobile) {
+                  event.preventDefault()
+                  mobileNavigation?.focusMore()
+                }
+              }
+            "
+          >
+            <AppDialogHeader
+              :title="t('ui.mobile.more')"
+              :close-label="t('shell.close')"
+              @close="mobileOpen = false"
+            />
+            <div class="modern-mobile-menu">
+              <nav :aria-label="t('navigation')">
+                <RouterLink
+                  v-for="item in moreNavigation"
+                  :key="item.id"
+                  :to="{ name: item.name }"
+                  :aria-current="
+                    (route.meta.primaryNav ?? route.name) === item.name ? 'page' : undefined
+                  "
+                  @click="mobileOpen = false"
+                  ><AppIcon :icon="item.icon" /><span>{{ t(`pages.${item.id}.title`) }}</span
+                  ><AppIcon :icon="ChevronRight" size="sm"
+                /></RouterLink>
+              </nav>
+              <div class="modern-mobile-tools">
+                <AppBadge
+                  v-if="session.state.principalType === 'access_key'"
+                  :icon="KeyRound"
+                  tone="info"
+                  >{{ t('auth.readOnly') }}</AppBadge
+                ><AppearanceMenu /><AppButton
+                  :icon="LogOut"
+                  variant="ghost"
+                  :loading="loggingOut"
+                  @click="logout"
+                  >{{ t('auth.logout') }}</AppButton
+                >
+              </div>
+            </div>
+          </AppDialogContent>
+        </DialogRoot>
         <h1>{{ pageTitle }}</h1>
         <div v-if="pageRefresh.available.value" class="modern-topbar-refresh">
           <span v-if="refreshedAt">{{ refreshedAt }}</span>
@@ -260,21 +354,6 @@ useMessageSource(() =>
           aria-hidden="true"
         ></span>
         <div class="modern-toolbar">
-          <DialogRoot v-model:open="mobileOpen">
-            <DialogTrigger as-child>
-              <AppIconButton class="modern-mobile-toggle" :icon="Menu" :label="t('navigation')" />
-            </DialogTrigger>
-            <AppDialogContent
-              placement="sidebar"
-              :title="t('navigation')"
-              :description="t('shell.mobileNavigationDescription')"
-            >
-              <DialogClose as-child>
-                <AppIconButton class="modern-mobile-close" :icon="X" :label="t('shell.close')" />
-              </DialogClose>
-              <SidebarContent @navigate="mobileOpen = false" />
-            </AppDialogContent>
-          </DialogRoot>
           <AppTooltip
             v-if="session.state.principalType === 'access_key'"
             :label="t('auth.readOnlyDescription')"
@@ -305,9 +384,18 @@ useMessageSource(() =>
           t('auth.requestBodyRecordingNotice', { days: requestBodyRecording.retentionDays })
         }}</AppNotice>
       </div>
-      <main id="modern-content" :key="route.path" class="modern-content" tabindex="-1">
+      <main
+        id="modern-content"
+        :key="route.path"
+        class="modern-content"
+        tabindex="-1"
+        @pointerdown="cancelScrollRestore"
+        @wheel.passive="cancelScrollRestore"
+        @keydown="cancelScrollRestore"
+      >
         <slot />
       </main>
+      <MobileNavigation ref="mobileNavigation" @more="mobileOpen = true" />
     </div>
   </div>
   <span class="modern-sr-only" role="status" aria-live="polite" aria-atomic="true">{{
@@ -316,6 +404,27 @@ useMessageSource(() =>
 </template>
 
 <style scoped>
+.modern-mobile-menu {
+  padding: 0 var(--modern-space-5) var(--modern-space-4);
+  overflow-y: auto;
+}
+.modern-mobile-menu nav {
+  display: grid;
+}
+.modern-mobile-menu nav a {
+  display: flex;
+  align-items: center;
+  gap: var(--modern-space-3);
+  min-height: var(--modern-topbar-height);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+}
+.modern-mobile-menu nav a span {
+  flex: 1;
+}
+.modern-mobile-menu nav a[aria-current] {
+  color: var(--modern-accent);
+}
+
 .modern-skip-link {
   position: fixed;
   z-index: var(--modern-layer-skip-link);
@@ -447,8 +556,17 @@ useMessageSource(() =>
   align-items: center;
   gap: var(--modern-space-1);
 }
-.modern-toolbar .modern-mobile-toggle {
+.modern-mobile-toggle {
   display: none;
+}
+.modern-mobile-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1);
+  border-bottom: var(--modern-line-width) solid var(--modern-border);
+  padding-block: var(--modern-space-2);
+  margin-bottom: var(--modern-space-2);
 }
 .modern-session-scope {
   flex-shrink: 0;
@@ -481,30 +599,33 @@ useMessageSource(() =>
   .modern-sidebar-toggle {
     display: none;
   }
-  /* 侧栏不可见时，抽屉入口回到标题行。 */
-  .modern-toolbar .modern-mobile-toggle {
-    display: inline-flex;
+  .modern-main-column {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .modern-main-column.has-session-notice {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
   }
   .modern-toolbar {
-    gap: 0;
+    display: none;
   }
   .modern-topbar {
-    flex-wrap: wrap;
-    gap: var(--modern-space-2);
-    padding-block: var(--modern-space-2);
+    gap: var(--modern-space-1);
+    padding-inline: var(--modern-content-inset);
+    padding-top: env(safe-area-inset-top);
   }
   /* 移动端顶栏只留刷新控件，时间文字和竖线让位给标题。 */
   .modern-topbar-refresh > span,
   .modern-topbar-divider {
     display: none;
   }
-  /* 多出自动刷新按钮的页面，标题独占首行，避免被挤成省略号。 */
-  .modern-topbar.has-auto-refresh h1 {
-    flex: 1 0 100%;
+  .modern-topbar h1 {
+    font-size: var(--modern-font-size-section);
   }
-  .modern-session-scope {
-    order: 1;
-    margin-right: 0;
+  .modern-topbar-refresh {
+    gap: 0;
+  }
+  .modern-content {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 .modern-notices {

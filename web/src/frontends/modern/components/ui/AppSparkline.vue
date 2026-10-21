@@ -110,6 +110,10 @@ function leave(): void {
   hovered.value = undefined
   emit('cursorChange', undefined)
 }
+function start(event: PointerEvent): void {
+  move(event)
+  if (event.pointerType === 'touch') focused.value = hovered.value
+}
 function blur(): void {
   focused.value = undefined
   emit('cursorChange', undefined)
@@ -202,13 +206,14 @@ watch(
       :style="{ left: `${point.x}%`, top: `${point.y}%` }"
       aria-hidden="true"
     />
-    <AppTooltip v-if="interactive" :label="tooltip" :side="tooltipSide ?? 'top'">
+    <AppTooltip v-if="interactive" :label="tooltip" :side="tooltipSide ?? 'top'" touchable>
       <span
         class="modern-sparkline-hit"
         role="img"
         :aria-label="tooltip"
         tabindex="0"
         @pointermove="move"
+        @pointerdown="start"
         @pointerleave="leave"
         @focus="focusPoint"
         @blur="blur"

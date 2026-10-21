@@ -179,7 +179,13 @@ onScopeDispose(() => {
           @copy="preserveFullCopy"
         />
         <p role="status">
-          {{ state === 'success' ? t('ui.copy.success') : t('ui.copy.manualHelp') }}
+          <template v-if="state === 'success'">{{ t('ui.copy.success') }}</template>
+          <template v-else
+            ><span class="modern-copy-help-desktop">{{ t('ui.copy.manualHelp') }}</span
+            ><span class="modern-copy-help-mobile">{{
+              t('ui.copy.manualHelpMobile')
+            }}</span></template
+          >
         </p>
         <div class="modern-copy-actions">
           <AppButton @click="closeFallback">{{ t('ui.close') }}</AppButton>
@@ -259,5 +265,23 @@ onScopeDispose(() => {
   display: flex;
   justify-content: flex-end;
   gap: var(--modern-space-2);
+}
+.modern-copy-help-mobile {
+  display: none;
+}
+@media (max-width: 760px) {
+  .modern-copy-help-desktop {
+    display: none;
+  }
+  .modern-copy-help-mobile {
+    display: inline;
+  }
+  .modern-copy-button {
+    min-width: var(--modern-touch-target);
+    min-height: var(--modern-touch-target);
+  }
+  .modern-copy-fallback textarea {
+    font-size: var(--modern-font-size-input-mobile);
+  }
 }
 </style>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ListX, RefreshCw, Search } from '@lucide/vue'
+import { ListX, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
+import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { DialogRoot } from 'reka-ui'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -11,6 +12,7 @@ import {
   AppDialogContent,
   AppDialogHeader,
   AppFilterSummary,
+  AppFilterSheet,
   AppIconButton,
   AppListFrame,
   AppNotice,
@@ -33,6 +35,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; refresh: []; confirm: [models: ModelCandidate[]] }>()
 const { t, n } = useI18n()
+const isMobile = useMobileLayout()
+const mobileFilters = ref(false)
 const view = useURLState(
   ['picker_q', 'picker_source', 'picker_price', 'picker_scope', 'picker_page', 'picker_size'],
   (query) => ({
@@ -261,7 +265,14 @@ useLoadingActivity(() => filtering.value || props.loading)
       size="wide"
       :title="t('modelSelection.title')"
       :description="t('modelSelection.title')"
-      @open-auto-focus.prevent="searchInput?.focus()"
+      @open-auto-focus="
+        (event) => {
+          if (!isMobile) {
+            event.preventDefault()
+            searchInput?.focus()
+          }
+        }
+      "
     >
       <AppDialogHeader
         :title="t('modelSelection.title')"
@@ -281,26 +292,38 @@ useLoadingActivity(() => filtering.value || props.loading)
             type="search"
             @keydown.down="navigate($event)"
           />
-          <div class="modern-model-selection-filters">
-            <AppSelect
-              v-model="source"
-              :label="t('modelSelection.source')"
-              label-hidden
-              :options="sources"
-            />
-            <AppSelect
-              v-model="pricing"
-              :label="t('modelSelection.pricing')"
-              label-hidden
-              :options="prices"
-            />
-            <AppSelect
-              v-model="scope"
-              :label="t('modelSelection.scope')"
-              label-hidden
-              :options="scopes"
-            />
-          </div>
+          <AppFilterSheet
+            v-model:open="mobileFilters"
+            :mobile="isMobile"
+            :title="t('ui.mobile.filters')"
+          >
+            <div class="modern-model-selection-filters">
+              <AppSelect
+                v-model="source"
+                :label="t('modelSelection.source')"
+                :label-hidden="!isMobile"
+                :options="sources"
+              />
+              <AppSelect
+                v-model="pricing"
+                :label="t('modelSelection.pricing')"
+                :label-hidden="!isMobile"
+                :options="prices"
+              />
+              <AppSelect
+                v-model="scope"
+                :label="t('modelSelection.scope')"
+                :label-hidden="!isMobile"
+                :options="scopes"
+              />
+            </div>
+          </AppFilterSheet>
+          <AppIconButton
+            v-if="isMobile"
+            :icon="SlidersHorizontal"
+            :label="t('ui.mobile.filters')"
+            @click="mobileFilters = true"
+          />
           <AppIconButton
             :icon="RefreshCw"
             :label="t('modelSelection.refresh')"
@@ -325,12 +348,15 @@ useLoadingActivity(() => filtering.value || props.loading)
                   :model-value="allSelected"
                   :indeterminate="selectedVisible > 0 && !allSelected"
                   :label="t('modelSelection.selectFiltered', { count: n(eligible.length) })"
-                  label-hidden
+                  :label-hidden="!isMobile"
                   :disabled="loading || !eligible.length"
                   @update:model-value="toggleFiltered"
                 />
               </AppTooltip>
-              <div class="modern-model-selection-columns modern-model-selection-labels">
+              <div
+                v-if="!isMobile"
+                class="modern-model-selection-columns modern-model-selection-labels"
+              >
                 <span>{{ t('modelSelection.model') }}</span>
                 <span>{{ t('modelSelection.source') }}</span>
                 <span>{{ t('modelSelection.pricing') }}</span>
@@ -357,7 +383,7 @@ useLoadingActivity(() => filtering.value || props.loading)
           >
             <span class="modern-model-selection-columns">
               <span class="modern-model-selection-identity">
-                <AppOverflowText :text="candidate.id" />
+                <AppOverflowText :text="candidate.id" wrap-on-mobile />
                 <small v-if="current.has(candidate.id)">{{ t('modelSelection.added') }}</small>
                 <small v-else-if="candidate.name !== candidate.id"
                   ><AppOverflowText :text="candidate.name"
@@ -395,7 +421,7 @@ useLoadingActivity(() => filtering.value || props.loading)
           />
         </div>
         <div class="modern-model-selection-actions">
-          <AppButton @click="emit('close')">{{ t('ui.cancel') }}</AppButton>
+          <AppButton v-if="!isMobile" @click="emit('close')">{{ t('ui.cancel') }}</AppButton>
           <AppButton
             class="modern-model-selection-confirm"
             variant="primary"
@@ -499,16 +525,21 @@ useLoadingActivity(() => filtering.value || props.loading)
   min-width: 112px;
 }
 @media (max-width: 760px) {
+  .modern-model-selection {
+    flex: 1;
+    height: auto;
+    padding-inline: var(--modern-space-4);
+  }
   .modern-model-selection-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
   .modern-model-selection-filters {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--modern-space-4);
     width: auto;
   }
   .modern-model-selection-columns {
-    grid-template-columns: minmax(0, 1fr) 112px;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--modern-space-2);
   }
   .modern-model-selection-sources {
@@ -517,6 +548,19 @@ useLoadingActivity(() => filtering.value || props.loading)
   }
   .modern-model-selection-labels > :not(:first-child) {
     display: none;
+  }
+  .modern-model-selection-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--modern-space-2);
+    padding: var(--modern-space-3) var(--modern-space-4);
+  }
+  .modern-model-selection-summary {
+    min-width: 0;
+    justify-content: space-between;
+  }
+  .modern-model-selection-actions {
+    margin: 0;
   }
 }
 </style>

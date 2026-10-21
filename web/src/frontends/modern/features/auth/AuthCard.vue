@@ -26,4 +26,9 @@ defineProps<{ title: string; description?: string }>()
     padding: var(--modern-space-6);
   }
 }
+@media (max-width: 420px) {
+  .modern-auth-card {
+    padding-inline: var(--modern-space-4);
+  }
+}
 </style>
