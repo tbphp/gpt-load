@@ -15,7 +15,7 @@ func ResolveAntigravityAPIEndpoints(apiRoot string) (AntigravityAPIEndpoints, er
 	endpoints := AntigravityAPIEndpoints{
 		ExecutionBase:        antigravityExecutionBase,
 		FetchModelsURL:       antigravityExecutionBase + "/" + antigravityauth.APIVersion + ":fetchAvailableModels",
-		LoadCodeAssistURL:    antigravityauth.APIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist",
+		LoadCodeAssistURL:    antigravityauth.DailyAPIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist",
 		RetrieveUserQuotaURL: antigravityauth.DailyAPIEndpoint + "/" + antigravityauth.APIVersion + ":retrieveUserQuotaSummary",
 	}
 	for _, endpoint := range []*string{&endpoints.ExecutionBase, &endpoints.FetchModelsURL, &endpoints.LoadCodeAssistURL, &endpoints.RetrieveUserQuotaURL} {

@@ -180,7 +180,7 @@ func fetchAntigravityPlan(
 ) (string, string, *AntigravityCredit, bool, error) {
 	endpoint := strings.TrimSpace(options.LoadCodeAssistURL)
 	if endpoint == "" {
-		endpoint = antigravityauth.APIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist"
+		endpoint = antigravityauth.DailyAPIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist"
 	}
 	payload, err := json.Marshal(map[string]any{"metadata": map[string]string{"ideType": "ANTIGRAVITY"}})
 	if err != nil {

@@ -30,7 +30,7 @@ func (r *Runtime) compatibleResponsesRequest(ctx *schemas.BifrostContext, reques
 	return converted, nil
 }
 
-// 对齐锁定 SDK core/v1.13.0 的 prepareResponsesRequest 中适用于 Compatible 的准备。
+// 对齐锁定 SDK core/v1.13.1 的 prepareResponsesRequest 中适用于 Compatible 的准备。
 // 该渠道没有 SDK 自动缓存注入或 Anthropic 私有计费头元数据；转换入口恢复后可删除此衔接。
 func prepareCompatibleChatRequest(ctx *schemas.BifrostContext, request *schemas.BifrostResponsesRequest) (*schemas.BifrostChatRequest, map[string]schemas.NamespaceToolAlias, *schemas.BifrostError) {
 	ctx.SetValue(schemas.BifrostContextKeyBaseProviderType, schemas.OpenAI)

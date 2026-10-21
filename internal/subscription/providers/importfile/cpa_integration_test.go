@@ -27,7 +27,7 @@ func TestCPAProjectionPreservesVerifiedProviderImport(t *testing.T) {
 		switch r.URL.String() {
 		case "https://www.googleapis.com/oauth2/v2/userinfo?alt=json":
 			body = `{"id":"account","email":"sample@example.invalid","verified_email":true}`
-		case "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
+		case "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
 			body = `{"projectId":"verified-project"}`
 		case "https://auth.x.ai/.well-known/openid-configuration":
 			body = `{"device_authorization_endpoint":"https://auth.x.ai/oauth2/device/code","token_endpoint":"https://auth.x.ai/oauth2/token","userinfo_endpoint":"https://auth.x.ai/userinfo"}`

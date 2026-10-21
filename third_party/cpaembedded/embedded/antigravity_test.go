@@ -129,14 +129,14 @@ func TestDiscoverAntigravityProjectUsesCPAControlPlaneHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/load":
-			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 darwin/arm64") ||
+			if request.Header.Get("Accept") != "" || request.Header.Get("User-Agent") != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)") ||
 				request.Header.Get("X-Goog-Api-Client") != "" {
 				t.Fatalf("loadCodeAssist headers = %#v", request.Header)
 			}
 			writer.Header().Set("Content-Type", "application/json")
 			_, _ = writer.Write([]byte(`{"allowedTiers":[{"id":"free-tier","isDefault":true}]}`))
 		case "/onboard":
-			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityOnboardUserUserAgent("antigravity/hub/2.24.0 darwin/arm64") ||
+			if request.Header.Get("Accept") != "*/*" || request.Header.Get("User-Agent") != misc.AntigravityOnboardUserUserAgent("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)") ||
 				request.Header.Get("X-Goog-Api-Client") != misc.AntigravityGoogAPIClientUA {
 				t.Fatalf("onboardUser headers = %#v", request.Header)
 			}
@@ -144,7 +144,7 @@ func TestDiscoverAntigravityProjectUsesCPAControlPlaneHeaders(t *testing.T) {
 			err := json.NewDecoder(request.Body).Decode(&body)
 			metadata, metadataOK := body["metadata"].(map[string]any)
 			if err != nil || body["tier_id"] != "free-tier" ||
-				!metadataOK || metadata["ide_version"] != misc.AntigravityVersionFromUserAgent(misc.AntigravityOnboardUserUserAgent("antigravity/hub/2.24.0 darwin/arm64")) {
+				!metadataOK || metadata["ide_version"] != misc.AntigravityVersionFromUserAgent(misc.AntigravityOnboardUserUserAgent("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)")) {
 				t.Fatalf("onboardUser body = %#v, error = %v", body, err)
 			}
 			writer.Header().Set("Content-Type", "application/json")
@@ -485,6 +485,29 @@ func TestDiscoverAntigravityModelsRejectsExcessiveModelMap(t *testing.T) {
 	}, AntigravityOptions{FetchModelsURL: server.URL, HTTPClient: server.Client()})
 	if err == nil {
 		t.Fatal("DiscoverAntigravityModels() error = nil, want oversized live model map rejection")
+	}
+}
+
+func TestFetchAntigravityPlanUsesDefaultHubRequest(t *testing.T) {
+	const userAgent = "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)"
+	calls := 0
+	client := &http.Client{Transport: claudeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.Method != http.MethodPost || request.URL.String() != "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
+			t.Errorf("plan request = %s %s", request.Method, request.URL)
+		}
+		if request.Header.Get("User-Agent") != userAgent || request.Header.Get("Accept") != "" ||
+			request.Header.Get("Authorization") != "Bearer access-secret" || request.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("plan request headers = %#v", request.Header)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"currentTier":{"id":"free-tier"}}`)), Request: request,
+		}, nil
+	})}
+	plan, _, _, _, err := fetchAntigravityPlan(t.Context(), AntigravityCredential{AccessToken: "access-secret"}, AntigravityOptions{HTTPClient: client})
+	if err != nil || plan != "free-tier" || calls != 1 {
+		t.Fatalf("plan/error/calls = %q/%v/%d", plan, err, calls)
 	}
 }
 
@@ -905,7 +928,7 @@ func TestAntigravityExecutionOnlyBridgeNeverRefreshesPreparedNearExpiryToken(t *
 
 func TestAntigravityExecutionOnlyBridgeConvertsDeclaredUnaryProtocols(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 darwin/arm64") {
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)") {
 			t.Errorf("execution identity = %q; want the pinned client version", got)
 		}
 		if request.URL.Path != "/v1internal:generateContent" {
@@ -962,7 +985,7 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredUnaryProtocols(t *testing
 
 func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 darwin/arm64") {
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)") {
 			t.Errorf("stream identity = %q; want the pinned client version", got)
 		}
 		if request.URL.Path != "/v1internal:streamGenerateContent" {
@@ -1029,7 +1052,7 @@ func TestAntigravityExecutionOnlyBridgeConvertsDeclaredStreamingProtocols(t *tes
 func TestAntigravityExecutionOnlyBridgeCountsTokensUpstreamForDeclaredProtocols(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 darwin/arm64") {
+		if got := request.Header.Get("User-Agent"); got != misc.AntigravityRequestUserAgent("antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)") {
 			t.Errorf("token-count identity = %q; want the pinned client version", got)
 		}
 		calls++

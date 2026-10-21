@@ -388,7 +388,7 @@ func discoverAntigravityProject(
 ) (string, map[string]any, error) {
 	endpoint := strings.TrimSpace(options.LoadCodeAssistURL)
 	if endpoint == "" {
-		endpoint = antigravityauth.APIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist"
+		endpoint = antigravityauth.DailyAPIEndpoint + "/" + antigravityauth.APIVersion + ":loadCodeAssist"
 	}
 	body, err := json.Marshal(map[string]any{"metadata": map[string]string{"ideType": "ANTIGRAVITY"}})
 	if err != nil {
@@ -442,7 +442,7 @@ func fetchAntigravityJSON(
 	request.Header.Set("User-Agent", misc.AntigravityRequestUserAgent(antigravityUserAgent))
 	switch operation {
 	case "loadCodeAssist":
-		request.Header.Set("Accept", "*/*")
+		request.Header.Del("Accept")
 	case "onboardUser":
 		request.Header.Set("Accept", "*/*")
 		request.Header.Set("User-Agent", misc.AntigravityOnboardUserUserAgent(antigravityUserAgent))
