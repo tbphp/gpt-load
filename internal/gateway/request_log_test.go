@@ -743,6 +743,53 @@ func TestRequestRecorderNon2xxUsesReportedUsageOnly(t *testing.T) {
 	}
 }
 
+func TestRequestRecorderFailureRetainsSelectedAttemptUsage(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		for _, excluded := range []bool{false, true} {
+			t.Run(fmt.Sprintf("canceled=%t/excluded=%t", canceled, excluded), func(t *testing.T) {
+				sink := &recordingRequestLogSink{}
+				recorder := newRequestRecorder(sink, "req-failed-usage", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
+				want := usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{UncachedInput: 6, Output: 2}}
+				recorder.freezeNextAttemptPricing(frozenAttemptPricing{
+					channelID: string(channel.OpenAI), upstreamModel: "gpt-4o",
+					table: mustGatewayPriceTable(t, 1_000_000_000, true), applicable: !excluded, metadataSet: true,
+					priceMultipliers: pricing.PriceMultipliers{Group: pricing.DefaultPriceMultiplier, AccessKey: pricing.DefaultPriceMultiplier},
+				})
+				first := recorder.appendAttempt(requestLogSelection(11, 21, "first"), UpstreamResult{
+					DispatchState: execution.DispatchMaybeSent, Usage: want,
+				}, telemetry.FailureCategoryAmbiguous, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+				recorder.appendAttempt(requestLogSelection(12, 22, "second"), UpstreamResult{
+					DispatchState: execution.DispatchNotSent,
+				}, telemetry.FailureCategoryAmbiguous, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+				if canceled {
+					ctx, cancel := context.WithCancel(t.Context())
+					cancel()
+					recorder.completeCanceled(ctx, 0, first)
+				} else {
+					recorder.completeTransport(reasonUpstreamConnect, "gpt-4o", first)
+				}
+				recorder.emit()
+
+				wantPricing := telemetry.PricingObservation{
+					UpstreamModel: "gpt-4o", CostState: string(pricing.CostStatePriced),
+					PricingCompleteness: string(pricing.CompletenessPartial), EstimatedCostNanoUSD: 8_000,
+				}
+				if excluded {
+					want = usage.Result{State: usage.StateNotApplicable}
+					wantPricing.CostState = string(pricing.CostStateNotApplicable)
+					wantPricing.PricingCompleteness = string(pricing.CompletenessNotApplicable)
+					wantPricing.EstimatedCostNanoUSD = 0
+				}
+				got := sink.events[0].Usage
+				if got.Result != want || got.GroupID != 11 || got.CredentialID != 21 || got.AttemptSequence != 1 ||
+					withoutPricingReceipt(got.Pricing) != wantPricing {
+					t.Fatalf("usage = %+v, want result=%+v pricing=%+v", got, want, wantPricing)
+				}
+			})
+		}
+	}
+}
+
 func TestOpenAIImagesRequestLogUsesFixedErrorsAndMissingUnpricedUsage(t *testing.T) {
 	t.Parallel()
 
