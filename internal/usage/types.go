@@ -119,11 +119,27 @@ func (d *Diagnostics) Merge(other Diagnostics) {
 	}
 }
 
+// ModelTokens is the usage of one billed pass that ran on a model other than the
+// request model (for example an Anthropic advisor sub-inference), priced at that
+// model's own price row.
+type ModelTokens struct {
+	Model  string
+	Tokens Tokens
+}
+
+// ExtraUsage lists billed passes reported outside the top-level counters. It is
+// held by pointer so that Result stays comparable; nil means there are none.
+type ExtraUsage struct {
+	Passes []ModelTokens `json:"passes"`
+}
+
 // Result is a finalized provider-neutral usage result.
 type Result struct {
 	Tokens      Tokens
 	State       State
 	Diagnostics Diagnostics
+	// Extra holds billed passes that must be priced at their own model's row.
+	Extra *ExtraUsage `json:"extra,omitempty"`
 }
 
 // Patch updates one or more token fields in an accumulator.

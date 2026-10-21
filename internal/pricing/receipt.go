@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // UnmarshalJSON 区分缺省字段与显式 null，并保持历史版本的字段边界。
@@ -83,7 +84,7 @@ func ValidateReceipt(receipt Receipt) error {
 	seen := make(map[string]struct{}, len(receipt.LineItems))
 	total := NanoUSD(0)
 	for _, line := range receipt.LineItems {
-		if _, ok := allowed[line.Code]; !ok {
+		if _, ok := allowed[receiptLineComponent(line.Code)]; !ok {
 			return fmt.Errorf("invalid pricing receipt line code %q", line.Code)
 		}
 		if _, exists := seen[line.Code]; exists {
@@ -135,4 +136,18 @@ func ValidateReceipt(receipt Receipt) error {
 		return fmt.Errorf("pricing receipt total mismatch")
 	}
 	return nil
+}
+
+// receiptLineComponent maps "pass:<model>:<component>" (a pass priced at another model's row) to its component
+// code; any other code is returned unchanged. A pass line without a model maps to the empty, invalid code.
+func receiptLineComponent(code string) string {
+	rest, ok := strings.CutPrefix(code, ExtraLinePrefix)
+	if !ok {
+		return code
+	}
+	index := strings.LastIndex(rest, ":")
+	if index <= 0 {
+		return ""
+	}
+	return rest[index+1:]
 }

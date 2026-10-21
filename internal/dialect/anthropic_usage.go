@@ -29,6 +29,20 @@ func (d *Anthropic) ExtractUsage(body []byte) (usage.Result, error) {
 		}
 	}
 	result, _ := accumulator.Finalize(true)
+	if usageObject != nil {
+		// 非流式响应同样把 iterations 折入：压缩轮次并入请求模型，advisor 轮次按自己的模型计价。
+		compaction, extra, iterationDiagnostics, present := anthropicIterationUsage(usageObject)
+		result.Diagnostics.Merge(iterationDiagnostics)
+		if present {
+			if tokens, ok := addAnthropicUsageTokens(result.Tokens, compaction); ok {
+				result.Tokens = tokens
+				result.Extra = extraUsage(extra)
+			} else {
+				result.Diagnostics.Add(usage.DiagnosticInvalidNumber)
+				result.State = usage.StatePartial
+			}
+		}
+	}
 	return result, nil
 }
 
@@ -67,6 +81,7 @@ type anthropicUsageStreamExtractor struct {
 	cacheWriteFallback bool
 	trusted            anthropicCumulativeUsage
 	compaction         usage.Tokens
+	extra              []usage.ModelTokens
 }
 
 func (e *anthropicUsageStreamExtractor) Observe(payload []byte) error {
@@ -106,6 +121,7 @@ func (e *anthropicUsageStreamExtractor) Finalize() (usage.Result, bool) {
 		result.Diagnostics.Add(usage.DiagnosticInvalidNumber)
 		result.State = usage.StatePartial
 	}
+	result.Extra = extraUsage(e.extra)
 	return result, true
 }
 

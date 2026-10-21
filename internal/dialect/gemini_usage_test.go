@@ -78,11 +78,9 @@ func TestUsageGeminiNonStreamOptionalFieldsAndArithmetic(t *testing.T) {
 			delta:       usageInt64(10),
 		},
 		{
-			name:        "unmapped tool use remains visible through total delta",
-			body:        `{"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":25,"thoughtsTokenCount":5,"toolUsePromptTokenCount":7,"totalTokenCount":137}}`,
-			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
-			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInconsistentTotal},
-			delta:       usageInt64(7),
+			name: "tool use prompt tokens are billed as input and close the total",
+			body: `{"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":25,"thoughtsTokenCount":5,"toolUsePromptTokenCount":7,"totalTokenCount":137}}`,
+			want: usage.Tokens{UncachedInput: 87, CacheRead: 20, Output: 30},
 		},
 	}
 

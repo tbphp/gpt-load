@@ -90,6 +90,9 @@ func geminiUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 	diagnostics.Merge(thoughtsDiagnostics)
 	total, totalDiagnostics := usageInteger(metadata, "totalTokenCount", false)
 	diagnostics.Merge(totalDiagnostics)
+	// toolUsePromptTokenCount (URL context, code execution) is billed as input and sits outside promptTokenCount.
+	toolUse, toolUseDiagnostics := usageInteger(metadata, "toolUsePromptTokenCount", false)
+	diagnostics.Merge(toolUseDiagnostics)
 
 	patch := usage.Patch{Final: final, Diagnostics: diagnostics}
 	cachedValue := usageIntegerValue(cached)
@@ -101,6 +104,14 @@ func geminiUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 		if !ok {
 			uncached = 0
 			patch.Diagnostics.Add(usage.DiagnosticNegativeValue)
+		}
+		if toolUse != nil {
+			withToolUse, ok := usage.CheckedAdd(uncached, usageIntegerValue(toolUse))
+			if ok {
+				uncached = withToolUse
+			} else {
+				patch.Diagnostics.Add(usage.DiagnosticInvalidNumber)
+			}
 		}
 		patch.UncachedInput = &uncached
 	}

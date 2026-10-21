@@ -412,6 +412,7 @@ complete:
 		model = modelObserver.Model
 	}
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
+		usageEvidence = unaryNativeWireUsage(spec, prepared, bodyBytes, usageEvidence)
 		if prepared.mode == channel.RouteConverted && spec.ClientProtocol == protocol.OpenAIImages {
 			var err error
 			bodyBytes, usageEvidence, err = geminiimage.ConvertResponse(bodyBytes)
@@ -585,6 +586,7 @@ func (r *Runtime) executeNativeStream(
 	model := ""
 	var usageEvidence *execution.UsageEvidence
 	var errorBody bytes.Buffer
+	wireUsage := newNativeWireUsage(spec, prepared)
 	firstData := execution.NewFirstResponseSSEObserver(parent)
 	firstEventGate := newNativeFirstSSEEventGate(spec)
 	aliasRewriter := newNativeAliasSSERewriter(spec)
@@ -643,6 +645,8 @@ func (r *Runtime) executeNativeStream(
 					}
 				}
 				modelObserver.FinishSSE()
+				wireUsage.finish()
+				usageEvidence = wireUsage.override(usageEvidence, true)
 				return finishNativeStream(status, headers, requestID, modelObserver.Model, usageEvidence, errorBody.Bytes(), prepared.secrets)
 			}
 			if chunk == nil {
@@ -683,6 +687,7 @@ func (r *Runtime) executeNativeStream(
 					var err error
 					firstData(data)
 					modelObserver.ObserveSSE(data)
+					wireUsage.observeSSE(data)
 					model = modelObserver.Model
 					data, err = firstEventGate.push(data)
 					if err != nil {
@@ -721,6 +726,7 @@ func (r *Runtime) executeNativeStream(
 					cancelCall()
 					return nativeStreamRuntimeFailure(bifrostContext, prepared.secrets, started, status, headers, model, usageEvidence)
 				}
+				chunkUsage = wireUsage.override(chunkUsage, false)
 				if chunkUsage != nil {
 					usageEvidence = cloneUsage(chunkUsage)
 					if !started {
