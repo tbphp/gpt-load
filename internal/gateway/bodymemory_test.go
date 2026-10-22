@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"errors"
 	"io"
 	"net/http"
@@ -388,6 +389,39 @@ func TestAcquireDecodedRequestBodyStopsDecompressionBomb(t *testing.T) {
 	}
 	if handler.bodyMemory.used != 0 {
 		t.Fatalf("used = %d after a refused request; want 0", handler.bodyMemory.used)
+	}
+}
+
+// TestAcquireDecodedRequestBodyReleasesEncodedChargeAfterDecoding 回归：解压完成后压缩前的
+// 数据不再使用，只保留解压体的计费，压缩比低的请求不能一直白占预算。
+func TestAcquireDecodedRequestBodyReleasesEncodedChargeAfterDecoding(t *testing.T) {
+	plain := make([]byte, 5<<20)
+	if _, err := rand.Read(plain); err != nil { // 难压缩，压缩后体积接近原文
+		t.Fatal(err)
+	}
+	encoded := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
+	newRequest := func() *http.Request {
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(encoded))
+		request.ContentLength = int64(len(encoded))
+		return request
+	}
+	handler := &Handler{bodyMemory: newBodyMemoryBudget(16 << 20)}
+
+	body1, release1, err := handler.acquireDecodedRequestBody(newRequest(), contentcoding.Gzip)
+	if err != nil || len(body1) != len(plain) {
+		t.Fatalf("first acquire = len %d, %v; want %d, nil", len(body1), err, len(plain))
+	}
+	if handler.bodyMemory.used != int64(len(body1)) {
+		t.Fatalf("used = %d after decoding; want only the decoded body (%d)", handler.bodyMemory.used, len(body1))
+	}
+	_, release2, err := handler.acquireDecodedRequestBody(newRequest(), contentcoding.Gzip)
+	if err != nil {
+		t.Fatalf("second request: err = %v; want admitted", err)
+	}
+	release1()
+	release2()
+	if handler.bodyMemory.used != 0 {
+		t.Fatalf("used = %d after releasing all; want 0", handler.bodyMemory.used)
 	}
 }
 

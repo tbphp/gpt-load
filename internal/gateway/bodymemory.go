@@ -74,6 +74,14 @@ func (m *bodyMemoryMeter) charge(n int) error {
 	return nil
 }
 
+// shrinkTo returns any charge above n bytes, keeping n charged.
+func (m *bodyMemoryMeter) shrinkTo(n int64) {
+	if excess := m.held - n; excess > 0 {
+		m.budget.release(excess)
+		m.held = n
+	}
+}
+
 func (m *bodyMemoryMeter) release() {
 	m.budget.release(m.held)
 	m.held = 0

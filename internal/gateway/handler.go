@@ -889,6 +889,8 @@ func (handler *Handler) acquireDecodedRequestBody(
 		meter.release()
 		return nil, nil, err
 	}
+	// 解压完成后压缩前的数据不再使用，只保留解压体的计费。
+	meter.shrinkTo(int64(len(body)))
 	return body, meter.release, nil
 }
 
