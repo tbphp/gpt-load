@@ -862,40 +862,34 @@ func (handler *Handler) completeWriteTerminal(
 	recorder.completeDownstreamWrite(selectedStatus)
 }
 
-// acquireDecodedRequestBody reads and decodes the client request body while
-// holding a share of the process-wide in-flight body memory budget. The returned
-// release must be called once the body is no longer needed (it is a no-op when
-// the budget is unlimited). On failure it returns a nil body and nil release; the
-// error is errServerBusy when the budget is exhausted, otherwise the same error
-// readDecodedRequestBody would return.
+// acquireDecodedRequestBody reads and decodes the client request body, charging
+// the bytes it buffers to the process-wide in-flight body memory budget as they
+// arrive. The returned release must be called once the body is no longer needed.
+// On failure it returns a nil body and nil release; the error is errServerBusy
+// when the budget is exhausted, otherwise the same error readDecodedRequestBody
+// would return. The per-request size limit is enforced independently of the
+// budget, so oversized requests are still rejected as too large.
 func (handler *Handler) acquireDecodedRequestBody(
 	request *http.Request,
 	encoding contentcoding.Encoding,
 ) (body []byte, release func(), err error) {
-	granted, ok := handler.bodyMemory.reserve(maxRequestBodyBytes)
-	if !ok {
-		return nil, nil, errServerBusy
+	meter := &bodyMemoryMeter{budget: handler.bodyMemory}
+	var charge func(int) error
+	if handler.bodyMemory != nil {
+		charge = meter.charge
 	}
-	held := granted
-	release = func() { handler.bodyMemory.adjust(-held) }
-
-	// Bound both the encoded and decoded body by the granted share so a single
-	// request can never allocate more than the remaining budget.
-	body, err = readDecodedRequestBody(request, encoding, granted, granted)
+	body, err = readDecodedRequestBodyMetered(
+		request,
+		encoding,
+		maxRequestBodyBytes,
+		maxRequestBodyBytes,
+		charge,
+	)
 	if err != nil {
-		if errors.Is(err, errRequestTooLarge) && granted < maxRequestBodyBytes {
-			// Fits the per-request ceiling but not the remaining in-flight
-			// budget; surface it as transient backpressure, not a client error.
-			err = errServerBusy
-		}
-		release()
+		meter.release()
 		return nil, nil, err
 	}
-
-	// Shrink the reservation to the body actually held for the request lifetime.
-	handler.bodyMemory.adjust(int64(len(body)) - held)
-	held = int64(len(body))
-	return body, release, nil
+	return body, meter.release, nil
 }
 
 func readDecodedRequestBody(
@@ -903,6 +897,21 @@ func readDecodedRequestBody(
 	encoding contentcoding.Encoding,
 	encodedLimit int64,
 	decodedLimit int64,
+) ([]byte, error) {
+	return readDecodedRequestBodyMetered(request, encoding, encodedLimit, decodedLimit, nil)
+}
+
+// readDecodedRequestBodyMetered reads and decodes the request body, reporting the
+// bytes it keeps to charge as they are buffered: encoded bytes while reading and,
+// for compressed bodies, decoded bytes while decoding. A charge error stops
+// reading and is returned so errors.Is can match it. A nil charge disables
+// metering.
+func readDecodedRequestBodyMetered(
+	request *http.Request,
+	encoding contentcoding.Encoding,
+	encodedLimit int64,
+	decodedLimit int64,
+	charge func(int) error,
 ) ([]byte, error) {
 	if request == nil || request.Body == nil {
 		return nil, fmt.Errorf("request body is required")
@@ -917,8 +926,11 @@ func readDecodedRequestBody(
 		return nil, errRequestTooLarge
 	}
 	reader := io.Reader(request.Body)
+	if charge != nil {
+		reader = &meteredBodyReader{reader: reader, charge: charge, remaining: encodedLimit}
+	}
 	if encodedLimit < math.MaxInt64 {
-		reader = io.LimitReader(request.Body, encodedLimit+1)
+		reader = io.LimitReader(reader, encodedLimit+1)
 	}
 	encoded, err := io.ReadAll(reader)
 	if err != nil {
@@ -927,7 +939,14 @@ func readDecodedRequestBody(
 	if int64(len(encoded)) > encodedLimit {
 		return nil, errRequestTooLarge
 	}
-	body, err := contentcoding.DecodeLimited(encoding, encoded, decodedLimit)
+	if encoding == contentcoding.Identity {
+		// identity 编码直接使用读到的缓冲区，不再复制第二份。
+		if int64(len(encoded)) > decodedLimit {
+			return nil, errRequestTooLarge
+		}
+		return encoded, nil
+	}
+	body, err := contentcoding.DecodeLimitedMetered(encoding, encoded, decodedLimit, charge)
 	if errors.Is(err, contentcoding.ErrDecodedBodyTooLarge) {
 		return nil, errRequestTooLarge
 	}

@@ -219,6 +219,81 @@ func TestZstdHTTPWindow(t *testing.T) {
 	})
 }
 
+type encodedFixture struct {
+	name     string
+	encoding Encoding
+	encoded  []byte
+}
+
+func encodedFixtures(t *testing.T, plain []byte) []encodedFixture {
+	t.Helper()
+	return []encodedFixture{
+		{name: "identity", encoding: Identity, encoded: plain},
+		{name: "gzip", encoding: Gzip, encoded: encodeGzip(t, plain)},
+		{name: "brotli", encoding: Brotli, encoded: encodeBrotli(t, plain)},
+		{name: "deflate", encoding: Deflate, encoded: encodeZlib(t, plain)},
+		{name: "zstd", encoding: Zstd, encoded: encodeZstd(t, plain, ZstdHTTPMaxWindowBytes)},
+	}
+}
+
+func TestDecodeLimitedMeteredReportsDecodedBytes(t *testing.T) {
+	plain := bytes.Repeat([]byte("metered content coding "), 8<<10) // 跨越多次读取
+	for _, tt := range encodedFixtures(t, plain) {
+		t.Run(tt.name, func(t *testing.T) {
+			charged := 0
+			got, err := DecodeLimitedMetered(tt.encoding, tt.encoded, int64(len(plain)), func(n int) error {
+				charged += n
+				return nil
+			})
+			if err != nil || !bytes.Equal(got, plain) {
+				t.Fatalf("DecodeLimitedMetered(%q) = %d bytes, %v", tt.encoding, len(got), err)
+			}
+			if charged != len(plain) {
+				t.Fatalf("charged %d bytes; want %d", charged, len(plain))
+			}
+		})
+	}
+}
+
+func TestDecodeLimitedMeteredStopsOnChargeError(t *testing.T) {
+	errBudget := errors.New("budget exhausted")
+	plain := bytes.Repeat([]byte("metered content coding "), 8<<10)
+	for _, tt := range encodedFixtures(t, plain) {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			got, err := DecodeLimitedMetered(tt.encoding, tt.encoded, int64(len(plain)), func(int) error {
+				calls++
+				return errBudget
+			})
+			if err != errBudget || got != nil {
+				t.Fatalf("DecodeLimitedMetered(%q) = %d bytes, %v; want the charge error unchanged", tt.encoding, len(got), err)
+			}
+			if calls != 1 {
+				t.Fatalf("charge called %d times; decoding must stop at the first error", calls)
+			}
+		})
+	}
+}
+
+func TestDecodeLimitedMeteredDoesNotChargeOverflowProbe(t *testing.T) {
+	plain := []byte("12345")
+	for _, tt := range encodedFixtures(t, plain) {
+		t.Run(tt.name, func(t *testing.T) {
+			charged := 0
+			_, err := DecodeLimitedMetered(tt.encoding, tt.encoded, int64(len(plain)-1), func(n int) error {
+				charged += n
+				return nil
+			})
+			if !errors.Is(err, ErrDecodedBodyTooLarge) {
+				t.Fatalf("DecodeLimitedMetered(%q) error = %v; want decoded body too large", tt.encoding, err)
+			}
+			if charged > len(plain)-1 {
+				t.Fatalf("charged %d bytes; the byte read past the limit must not be charged", charged)
+			}
+		})
+	}
+}
+
 func encodeZstdWithDeclaredWindow(t *testing.T, plain []byte, window int) []byte {
 	t.Helper()
 	encoded := encodeZstd(t, plain, window)

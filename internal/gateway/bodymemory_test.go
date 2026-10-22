@@ -4,13 +4,97 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"gpt-load/internal/platform/contentcoding"
 )
+
+// pausedUpload 构造一个发出 prefix 后暂停上传的请求；返回的函数结束上传。
+func pausedUpload(contentLength int64, prefix string) (*http.Request, func()) {
+	reader, writer := io.Pipe()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", reader)
+	request.ContentLength = contentLength
+	go func() { _, _ = writer.Write([]byte(prefix)) }()
+	return request, func() { _ = writer.Close() }
+}
+
+func waitBodyMemoryCharged(t *testing.T, budget *bodyMemoryBudget) int64 {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		budget.mu.Lock()
+		used := budget.used
+		budget.mu.Unlock()
+		if used > 0 {
+			return used
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("paused upload never charged the budget")
+	return 0
+}
+
+// TestAcquireDecodedRequestBodyPausedUploadHoldsOnlyReceivedBytes 回归：暂停或慢速的上传
+// 只占用它已经发来的字节，不能占住整个预算让其他请求返回 503。
+func TestAcquireDecodedRequestBodyPausedUploadHoldsOnlyReceivedBytes(t *testing.T) {
+	handler := &Handler{bodyMemory: newBodyMemoryBudget(128 << 20)}
+	const prefix = `{"model":"x","messages":[`
+	paused, finish := pausedUpload(65, prefix)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, release, err := handler.acquireDecodedRequestBody(paused, contentcoding.Identity)
+		if err == nil {
+			release()
+		}
+	}()
+
+	if used := waitBodyMemoryCharged(t, handler.bodyMemory); used != int64(len(prefix)) {
+		t.Errorf("paused upload holds %d bytes; want only the %d bytes received", used, len(prefix))
+	}
+
+	normal := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"x"}`))
+	normal.ContentLength = 13
+	body, release, err := handler.acquireDecodedRequestBody(normal, contentcoding.Identity)
+	if err != nil {
+		t.Errorf("normal request while another upload is paused: err = %v; want admitted", err)
+	} else {
+		if string(body) != `{"model":"x"}` {
+			t.Errorf("body = %q", body)
+		}
+		release()
+	}
+
+	finish()
+	<-done
+	if handler.bodyMemory.used != 0 {
+		t.Fatalf("used = %d after all requests finished; want 0", handler.bodyMemory.used)
+	}
+}
+
+// TestAcquireDecodedRequestBodyOversizedContentLengthIsTooLarge 回归：超过单请求上限的
+// 请求无论预算是否紧张都返回 413，不能变成可重试的 503。
+func TestAcquireDecodedRequestBodyOversizedContentLengthIsTooLarge(t *testing.T) {
+	handler := &Handler{bodyMemory: newBodyMemoryBudget(128 << 20)}
+	handler.bodyMemory.used = 1 // 其他在途请求已占用 1 字节
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("x"))
+	request.ContentLength = maxRequestBodyBytes + 1
+	_, release, err := handler.acquireDecodedRequestBody(request, contentcoding.Identity)
+	if !errors.Is(err, errRequestTooLarge) || release != nil {
+		t.Fatalf("err = %v, release!=nil=%t; want errRequestTooLarge", err, release != nil)
+	}
+	if handler.bodyMemory.used != 1 {
+		t.Fatalf("used = %d; a rejected request must not keep a charge", handler.bodyMemory.used)
+	}
+}
 
 func gzipRequest(t *testing.T, decodedBytes int) *http.Request {
 	t.Helper()
@@ -41,50 +125,53 @@ func TestNewBodyMemoryBudgetDisabledForNonPositive(t *testing.T) {
 
 func TestBodyMemoryBudgetNilIsUnlimited(t *testing.T) {
 	var budget *bodyMemoryBudget
-	granted, ok := budget.reserve(123)
-	if !ok || granted != 123 {
-		t.Fatalf("nil.reserve(123) = %d, %v; want 123, true", granted, ok)
+	if !budget.tryCharge(1 << 62) {
+		t.Fatal("nil budget must accept any charge")
 	}
-	budget.adjust(-5) // must not panic
+	budget.release(5) // must not panic
 }
 
-func TestBodyMemoryBudgetGrantsUpToRemaining(t *testing.T) {
+func TestBodyMemoryBudgetChargeAndRelease(t *testing.T) {
 	budget := newBodyMemoryBudget(100)
-
-	granted, ok := budget.reserve(60)
-	if !ok || granted != 60 {
-		t.Fatalf("reserve(60) = %d, %v; want 60, true", granted, ok)
+	if !budget.tryCharge(60) {
+		t.Fatal("tryCharge(60) should fit")
 	}
-	// Only 40 left: a larger request is granted the remainder, not refused.
-	granted, ok = budget.reserve(60)
-	if !ok || granted != 40 {
-		t.Fatalf("reserve(60) = %d, %v; want 40, true", granted, ok)
+	if budget.tryCharge(41) {
+		t.Fatal("tryCharge(41) must not exceed the budget")
 	}
-	// Exhausted.
-	granted, ok = budget.reserve(1)
-	if ok || granted != 0 {
-		t.Fatalf("reserve(1) = %d, %v; want 0, false", granted, ok)
+	if !budget.tryCharge(40) {
+		t.Fatal("tryCharge(40) should exactly fill the budget")
 	}
-}
-
-func TestBodyMemoryBudgetAdjustReleasesAndShrinks(t *testing.T) {
-	budget := newBodyMemoryBudget(100)
-	if _, ok := budget.reserve(100); !ok {
-		t.Fatal("reserve(100) should succeed")
+	if budget.tryCharge(1) {
+		t.Fatal("tryCharge(1) must fail when full")
 	}
-	if _, ok := budget.reserve(1); ok {
-		t.Fatal("reserve(1) should fail when full")
-	}
-	// Shrink the held amount from 100 to 10 (release 90).
-	budget.adjust(10 - 100)
-	granted, ok := budget.reserve(80)
-	if !ok || granted != 80 {
-		t.Fatalf("reserve(80) after shrink = %d, %v; want 80, true", granted, ok)
+	budget.release(50)
+	if !budget.tryCharge(50) {
+		t.Fatal("released bytes should be chargeable again")
 	}
 	// Over-release must clamp at zero, never go negative.
-	budget.adjust(-1 << 30)
+	budget.release(1 << 30)
 	if budget.used != 0 {
 		t.Fatalf("used = %d after over-release; want 0", budget.used)
+	}
+}
+
+func TestBodyMemoryMeterReleasesEverythingItCharged(t *testing.T) {
+	budget := newBodyMemoryBudget(100)
+	meter := &bodyMemoryMeter{budget: budget}
+	if err := meter.charge(30); err != nil {
+		t.Fatal(err)
+	}
+	if err := meter.charge(30); err != nil {
+		t.Fatal(err)
+	}
+	if err := meter.charge(41); !errors.Is(err, errServerBusy) {
+		t.Fatalf("charge past the budget = %v; want errServerBusy", err)
+	}
+	meter.release()
+	meter.release() // 重复释放不能多退
+	if budget.used != 0 {
+		t.Fatalf("used = %d after release; want 0", budget.used)
 	}
 }
 
@@ -97,8 +184,7 @@ func TestBodyMemoryBudgetConcurrentNeverExceedsMax(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 200; j++ {
-				granted, ok := budget.reserve(4 << 20)
-				if !ok {
+				if !budget.tryCharge(4 << 20) {
 					continue
 				}
 				budget.mu.Lock()
@@ -108,7 +194,7 @@ func TestBodyMemoryBudgetConcurrentNeverExceedsMax(t *testing.T) {
 					return
 				}
 				budget.mu.Unlock()
-				budget.adjust(-granted)
+				budget.release(4 << 20)
 			}
 		}()
 	}
@@ -122,6 +208,109 @@ func TestDefaultBodyMemoryBudgetLeavesRoomForMaxRequest(t *testing.T) {
 	budget := defaultBodyMemoryBudgetBytes()
 	if budget < maxRequestBodyBytes {
 		t.Fatalf("default budget = %d; want >= %d (one max request)", budget, maxRequestBodyBytes)
+	}
+}
+
+// TestDetectMemoryLimitBytesResolvesProcessCgroup 回归：内存上限要按进程实际所在的
+// cgroup 及其上级组读取，不能只看挂载根目录（host cgroupns、systemd MemoryMax 等场景）。
+func TestDetectMemoryLimitBytesResolvesProcessCgroup(t *testing.T) {
+	const hostMemInfo = "MemTotal:       16777216 kB\n"
+	const host = int64(16 << 30)
+	tests := []struct {
+		name  string
+		files map[string]string
+		want  int64
+	}{
+		{
+			name: "v2 private namespace",
+			files: map[string]string{
+				"proc/self/cgroup":         "0::/",
+				"sys/fs/cgroup/memory.max": "536870912",
+			},
+			want: 512 << 20,
+		},
+		{
+			name: "v2 host namespace",
+			files: map[string]string{
+				"proc/self/cgroup":                    "0::/docker/abc",
+				"sys/fs/cgroup/memory.max":            "max",
+				"sys/fs/cgroup/docker/memory.max":     "max",
+				"sys/fs/cgroup/docker/abc/memory.max": "536870912",
+			},
+			want: 512 << 20,
+		},
+		{
+			name: "v2 limit on an ancestor",
+			files: map[string]string{
+				"proc/self/cgroup": "0::/system.slice/gpt-load.service",
+				"sys/fs/cgroup/system.slice/gpt-load.service/memory.max": "max",
+				"sys/fs/cgroup/system.slice/memory.max":                  "1073741824",
+			},
+			want: 1 << 30,
+		},
+		{
+			name: "v1 container subtree mounted at the controller root",
+			files: map[string]string{
+				"proc/self/cgroup":                           "11:memory:/docker/abc\n1:name=systemd:/docker/abc",
+				"sys/fs/cgroup/memory/memory.limit_in_bytes": "536870912",
+			},
+			want: 512 << 20,
+		},
+		{
+			name: "v1 native service",
+			files: map[string]string{
+				"proc/self/cgroup":                                                  "11:memory:/system.slice/x.service",
+				"sys/fs/cgroup/memory/memory.limit_in_bytes":                        "9223372036854771712",
+				"sys/fs/cgroup/memory/system.slice/x.service/memory.limit_in_bytes": "268435456",
+			},
+			want: 256 << 20,
+		},
+		{
+			name: "group outside the namespace only consults the mount root",
+			files: map[string]string{
+				"proc/self/cgroup":                 "0::/../escaped",
+				"sys/fs/cgroup/memory.max":         "max",
+				"sys/fs/cgroup/escaped/memory.max": "1048576",
+			},
+			want: host,
+		},
+		{
+			name: "no cgroup limit uses host memory",
+			files: map[string]string{
+				"proc/self/cgroup":         "0::/",
+				"sys/fs/cgroup/memory.max": "max",
+			},
+			want: host,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFakeFile(t, root, "proc/meminfo", hostMemInfo)
+			for name, content := range tt.files {
+				writeFakeFile(t, root, name, content)
+			}
+			if got := detectMemoryLimitBytesAt(root); got != tt.want {
+				t.Fatalf("detectMemoryLimitBytesAt() = %d MiB; want %d MiB", got>>20, tt.want>>20)
+			}
+		})
+	}
+
+	t.Run("nothing detectable", func(t *testing.T) {
+		if got := detectMemoryLimitBytesAt(t.TempDir()); got != 0 {
+			t.Fatalf("detectMemoryLimitBytesAt() = %d; want 0", got)
+		}
+	})
+}
+
+func writeFakeFile(t *testing.T, root, name, content string) {
+	t.Helper()
+	full := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -165,8 +354,8 @@ func TestAcquireDecodedRequestBodyBoundsConcurrentInFlight(t *testing.T) {
 		t.Fatalf("second acquire err = %v; want nil", err)
 	}
 
-	// 16MB held, 4MB left: an 8MB body cannot fit and must be refused as busy,
-	// never partially decoded and never pushing aggregate memory past the budget.
+	// About 16MB held, 4MB left: an 8MB body cannot fit and must be refused as
+	// busy without pushing aggregate memory past the budget.
 	_, release3, err := handler.acquireDecodedRequestBody(gzipRequest(t, bodySize), contentcoding.Gzip)
 	if !errors.Is(err, errServerBusy) || release3 != nil {
 		t.Fatalf("third acquire = %v, release!=nil=%t; want errServerBusy, nil", err, release3 != nil)
@@ -187,6 +376,58 @@ func TestAcquireDecodedRequestBodyBoundsConcurrentInFlight(t *testing.T) {
 	if handler.bodyMemory.used != 0 {
 		t.Fatalf("used = %d after releasing all; want 0", handler.bodyMemory.used)
 	}
+}
+
+// TestAcquireDecodedRequestBodyStopsDecompressionBomb 回归：解码出的数据边解边计费，
+// 一个压缩体膨胀超过剩余预算时立即停止解码并返回 503，且不留下任何计费。
+func TestAcquireDecodedRequestBodyStopsDecompressionBomb(t *testing.T) {
+	handler := &Handler{bodyMemory: newBodyMemoryBudget(20 << 20)}
+	_, release, err := handler.acquireDecodedRequestBody(gzipRequest(t, 100<<20), contentcoding.Gzip)
+	if !errors.Is(err, errServerBusy) || release != nil {
+		t.Fatalf("err = %v, release!=nil=%t; want errServerBusy", err, release != nil)
+	}
+	if handler.bodyMemory.used != 0 {
+		t.Fatalf("used = %d after a refused request; want 0", handler.bodyMemory.used)
+	}
+}
+
+// TestAcquireDecodedRequestBodyChargesIdentityOnce 回归：identity 请求体只计一份。
+func TestAcquireDecodedRequestBodyChargesIdentityOnce(t *testing.T) {
+	const size = 1 << 20
+	handler := &Handler{bodyMemory: newBodyMemoryBudget(128 << 20)}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(bytes.Repeat([]byte("A"), size)))
+	request.ContentLength = size
+	body, release, err := handler.acquireDecodedRequestBody(request, contentcoding.Identity)
+	if err != nil || len(body) != size {
+		t.Fatalf("acquire = len %d, %v; want %d, nil", len(body), err, size)
+	}
+	if handler.bodyMemory.used != size {
+		t.Fatalf("used = %d; want %d (one copy)", handler.bodyMemory.used, size)
+	}
+	release()
+}
+
+// TestReadDecodedRequestBodyMeteredOverflowIsTooLarge 回归：为判断超限而多读的字节不计费，
+// 预算恰好等于单请求上限时，超限请求返回 413 而不是 503。
+func TestReadDecodedRequestBodyMeteredOverflowIsTooLarge(t *testing.T) {
+	t.Run("identity without content length", func(t *testing.T) {
+		meter := &bodyMemoryMeter{budget: newBodyMemoryBudget(4)}
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("12345"))
+		request.ContentLength = -1
+		_, err := readDecodedRequestBodyMetered(request, contentcoding.Identity, 4, 4, meter.charge)
+		if !errors.Is(err, errRequestTooLarge) {
+			t.Fatalf("err = %v; want errRequestTooLarge", err)
+		}
+	})
+	t.Run("gzip decoded overflow", func(t *testing.T) {
+		encoded := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, []byte("12345"))
+		meter := &bodyMemoryMeter{budget: newBodyMemoryBudget(int64(len(encoded)) + 4)}
+		request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(encoded))
+		_, err := readDecodedRequestBodyMetered(request, contentcoding.Gzip, int64(len(encoded)), 4, meter.charge)
+		if !errors.Is(err, errRequestTooLarge) {
+			t.Fatalf("err = %v; want errRequestTooLarge", err)
+		}
+	})
 }
 
 // TestAcquireDecodedRequestBodyUnlimitedAdmitsAll documents that without the
