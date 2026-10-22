@@ -3,7 +3,7 @@
 [English](README.md) | 中文 | [日本語](README_JP.md)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v1.*)](https://github.com/tbphp/gpt-load/releases)
-![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)
+![Go Version](https://img.shields.io/badge/Go-1.26.10+-blue.svg)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 一个高性能、企业级的 AI 接口透明代理服务，专门为需要集成多种 AI 服务的企业和开发者设计。采用 Go 语言开发，具备智能密钥管理、负载均衡和完善的监控功能，专为高并发生产环境而设计。
@@ -62,7 +62,7 @@ GPT-Load 作为透明代理服务，完整保留各 AI 服务商的原生 API �
 
 ### 环境要求
 
-- Go 1.24+ (源码构建)
+- Go 1.26.10+ (源码构建)
 - Docker (容器化部署)
 - MySQL, PostgreSQL, 或 SQLite (数据库存储)
 - Redis (缓存和分布式协调，可选)
