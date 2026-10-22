@@ -2,6 +2,8 @@ module gpt-load
 
 go 1.26.10
 
+godebug urlstrictcolons=0
+
 require (
 	github.com/andybalholm/brotli v1.2.0
 	github.com/gin-contrib/gzip v1.2.3
