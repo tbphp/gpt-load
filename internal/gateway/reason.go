@@ -79,6 +79,11 @@ var (
 		Code:    "parameter_override_unavailable",
 		Message: "No upstream candidate could apply the configured parameter overrides.",
 	}
+	reasonServerBusy = reason{
+		Status:  http.StatusServiceUnavailable,
+		Code:    "server_busy",
+		Message: "The gateway is temporarily busy; retry the request.",
+	}
 )
 
 type accessKeyCostLimitRuleError struct {

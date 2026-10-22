@@ -61,6 +61,10 @@ var debugHeaderNames = []string{
 
 var errRequestTooLarge = errors.New("request body is too large")
 
+// errServerBusy signals that the in-flight request-body memory budget is
+// exhausted and the request should be retried, rather than being a client error.
+var errServerBusy = errors.New("request body memory budget exhausted")
+
 type AttemptForwarder interface {
 	Forward(context.Context, ForwardInput) UpstreamResult
 	ForwardStream(context.Context, ForwardInput, http.ResponseWriter) UpstreamResult
@@ -128,6 +132,7 @@ type Handler struct {
 	liveOpener          execution.LiveOpener
 	liveSessions        *liveSessions
 	liveConfig          config.CodexLiveConfig
+	bodyMemory          *bodyMemoryBudget
 }
 
 func (handler *Handler) freezeAttemptPricing(
@@ -201,6 +206,7 @@ func NewHandler(
 			time.Now,
 		),
 	}
+	handler.bodyMemory = newBodyMemoryBudget(defaultBodyMemoryBudgetBytes())
 	for _, runtime := range accessQuotas {
 		if runtime != nil {
 			handler.accessQuota = runtime
@@ -600,28 +606,25 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 
-	body, err := readDecodedRequestBody(
-		ginContext.Request,
-		encoding,
-		maxRequestBodyBytes,
-		maxRequestBodyBytes,
-	)
+	body, releaseBody, err := handler.acquireDecodedRequestBody(ginContext.Request, encoding)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 			return
 		}
-		if errors.Is(err, errRequestTooLarge) {
+		switch {
+		case errors.Is(err, errServerBusy):
+			handler.completeReason(ginContext, recorder, reasonServerBusy)
+		case errors.Is(err, errRequestTooLarge):
 			handler.completeReason(ginContext, recorder, reasonRequestTooLarge)
-			return
-		}
-		if errors.Is(err, contentcoding.ErrInvalidContentEncoding) {
+		case errors.Is(err, contentcoding.ErrInvalidContentEncoding):
 			handler.completeReason(ginContext, recorder, reasonInvalidContentEncoding)
-			return
+		default:
+			handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		}
-		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
+	defer releaseBody()
 	recorder.recordRequestBody(accessKey, body)
 	requestHeaders := ginContext.Request.Header.Clone()
 	platformheader.StripRepresentationMetadata(requestHeaders)
@@ -857,6 +860,42 @@ func (handler *Handler) completeWriteTerminal(
 		return
 	}
 	recorder.completeDownstreamWrite(selectedStatus)
+}
+
+// acquireDecodedRequestBody reads and decodes the client request body while
+// holding a share of the process-wide in-flight body memory budget. The returned
+// release must be called once the body is no longer needed (it is a no-op when
+// the budget is unlimited). On failure it returns a nil body and nil release; the
+// error is errServerBusy when the budget is exhausted, otherwise the same error
+// readDecodedRequestBody would return.
+func (handler *Handler) acquireDecodedRequestBody(
+	request *http.Request,
+	encoding contentcoding.Encoding,
+) (body []byte, release func(), err error) {
+	granted, ok := handler.bodyMemory.reserve(maxRequestBodyBytes)
+	if !ok {
+		return nil, nil, errServerBusy
+	}
+	held := granted
+	release = func() { handler.bodyMemory.adjust(-held) }
+
+	// Bound both the encoded and decoded body by the granted share so a single
+	// request can never allocate more than the remaining budget.
+	body, err = readDecodedRequestBody(request, encoding, granted, granted)
+	if err != nil {
+		if errors.Is(err, errRequestTooLarge) && granted < maxRequestBodyBytes {
+			// Fits the per-request ceiling but not the remaining in-flight
+			// budget; surface it as transient backpressure, not a client error.
+			err = errServerBusy
+		}
+		release()
+		return nil, nil, err
+	}
+
+	// Shrink the reservation to the body actually held for the request lifetime.
+	handler.bodyMemory.adjust(int64(len(body)) - held)
+	held = int64(len(body))
+	return body, release, nil
 }
 
 func readDecodedRequestBody(
