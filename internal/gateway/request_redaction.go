@@ -29,7 +29,7 @@ func redactionBusinessProtocol(value protocol.Protocol) bool {
 }
 
 // 每次从本次请求的原始内容构造外发副本，缓存副本可复用于同组重试。
-func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest, cipher ...encryption.RedactionCipher) (*dialect.ParsedRequest, error) {
+func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Protocol, request *dialect.ParsedRequest, bodyLimit int64, cipher ...encryption.RedactionCipher) (*dialect.ParsedRequest, error) {
 	// 没有规则时仍要拆掉网关包装过的签名，否则上游收到的不是它自己的签名。
 	if request == nil || len(request.Body) == 0 || (c.Empty() && !requestredact.HasSignatureRecord(request.Body)) {
 		return request, nil
@@ -38,7 +38,7 @@ func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Pr
 	var err error
 	mediaType, params, _ := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if mediaType == "multipart/form-data" {
-		body, err = redactMultipart(c, request.Body, params["boundary"], cipher...)
+		body, err = redactMultipart(c, request.Body, params["boundary"], bodyLimit, cipher...)
 	} else if clientProtocol == protocol.Decisions {
 		if len(cipher) != 0 && cipher[0] != nil {
 			body, err = c.ApplyDecisionsWithCipher(request.Body, cipher[0])
@@ -55,7 +55,7 @@ func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Pr
 	if err != nil {
 		return nil, requestredact.ErrContent
 	}
-	if int64(len(body)) > maxRequestBodyBytes {
+	if int64(len(body)) > bodyLimit {
 		return nil, requestredact.ErrContent
 	}
 	if bytes.Equal(body, request.Body) {
@@ -69,7 +69,7 @@ func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Pr
 }
 
 // 图片附件保持字节内容不变，只处理 multipart 的文本 prompt。
-func redactMultipart(c *requestredact.Compiled, body []byte, boundary string, cipher ...encryption.RedactionCipher) ([]byte, error) {
+func redactMultipart(c *requestredact.Compiled, body []byte, boundary string, bodyLimit int64, cipher ...encryption.RedactionCipher) ([]byte, error) {
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
 	var out bytes.Buffer
 	writer := multipart.NewWriter(&out)
@@ -115,7 +115,7 @@ func redactMultipart(c *requestredact.Compiled, body []byte, boundary string, ci
 		if _, err = target.Write(data); err != nil {
 			return nil, requestredact.ErrContent
 		}
-		if int64(out.Len()) > maxRequestBodyBytes {
+		if int64(out.Len()) > bodyLimit {
 			return nil, requestredact.ErrContent
 		}
 	}

@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/app"
 	"gpt-load/internal/container"
+	"gpt-load/internal/gateway"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/memlimit"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 )
@@ -39,6 +42,22 @@ func buildManagedRuntime() (*managedRuntime, error) {
 		logrus.AddHook(redact.NewHook(runtimeRedactor))
 	}); err != nil {
 		return nil, fmt.Errorf("configure logger: %w", err)
+	}
+
+	if err := dependencyContainer.Invoke(func(memory memlimit.Memory, gatewayHandler *gateway.Handler) {
+		goMemoryLimit, goMemoryLimitSource := memlimit.ApplyGoMemoryLimit(memory)
+		fields := logrus.Fields{
+			"event":                    "startup.memory_limits",
+			"detected_memory_bytes":    memory.Available(),
+			"go_memory_limit_source":   goMemoryLimitSource,
+			"request_body_limit_bytes": gatewayHandler.RequestBodyLimit(),
+		}
+		if goMemoryLimit < math.MaxInt64 {
+			fields["go_memory_limit_bytes"] = goMemoryLimit
+		}
+		logrus.WithFields(fields).Info("memory limits configured")
+	}); err != nil {
+		return nil, fmt.Errorf("configure memory limits: %w", err)
 	}
 
 	var application *app.App

@@ -485,7 +485,7 @@ func TestRedactOutboundRequestUnwrapsSignaturesWithoutRules(t *testing.T) {
 	}})
 	block := `{"type":"thinking","thinking":"user alice@example.invalid","signature":` + jsonString(t, wrapped) + `}`
 	request := &dialect.ParsedRequest{Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"messages":[{"role":"assistant","content":[` + block + `]}]}`)}
-	got, err := redactOutboundRequest(empty, protocol.Anthropic, request, c)
+	got, err := redactOutboundRequest(empty, protocol.Anthropic, request, maxRequestBodyBytes, c)
 	want := `{"type":"thinking","thinking":"user ` + token + `","signature":"SIG"}`
 	if err != nil || gjson.GetBytes(got.Body, "messages.0.content.0").Raw != want {
 		t.Fatalf("signature record was not unwrapped: %s / %v", got.Body, err)

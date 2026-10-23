@@ -113,9 +113,9 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		execution.OperationDecisionsCreate,
 		model,
 		payload,
-		maxRequestBodyBytes,
+		handler.RequestBodyLimit(),
 	)
-	if err != nil || int64(len(body)) > maxRequestBodyBytes {
+	if err != nil || int64(len(body)) > handler.RequestBodyLimit() {
 		decision.Reason = "parameter_override_unavailable"
 		return decision, result
 	}

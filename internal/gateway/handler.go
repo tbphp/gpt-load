@@ -43,7 +43,6 @@ import (
 )
 
 const (
-	maxRequestBodyBytes    = int64(128 << 20)
 	maxDataPlaneModelBytes = 255
 	fixedCooldown          = time.Minute
 	debugHeaderGroup       = "X-GPTLoad-Group"
@@ -117,6 +116,7 @@ type Handler struct {
 	now                 func() time.Time
 	writeTimeout        time.Duration
 	modelListLimit      int64
+	requestBodyLimit    int64
 	logger              *logrus.Logger
 	authFailureEvents   *utils.RateLimitedEventCounter
 	routeNotFoundEvents *utils.RateLimitedEventCounter
@@ -603,8 +603,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	body, err := readDecodedRequestBody(
 		ginContext.Request,
 		encoding,
-		maxRequestBodyBytes,
-		maxRequestBodyBytes,
+		handler.RequestBodyLimit(),
+		handler.RequestBodyLimit(),
 	)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
@@ -978,7 +978,7 @@ func (handler *Handler) executeAttempts(
 		}
 		defer func() {
 			if prepared.err == nil {
-				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request, redactionCipher)
+				prepared.request, prepared.err = redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), prepared.request, handler.RequestBodyLimit(), redactionCipher)
 			}
 			cachedPrepared = &prepared
 		}()
@@ -994,7 +994,7 @@ func (handler *Handler) executeAttempts(
 			originalMetadata.Operation,
 			routeModel,
 			parsed.Body,
-			maxRequestBodyBytes,
+			handler.RequestBodyLimit(),
 		)
 		if err != nil {
 			prepared.err = err
@@ -1008,7 +1008,7 @@ func (handler *Handler) executeAttempts(
 		prepared.configuredParameters = selection.Group.ParameterOverrides.ConfiguredFields(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)
 		prepared.removedParameterPaths = append(prepared.removedParameterPaths,
 			selection.Group.ParameterOverrides.RemovedPaths(selectedDialect.Protocol(), originalMetadata.Operation, routeModel)...)
-		if int64(len(body)) > maxRequestBodyBytes {
+		if int64(len(body)) > handler.RequestBodyLimit() {
 			prepared.err = errRequestTooLarge
 			cachedPrepared = &prepared
 			return prepared
