@@ -45,6 +45,7 @@ func NormalizeObservation(email string, observation AccountObservation) ([]byte,
 		})
 	}
 	seenIDs := make(map[string]struct{}, len(result.QuotaWindows))
+	bucketNames := make(map[string]string)
 	for _, window := range result.QuotaWindows {
 		seenIDs[window.ID] = struct{}{}
 	}
@@ -59,12 +60,54 @@ func NormalizeObservation(email string, observation AccountObservation) ([]byte,
 				return nil, err
 			}
 			result.QuotaWindows = append(result.QuotaWindows, window)
+			bucketNames[window.ID] = strings.TrimSpace(bucket.DisplayName)
 		}
 	}
+	disambiguateAntigravityQuotaLabels(result.QuotaWindows, bucketNames)
 	if len(result.QuotaWindows) > 0 {
 		result.QuotaWindows[0].IsPrimary = true
 	}
 	return json.Marshal(result)
+}
+
+func disambiguateAntigravityQuotaLabels(windows []quotaWindow, bucketNames map[string]string) {
+	labels := make([]string, len(windows))
+	counts := make(map[string]int, len(windows))
+	for index, window := range windows {
+		labels[index] = window.Label
+		counts[window.Label]++
+	}
+	for index := range windows {
+		window := &windows[index]
+		if counts[window.Label] < 2 {
+			continue
+		}
+		detail := bucketNames[window.ID]
+		if detail == "" {
+			detail = window.ID
+		}
+		window.Label = antigravityQuotaLabelWithDetail(*window, detail)
+	}
+	clear(counts)
+	for _, window := range windows {
+		counts[window.Label]++
+	}
+	for index := range windows {
+		window := &windows[index]
+		if counts[window.Label] > 1 {
+			window.Label = labels[index]
+			window.Label = antigravityQuotaLabelWithDetail(*window, window.ID)
+		}
+	}
+}
+
+func antigravityQuotaLabelWithDetail(window quotaWindow, detail string) string {
+	// 周期保留在末尾，兼容前端现有的主体与周期识别。
+	suffix := ""
+	if window.WindowSeconds != nil {
+		suffix = " · " + providerobservation.PeriodLabel(*window.WindowSeconds)
+	}
+	return strings.TrimSuffix(window.Label, suffix) + " (" + detail + ")" + suffix
 }
 
 func normalizeAntigravityQuotaBucket(
@@ -157,13 +200,13 @@ func antigravityPlan(value string) quotaPlanSummary {
 
 func antigravityQuotaSubject(value string) string {
 	normalized := strings.ToLower(strings.TrimSpace(value))
-	switch {
-	case strings.Contains(normalized, "gemini"):
+	switch normalized {
+	case "gemini", "gemini models":
 		return "Gemini"
-	case strings.Contains(normalized, "claude") || strings.Contains(normalized, "gpt"):
+	case "claude/gpt", "claude and gpt models":
 		return "Claude/GPT"
 	default:
-		return providerobservation.DisplayName(value)
+		return strings.TrimSpace(value)
 	}
 }
 
