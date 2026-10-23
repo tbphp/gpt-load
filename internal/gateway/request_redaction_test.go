@@ -49,7 +49,7 @@ func TestRequestRedactionMultipartOnlyReplacesPrompt(t *testing.T) {
 	}
 	c, _ := requestredact.Compile([]requestredact.Rule{{Pattern: "private-value", Replacement: "[VALUE]"}})
 	request := &dialect.ParsedRequest{Body: body.Bytes(), Header: http.Header{"Content-Type": {w.FormDataContentType()}, "Content-Length": {"123"}}}
-	clean, err := redactOutboundRequest(c, protocol.OpenAIImages, request)
+	clean, err := redactOutboundRequest(c, protocol.OpenAIImages, request, maxRequestBodyBytes)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -105,7 +105,7 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 		if err != nil {
 			return parsed, metadata, nil, &reasonRedactionFailed
 		}
-		clean, err := redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), parsed, cipher)
+		clean, err := redactOutboundRequest(snapshot.RequestRedaction, selectedDialect.Protocol(), parsed, handler.RequestBodyLimit(), cipher)
 		if err != nil {
 			return parsed, metadata, nil, &reasonRedactionFailed
 		}
@@ -241,7 +241,7 @@ func (handler *Handler) prepareAutoModel(ctx context.Context, snapshot *state.Co
 	if err != nil {
 		return parsed, metadata, decision, &reasonInvalidProtocolRequest
 	}
-	bodyLimit := int64(maxRequestBodyBytes)
+	bodyLimit := handler.RequestBodyLimit()
 	if query.ResponsesWebsocket != nil {
 		bodyLimit = maxWebsocketPayloadBytes
 	}
