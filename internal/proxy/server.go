@@ -228,7 +228,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 				errorBody = []byte("Failed to read error body")
 			}
 
-			errorBody = handleGzipCompression(resp, errorBody)
+			errorBody = decodeUpstreamErrorBody(resp, errorBody)
 			errorMessage = string(errorBody)
 			parsedError = app_errors.ParseUpstreamError(errorBody)
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
