@@ -1,6 +1,10 @@
 package pricing
 
-import "gpt-load/internal/usage"
+import (
+	"slices"
+
+	"gpt-load/internal/usage"
+)
 
 const tokensPerMillion = 1_000_000
 
@@ -114,15 +118,13 @@ func (table *Table) QuoteForModeWithReceipt(
 	}
 
 	lines := quoteLines{receipt: receipt, partial: result.State == usage.StatePartial}
-	if !lines.add("", "", result.Tokens, prices) {
-		return unavailableQuote(), nil
-	}
-	if result.Advisor != nil {
-		for _, advisor := range result.Advisor.Models {
-			if !table.addAdvisorLines(&lines, identity.ChannelID, advisor) {
-				return unavailableQuote(), nil
-			}
+	for _, component := range quoteComponents(result.Tokens, prices) {
+		if !lines.add("", "", component) {
+			return unavailableQuote(), nil
 		}
+	}
+	if result.Advisor != nil && !table.addAdvisorLines(&lines, identity.ChannelID, result.Advisor.Calls) {
+		return unavailableQuote(), nil
 	}
 	receipt.TotalNanoUSD = int64(lines.cost)
 
@@ -152,87 +154,105 @@ type quoteLines struct {
 	partial          bool
 }
 
-// add 按 prices 为 tokens 的每个正数分量追加明细行；prefix 与 modelID 只用于 advisor 行。
-func (lines *quoteLines) add(prefix, modelID string, tokens usage.Tokens, prices Prices) bool {
-	for _, component := range [...]struct {
-		code       string
-		tokens     int64
-		price      Price
-		multiplier Multiplier
-	}{
+// quoteComponent 是一项计价分量；未知 TTL 的缓存写入没有单价，始终未计价。
+type quoteComponent struct {
+	code       string
+	tokens     int64
+	price      Price
+	multiplier Multiplier
+}
+
+func quoteComponents(tokens usage.Tokens, prices Prices) [6]quoteComponent {
+	return [...]quoteComponent{
 		{code: "input", tokens: tokens.UncachedInput, price: prices.Input, multiplier: directPriceMultiplier},
 		{code: "cache_read", tokens: tokens.CacheRead, price: prices.CacheRead, multiplier: directPriceMultiplier},
 		{code: "cache_write_5m", tokens: tokens.CacheWrite5M, price: prices.CacheWrite, multiplier: directPriceMultiplier},
 		{code: "cache_write_1h", tokens: tokens.CacheWrite1H, price: prices.CacheWrite, multiplier: cacheWriteOneHourMultiplier},
 		{code: "output", tokens: tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
-	} {
-		if component.tokens == 0 {
-			continue
-		}
-		lines.positiveBillable = true
-		line := ReceiptLine{
-			Code:       prefix + component.code,
-			ModelID:    modelID,
-			Quantity:   component.tokens,
-			Multiplier: component.multiplier,
-			State:      ReceiptLineUnpriced,
-		}
-		if !component.price.Set {
-			lines.partial = true
-			lines.receipt.LineItems = append(lines.receipt.LineItems, line)
-			continue
-		}
-		componentCost, ok := QuoteComponent(
-			component.tokens,
-			component.price.NanoUSDPerMillion,
-			component.multiplier,
-		)
-		if !ok {
-			return false
-		}
-		lines.cost, ok = CheckedAddNanoUSD(lines.cost, componentCost)
-		if !ok {
-			return false
-		}
-		rate := int64(component.price.NanoUSDPerMillion)
-		amount := int64(componentCost)
-		line.RateNanoUSDPerMillion = &rate
-		line.AmountNanoUSD = &amount
-		line.State = ReceiptLinePriced
-		lines.receipt.LineItems = append(lines.receipt.LineItems, line)
-		lines.pricedPositive = true
+		{code: "cache_write", tokens: tokens.CacheWriteUnknown, multiplier: directPriceMultiplier},
 	}
-	if tokens.CacheWriteUnknown > 0 {
-		lines.positiveBillable = true
-		lines.partial = true
-		lines.receipt.LineItems = append(lines.receipt.LineItems, ReceiptLine{
-			Code:       prefix + "cache_write",
-			ModelID:    modelID,
-			Quantity:   tokens.CacheWriteUnknown,
-			Multiplier: directPriceMultiplier,
-			State:      ReceiptLineUnpriced,
-		})
-	}
-	return true
 }
 
-// addAdvisorLines 按同一渠道下 advisor 模型的标准价计价；缺少价格行时各项记为未计价。
-func (table *Table) addAdvisorLines(lines *quoteLines, channelID string, advisor usage.ModelTokens) bool {
-	if validateModelID(advisor.Model) != nil {
-		return false
+// add 为正数分量追加明细行；prefix 与 modelID 只用于 advisor 行。
+func (lines *quoteLines) add(prefix, modelID string, component quoteComponent) bool {
+	if component.tokens == 0 {
+		return true
 	}
-	if _, ok := usage.CheckedTotal(advisor.Tokens); !ok {
-		return false
+	lines.positiveBillable = true
+	line := ReceiptLine{
+		Code:       prefix + component.code,
+		ModelID:    modelID,
+		Quantity:   component.tokens,
+		Multiplier: component.multiplier,
+		State:      ReceiptLineUnpriced,
 	}
-	inputTokens, ok := checkedInputTokens(advisor.Tokens)
+	if !component.price.Set {
+		lines.partial = true
+		lines.receipt.LineItems = append(lines.receipt.LineItems, line)
+		return true
+	}
+	componentCost, ok := QuoteComponent(
+		component.tokens,
+		component.price.NanoUSDPerMillion,
+		component.multiplier,
+	)
 	if !ok {
 		return false
 	}
-	var prices Prices
-	if rule, found := table.Lookup(Identity{ChannelID: channelID, ModelID: advisor.Model}); found {
-		prices, _ = selectSchedulePrices(rule.Prices, rule.ContextTiers, inputTokens)
+	lines.cost, ok = CheckedAddNanoUSD(lines.cost, componentCost)
+	if !ok {
+		return false
 	}
-	return lines.add(advisorLinePrefix, advisor.Model, advisor.Tokens, prices)
+	rate := int64(component.price.NanoUSDPerMillion)
+	amount := int64(componentCost)
+	line.RateNanoUSDPerMillion = &rate
+	line.AmountNanoUSD = &amount
+	line.State = ReceiptLinePriced
+	lines.receipt.LineItems = append(lines.receipt.LineItems, line)
+	lines.pricedPositive = true
+	return true
+}
+
+// addAdvisorLines 按同一渠道下 advisor 模型的标准价计价，每次调用按自己的输入量选价格档；
+// 同一模型、同一单价的分量合并成一行，缺少价格行时记为未计价。
+func (table *Table) addAdvisorLines(lines *quoteLines, channelID string, calls []usage.ModelTokens) bool {
+	type advisorComponent struct {
+		model string
+		quoteComponent
+	}
+	var merged []advisorComponent
+	for _, call := range calls {
+		inputTokens, inputOK := checkedInputTokens(call.Tokens)
+		if _, totalOK := usage.CheckedTotal(call.Tokens); !totalOK || !inputOK || validateModelID(call.Model) != nil {
+			return false
+		}
+		var prices Prices
+		if rule, found := table.Lookup(Identity{ChannelID: channelID, ModelID: call.Model}); found {
+			prices, _ = selectSchedulePrices(rule.Prices, rule.ContextTiers, inputTokens)
+		}
+		for _, component := range quoteComponents(call.Tokens, prices) {
+			if component.tokens == 0 {
+				continue
+			}
+			index := slices.IndexFunc(merged, func(existing advisorComponent) bool {
+				return existing.model == call.Model && existing.code == component.code && existing.price == component.price
+			})
+			if index < 0 {
+				merged = append(merged, advisorComponent{model: call.Model, quoteComponent: component})
+				continue
+			}
+			var ok bool
+			if merged[index].tokens, ok = usage.CheckedAdd(merged[index].tokens, component.tokens); !ok {
+				return false
+			}
+		}
+	}
+	for _, component := range merged {
+		if !lines.add(advisorLinePrefix, component.model, component.quoteComponent) {
+			return false
+		}
+	}
+	return true
 }
 
 func selectSchedulePrices(

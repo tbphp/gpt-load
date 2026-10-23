@@ -25,7 +25,7 @@ func TestHandlerAccountsAdvisorUsageInCostLimit(t *testing.T) {
 		Body: []byte(`{"ok":true}`),
 		Usage: usage.Result{
 			State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1, Output: 1},
-			Advisor: &usage.AdvisorUsage{Models: []usage.ModelTokens{
+			Advisor: &usage.AdvisorUsage{Calls: []usage.ModelTokens{
 				{Model: "advisor-model", Tokens: usage.Tokens{UncachedInput: 10, Output: 10}},
 			}},
 		},

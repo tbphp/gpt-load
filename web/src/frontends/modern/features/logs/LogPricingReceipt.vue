@@ -107,7 +107,7 @@ const total = computed(
       </div>
       <div
         v-for="line in receipt?.line_items ?? []"
-        :key="line.code + ':' + (line.model_id ?? '')"
+        :key="[line.code, line.model_id, line.rate_nano_usd_per_million].join(':')"
         class="modern-log-price-row"
       >
         <AppOverflowText :text="lineLabel(line)" />

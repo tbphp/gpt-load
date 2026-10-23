@@ -17,7 +17,7 @@ func advisorResult() usage.Result {
 	return usage.Result{
 		State:  usage.StateComplete,
 		Tokens: usage.Tokens{UncachedInput: 1000, Output: 100},
-		Advisor: &usage.AdvisorUsage{Models: []usage.ModelTokens{
+		Advisor: &usage.AdvisorUsage{Calls: []usage.ModelTokens{
 			{Model: advisorModel.ModelID, Tokens: usage.Tokens{UncachedInput: 300, CacheRead: 1000, Output: 400}},
 		}},
 	}
@@ -62,6 +62,32 @@ func TestQuotePricesAdvisorAtItsOwnModel(t *testing.T) {
 	}
 }
 
+func TestQuotePricesEachAdvisorCallAtItsOwnTier(t *testing.T) {
+	tiered := Identity{ChannelID: "anthropic", ModelID: "claude-haiku-5-5"}
+	table := mustTable(t,
+		Rule{Identity: advisorExecutor, Prices: Prices{Input: fixedPrice(1_000_000_000), Output: fixedPrice(5_000_000_000)}},
+		Rule{Identity: tiered, Prices: Prices{Input: fixedPrice(100_000_000), Output: fixedPrice(500_000_000)},
+			ContextTiers: []ContextTier{{InputThresholdTokens: 100_000,
+				Prices: Prices{Input: fixedPrice(500_000_000), Output: fixedPrice(2_500_000_000)}}}},
+	)
+	result := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 1000, Output: 100},
+		Advisor: &usage.AdvisorUsage{Calls: []usage.ModelTokens{
+			{Model: tiered.ModelID, Tokens: usage.Tokens{UncachedInput: 60_000, Output: 100}},
+			{Model: tiered.ModelID, Tokens: usage.Tokens{UncachedInput: 120_000, Output: 100}},
+		}},
+	}
+	quote, receipt := table.QuoteForModeWithMultipliers(advisorExecutor, result, ModeStandard, advisorDefaults)
+	// 执行模型 1,500,000；第一次调用按基础档 6,050,000，第二次按高价档 60,250,000 nano USD。
+	if quote.EstimatedCostNanoUSD != 67_800_000 || receipt == nil {
+		t.Fatalf("quote = %+v, want 67800000 nano USD", quote)
+	}
+	if err := ValidateReceipt(*receipt); err != nil {
+		t.Fatalf("ValidateReceipt() error = %v", err)
+	}
+}
+
 func TestQuoteAdvisorWithoutPriceRuleIsPartial(t *testing.T) {
 	table := mustTable(t,
 		Rule{Identity: advisorExecutor, Prices: Prices{Input: fixedPrice(1_000_000_000), Output: fixedPrice(5_000_000_000)}},
@@ -87,7 +113,7 @@ func TestValidateReceiptAdvisorLineContract(t *testing.T) {
 		Rule{Identity: advisorModel, Prices: Prices{Input: fixedPrice(5_000_000_000), Output: fixedPrice(25_000_000_000)}},
 	)
 	result := advisorResult()
-	result.Advisor.Models[0].Tokens.CacheRead = 0
+	result.Advisor.Calls[0].Tokens.CacheRead = 0
 	_, valid := table.QuoteForModeWithMultipliers(advisorExecutor, result, ModeStandard, advisorDefaults)
 	if valid == nil || ValidateReceipt(*valid) != nil {
 		t.Fatalf("receipt = %+v, want a valid advisor receipt", valid)

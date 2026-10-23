@@ -56,11 +56,13 @@ func anthropicIterationUsage(object map[string]json.RawMessage) (anthropicIterat
 			return anthropicIterations{}, diagnostics, false
 		}
 		finalized, _ := accumulator.Finalize(true)
-		ok := false
+		var ok bool
 		if model == "" {
 			result.compaction, ok = addAnthropicUsageTokens(result.compaction, finalized.Tokens)
 		} else {
-			ok = result.addAdvisor(model, finalized.Tokens)
+			// 每次 advisor 调用单独计价（按各自提示长度选价格档），不按模型合并。
+			_, ok = usage.CheckedTotal(finalized.Tokens)
+			result.advisor = append(result.advisor, usage.ModelTokens{Model: model, Tokens: finalized.Tokens})
 		}
 		if !ok {
 			diagnostics.Add(usage.DiagnosticInvalidNumber)
@@ -68,24 +70,6 @@ func anthropicIterationUsage(object map[string]json.RawMessage) (anthropicIterat
 		}
 	}
 	return result, diagnostics, true
-}
-
-func (iterations *anthropicIterations) addAdvisor(model string, tokens usage.Tokens) bool {
-	for index := range iterations.advisor {
-		if iterations.advisor[index].Model != model {
-			continue
-		}
-		combined, ok := addAnthropicUsageTokens(iterations.advisor[index].Tokens, tokens)
-		if ok {
-			iterations.advisor[index].Tokens = combined
-		}
-		return ok
-	}
-	if _, ok := usage.CheckedTotal(tokens); !ok {
-		return false
-	}
-	iterations.advisor = append(iterations.advisor, usage.ModelTokens{Model: model, Tokens: tokens})
-	return true
 }
 
 // withAnthropicIterations 把轮次用量合入最终结果；advisor 用量复制一份，避免与快照共享。
@@ -97,7 +81,7 @@ func withAnthropicIterations(result usage.Result, iterations anthropicIterations
 		result.State = usage.StatePartial
 	}
 	if len(iterations.advisor) > 0 {
-		result.Advisor = &usage.AdvisorUsage{Models: append([]usage.ModelTokens(nil), iterations.advisor...)}
+		result.Advisor = &usage.AdvisorUsage{Calls: append([]usage.ModelTokens(nil), iterations.advisor...)}
 	}
 	return result
 }

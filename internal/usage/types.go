@@ -126,9 +126,9 @@ type ModelTokens struct {
 }
 
 // AdvisorUsage holds advisor sub-inference usage reported outside the
-// top-level counters, merged per advisor model.
+// top-level counters, one entry per advisor call.
 type AdvisorUsage struct {
-	Models []ModelTokens
+	Calls []ModelTokens
 }
 
 // Result is a finalized provider-neutral usage result.

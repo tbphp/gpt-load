@@ -3,6 +3,7 @@ package dialect
 import (
 	"testing"
 
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/usage"
 )
 
@@ -24,15 +25,16 @@ func requireAnthropicAdvisorUsage(t *testing.T, result usage.Result) {
 	}
 	requireUsageDiagnostics(t, result.Diagnostics)
 	want := []usage.ModelTokens{
-		{Model: "claude-opus-4-8", Tokens: usage.Tokens{UncachedInput: 1723, CacheRead: 100, Output: 2012}},
+		{Model: "claude-opus-4-8", Tokens: usage.Tokens{UncachedInput: 823, CacheRead: 100, Output: 1612}},
+		{Model: "claude-opus-4-8", Tokens: usage.Tokens{UncachedInput: 900, Output: 400}},
 		{Model: "claude-sonnet-5-5", Tokens: usage.Tokens{UncachedInput: 30, Output: 40}},
 	}
-	if result.Advisor == nil || len(result.Advisor.Models) != len(want) {
+	if result.Advisor == nil || len(result.Advisor.Calls) != len(want) {
 		t.Fatalf("advisor usage = %+v, want %+v", result.Advisor, want)
 	}
 	for index, model := range want {
-		if result.Advisor.Models[index] != model {
-			t.Fatalf("advisor usage[%d] = %+v, want %+v", index, result.Advisor.Models[index], model)
+		if result.Advisor.Calls[index] != model {
+			t.Fatalf("advisor usage[%d] = %+v, want %+v", index, result.Advisor.Calls[index], model)
 		}
 	}
 }
@@ -96,6 +98,40 @@ func TestUsageAnthropicUnpricedIterationsAreFlagged(t *testing.T) {
 	}
 }
 
+func TestUsageAnthropicAdvisorCallsArePricedOneByOne(t *testing.T) {
+	// 每次 advisor 调用单独按提示长度选价格档：两次各 60K 不能合并成 120K 落入高价档。
+	advisorCall := `{"type":"advisor_message","model":"claude-haiku-5-5","input_tokens":60000,"output_tokens":100}`
+	body := `{"usage":{"input_tokens":1000,"output_tokens":100,"iterations":[` +
+		`{"type":"message","input_tokens":400,"output_tokens":40},` + advisorCall + `,` +
+		`{"type":"message","input_tokens":600,"output_tokens":60},` + advisorCall + `]}}`
+	result, err := NewAnthropic().ExtractUsage([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	price := func(value pricing.NanoUSD) pricing.Price { return pricing.Price{NanoUSDPerMillion: value, Set: true} }
+	executor := pricing.Identity{ChannelID: "anthropic", ModelID: "claude-haiku-4-5"}
+	table, err := pricing.NewTable([]pricing.Rule{
+		{Identity: executor, Prices: pricing.Prices{Input: price(1_000_000_000), Output: price(5_000_000_000)}},
+		{Identity: pricing.Identity{ChannelID: "anthropic", ModelID: "claude-haiku-5-5"},
+			Prices: pricing.Prices{Input: price(100_000_000), Output: price(500_000_000)},
+			ContextTiers: []pricing.ContextTier{{InputThresholdTokens: 100_000,
+				Prices: pricing.Prices{Input: price(500_000_000), Output: price(2_500_000_000)}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	quote, receipt := table.QuoteForModeWithMultipliers(executor, result, pricing.ModeStandard, pricing.PriceMultipliers{
+		Group: pricing.DefaultPriceMultiplier, AccessKey: pricing.DefaultPriceMultiplier,
+	})
+	// 执行模型 1,500,000；advisor 120,000 × $0.10/M + 200 × $0.50/M = 12,100,000 nano USD。
+	if quote.EstimatedCostNanoUSD != 13_600_000 || receipt == nil {
+		t.Fatalf("quote = %+v, want 13600000 nano USD", quote)
+	}
+	if err := pricing.ValidateReceipt(*receipt); err != nil {
+		t.Fatalf("ValidateReceipt() error = %v", err)
+	}
+}
+
 func TestUsageAnthropicStreamAdvisorSnapshotIsNotAdditive(t *testing.T) {
 	const delta = `{"output_tokens":20,"iterations":[{"type":"advisor_message","model":"claude-opus-4-8","input_tokens":300,"output_tokens":400}]}`
 	stream := NewAnthropic().NewUsageStreamExtractor()
@@ -113,7 +149,7 @@ func TestUsageAnthropicStreamAdvisorSnapshotIsNotAdditive(t *testing.T) {
 	result, _ := stream.Finalize()
 	want := usage.ModelTokens{Model: "claude-opus-4-8", Tokens: usage.Tokens{UncachedInput: 300, Output: 400}}
 	if result.Tokens != (usage.Tokens{UncachedInput: 100, Output: 30}) || result.Advisor == nil ||
-		len(result.Advisor.Models) != 1 || result.Advisor.Models[0] != want {
+		len(result.Advisor.Calls) != 1 || result.Advisor.Calls[0] != want {
 		t.Fatalf("usage = %+v, advisor = %+v", result, result.Advisor)
 	}
 }

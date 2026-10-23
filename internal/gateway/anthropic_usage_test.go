@@ -121,7 +121,7 @@ func TestExecutionForwarderAnthropicNonStreamUsageAuthority(t *testing.T) {
 				}
 				return
 			}
-			if result.Usage.Advisor == nil || len(result.Usage.Advisor.Models) != 1 || result.Usage.Advisor.Models[0] != advisor {
+			if result.Usage.Advisor == nil || len(result.Usage.Advisor.Calls) != 1 || result.Usage.Advisor.Calls[0] != advisor {
 				t.Fatalf("advisor usage = %+v, want %+v", result.Usage.Advisor, advisor)
 			}
 		})

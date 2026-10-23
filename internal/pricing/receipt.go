@@ -82,7 +82,11 @@ func ValidateReceipt(receipt Receipt) error {
 		"input": {}, "cache_read": {}, "cache_write_5m": {},
 		"cache_write_1h": {}, "cache_write": {}, "output": {},
 	}
-	seen := make(map[[2]string]struct{}, len(receipt.LineItems))
+	type lineKey struct {
+		code, model string
+		rate        int64
+	}
+	seen := make(map[lineKey]struct{}, len(receipt.LineItems))
 	total := NanoUSD(0)
 	for _, line := range receipt.LineItems {
 		component, advisor := strings.CutPrefix(line.Code, advisorLinePrefix)
@@ -96,7 +100,11 @@ func ValidateReceipt(receipt Receipt) error {
 		} else if line.ModelID != "" {
 			return fmt.Errorf("pricing receipt line %q must not name a model", line.Code)
 		}
-		key := [2]string{line.Code, line.ModelID}
+		key := lineKey{code: line.Code, model: line.ModelID, rate: -1}
+		if advisor && line.RateNanoUSDPerMillion != nil {
+			// 同一 advisor 模型的多次调用可能落在不同价格档，按单价区分。
+			key.rate = *line.RateNanoUSDPerMillion
+		}
 		if _, exists := seen[key]; exists {
 			return fmt.Errorf("duplicate pricing receipt line code %q", line.Code)
 		}
