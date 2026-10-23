@@ -142,3 +142,49 @@ func TestNormalizeObservationDisambiguatesQuotaLabels(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeObservationKeepsMixedNameAndIDFallbacksUnique(t *testing.T) {
+	buckets := []QuotaBucket{
+		{ID: "gemini-a", DisplayName: "gemini-b", Window: "weekly", RemainingFraction: float64Ptr(0.8)},
+		{ID: "gemini-b", DisplayName: "Weekly Limit Remaining", Window: "weekly", RemainingFraction: float64Ptr(0.6)},
+		{ID: "gemini-c", DisplayName: "Weekly Limit Remaining", Window: "weekly", RemainingFraction: float64Ptr(0.4)},
+		// 已唯一的桶名还可能占用 ID 兜底后的序号候选。
+		{ID: "gemini-d", DisplayName: "gemini-b, 2", Window: "weekly", RemainingFraction: float64Ptr(1)},
+	}
+	var firstLabels map[string]string
+	for _, order := range [][]QuotaBucket{buckets, {buckets[3], buckets[2], buckets[1], buckets[0]}} {
+		raw, err := NormalizeObservation("", AccountObservation{QuotaGroups: []QuotaGroup{{
+			DisplayName: "Gemini Models", Buckets: order,
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var snapshot quotaSnapshot
+		if err := json.Unmarshal(raw, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.QuotaWindows) != len(order) {
+			t.Fatalf("quota windows = %d, want %d", len(snapshot.QuotaWindows), len(order))
+		}
+		labels := make(map[string]string, len(order))
+		seen := make(map[string]string, len(order))
+		for index, window := range snapshot.QuotaWindows {
+			if window.ID != order[index].ID {
+				t.Errorf("window %d ID = %q, want %q", index, window.ID, order[index].ID)
+			}
+			if first, exists := seen[window.Label]; exists {
+				t.Errorf("windows %s and %s share label %q", first, window.ID, window.Label)
+			}
+			labels[window.ID] = window.Label
+			seen[window.Label] = window.ID
+		}
+		if labels["gemini-a"] != "Gemini (gemini-b) · 7d" || labels["gemini-d"] != "Gemini (gemini-b, 2) · 7d" {
+			t.Errorf("already distinct bucket names changed: %v", labels)
+		}
+		if firstLabels == nil {
+			firstLabels = labels
+		} else if !reflect.DeepEqual(labels, firstLabels) {
+			t.Errorf("reordering buckets changed labels: %v, want %v", labels, firstLabels)
+		}
+	}
+}

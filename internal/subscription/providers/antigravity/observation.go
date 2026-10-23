@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -92,12 +93,28 @@ func disambiguateAntigravityQuotaLabels(windows []quotaWindow, bucketNames map[s
 	for _, window := range windows {
 		counts[window.Label]++
 	}
-	for index := range windows {
-		window := &windows[index]
+	usedLabels := make(map[string]bool, len(windows))
+	conflicts := make([]int, 0)
+	for index, window := range windows {
 		if counts[window.Label] > 1 {
-			window.Label = labels[index]
-			window.Label = antigravityQuotaLabelWithDetail(*window, window.ID)
+			conflicts = append(conflicts, index)
+		} else {
+			usedLabels[window.Label] = true
 		}
+	}
+	// 只按 ID 排列待消歧项，保留窗口顺序和已唯一的名称。
+	sort.Slice(conflicts, func(i, j int) bool {
+		return windows[conflicts[i]].ID < windows[conflicts[j]].ID
+	})
+	for _, index := range conflicts {
+		window := &windows[index]
+		window.Label = labels[index]
+		label := antigravityQuotaLabelWithDetail(*window, window.ID)
+		for suffix := 2; usedLabels[label]; suffix++ {
+			label = antigravityQuotaLabelWithDetail(*window, fmt.Sprintf("%s, %d", window.ID, suffix))
+		}
+		window.Label = label
+		usedLabels[label] = true
 	}
 }
 
