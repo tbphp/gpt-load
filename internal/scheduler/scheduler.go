@@ -33,6 +33,8 @@ type Query struct {
 
 	// ResponsesWebsocket 非 nil 时按原生 WS 合同准入，不要求 HTTP 资源接口。
 	ResponsesWebsocket *execution.WebsocketCapabilities
+	// AdvisorModels 是请求里 advisor 工具声明的上游模型，需在同一分组内且被访问密钥允许。
+	AdvisorModels []string
 }
 
 type Selection struct {
@@ -89,6 +91,7 @@ type normalizedQuery struct {
 	responsesStorePreference execution.ResponsesStorePreference
 	responsesWebsocket       *execution.WebsocketCapabilities
 	externalModel            *string
+	advisorModels            []string
 	accessKey                state.AccessKeyView
 	allowedCredentialIDs     map[uint]struct{}
 }
@@ -452,6 +455,7 @@ func normalizeQuery(query Query) normalizedQuery {
 		responsesStorePreference: query.ResponsesStorePreference,
 		responsesWebsocket:       cloneWebsocketCapabilities(query.ResponsesWebsocket),
 		externalModel:            cloneString(query.ExternalModel),
+		advisorModels:            append([]string(nil), query.AdvisorModels...),
 		accessKey:                query.AccessKey,
 		allowedCredentialIDs:     cloneAllowedCredentialIDs(query),
 	}

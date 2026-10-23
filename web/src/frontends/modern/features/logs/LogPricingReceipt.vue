@@ -16,6 +16,9 @@ const auditCalls = computed(() => props.audit?.calls.filter((call) => call.calle
 function lineName(value: string): string {
   return te('logs.priceLines.' + value) ? t('logs.priceLines.' + value) : value
 }
+function lineLabel(line: LogPricingLine): string {
+  return line.model_id ? `${lineName(line.code)} · ${line.model_id}` : lineName(line.code)
+}
 function rate(line: LogPricingLine): string {
   return line.rate_nano_usd_per_million === null
     ? t('logs.values.unpriced')
@@ -102,8 +105,12 @@ const total = computed(
           "
         />
       </div>
-      <div v-for="line in receipt?.line_items ?? []" :key="line.code" class="modern-log-price-row">
-        <span>{{ lineName(line.code) }}</span>
+      <div
+        v-for="line in receipt?.line_items ?? []"
+        :key="[line.code, line.model_id, line.rate_nano_usd_per_million].join(':')"
+        class="modern-log-price-row"
+      >
+        <AppOverflowText :text="lineLabel(line)" />
         <AppOverflowText
           :text="logNumber(line.quantity, locale)"
           :full-text="logNumber(line.quantity, locale, false)"

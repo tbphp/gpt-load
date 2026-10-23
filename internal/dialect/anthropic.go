@@ -54,6 +54,10 @@ func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) 
 		return metadata, nil
 	}
 
+	metadata.AdvisorModels, err = inspectAdvisorModels(req.Body)
+	if err != nil {
+		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
+	}
 	metadata.ObserveUsage = true
 	metadata.AffinityPrefix = inspectPromptAffinityPrefix(d.Protocol(), req.Body)
 	metadata.Reasoning = inspectAnthropicReasoning(req.Body)
@@ -61,5 +65,9 @@ func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) 
 		d.Protocol(),
 		req.Body,
 	)
+	if len(metadata.AdvisorModels) > 0 {
+		// advisor 用量只能从原生响应的轮次明细读取，转换路由会丢失。
+		metadata.RouteRequirement = execution.RouteRequirementNative
+	}
 	return metadata, nil
 }
