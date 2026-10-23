@@ -29,6 +29,13 @@ func (d *Anthropic) ExtractUsage(body []byte) (usage.Result, error) {
 		}
 	}
 	result, _ := accumulator.Finalize(true)
+	if usageObject != nil {
+		iterations, iterationDiagnostics, present := anthropicIterationUsage(usageObject)
+		result.Diagnostics.Merge(iterationDiagnostics)
+		if present {
+			result = withAnthropicIterations(result, iterations)
+		}
+	}
 	return result, nil
 }
 
@@ -66,7 +73,7 @@ type anthropicUsageStreamExtractor struct {
 	stopped            bool
 	cacheWriteFallback bool
 	trusted            anthropicCumulativeUsage
-	compaction         usage.Tokens
+	iterations         anthropicIterations
 }
 
 func (e *anthropicUsageStreamExtractor) Observe(payload []byte) error {
@@ -100,13 +107,7 @@ func (e *anthropicUsageStreamExtractor) Finalize() (usage.Result, bool) {
 	if !finalized {
 		return result, false
 	}
-	if tokens, ok := addAnthropicUsageTokens(result.Tokens, e.compaction); ok {
-		result.Tokens = tokens
-	} else {
-		result.Diagnostics.Add(usage.DiagnosticInvalidNumber)
-		result.State = usage.StatePartial
-	}
-	return result, true
+	return withAnthropicIterations(result, e.iterations), true
 }
 
 func (e *anthropicUsageStreamExtractor) Snapshot() usage.Result {
@@ -141,7 +142,7 @@ func (e *anthropicUsageStreamExtractor) observeStart(root map[string]json.RawMes
 	}
 	if validInput {
 		e.validStart = true
-		diagnostics.Merge(e.observeCompaction(usageObject))
+		diagnostics.Merge(e.observeIterations(usageObject))
 		return e.mergeCumulative(next, diagnostics)
 	}
 	return e.mergeDiagnostics(diagnostics)
@@ -162,7 +163,7 @@ func (e *anthropicUsageStreamExtractor) observeDelta(root map[string]json.RawMes
 		diagnostics.Add(usage.DiagnosticInvalidEventSequence)
 		return e.mergeDiagnostics(diagnostics)
 	}
-	diagnostics.Merge(e.observeCompaction(usageObject))
+	diagnostics.Merge(e.observeIterations(usageObject))
 	return e.mergeCumulative(next, diagnostics)
 }
 

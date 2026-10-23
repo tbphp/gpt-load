@@ -116,6 +116,15 @@ func (forwarder *ExecutionForwarder) Forward(
 			result.ClassificationBody,
 		)
 	}
+	if input.ObserveUsage && input.ClientProtocol == protocol.Anthropic && input.RouteMode == execution.RouteNative &&
+		result.HasResponse() && result.StatusCode >= http.StatusOK &&
+		result.StatusCode < http.StatusMultipleChoices && forwarder.usageCapture != nil {
+		// 与原生流一致，以响应体用量为准：SDK 只给汇总数字，会丢失 advisor 等按轮次计费的明细。
+		captured := forwarder.usageCapture.extractNonStreamingPlain(input.Dialect, result.ClassificationBody)
+		if captured.State != usage.StateMissing {
+			result.Usage = captured
+		}
+	}
 	if embeddingsProtocol(input.ClientProtocol) && result.Err == nil &&
 		result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
 		result.ClassificationBody = nil

@@ -317,6 +317,12 @@ export const zhCN = {
     cache_write: '缓存写入',
     cache_write_5m: '缓存写入 5m',
     cache_write_1h: '缓存写入 1h',
+    advisor_input: 'Advisor 输入',
+    advisor_output: 'Advisor 输出',
+    advisor_cache_read: 'Advisor 缓存读取',
+    advisor_cache_write: 'Advisor 缓存写入',
+    advisor_cache_write_5m: 'Advisor 缓存写入 5m',
+    advisor_cache_write_1h: 'Advisor 缓存写入 1h',
   },
 }
 
@@ -643,6 +649,12 @@ export const enUS: typeof zhCN = {
     cache_write: 'Cache write',
     cache_write_5m: 'Cache write 5m',
     cache_write_1h: 'Cache write 1h',
+    advisor_input: 'Advisor input',
+    advisor_output: 'Advisor output',
+    advisor_cache_read: 'Advisor cache read',
+    advisor_cache_write: 'Advisor cache write',
+    advisor_cache_write_5m: 'Advisor cache write 5m',
+    advisor_cache_write_1h: 'Advisor cache write 1h',
   },
 }
 
@@ -967,5 +979,11 @@ export const jaJP: typeof zhCN = {
     cache_write: '書込',
     cache_write_5m: '書込 5m',
     cache_write_1h: '書込 1h',
+    advisor_input: 'Advisor 入力',
+    advisor_output: 'Advisor 出力',
+    advisor_cache_read: 'Advisor 読取',
+    advisor_cache_write: 'Advisor 書込',
+    advisor_cache_write_5m: 'Advisor 書込 5m',
+    advisor_cache_write_1h: 'Advisor 書込 1h',
   },
 }

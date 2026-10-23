@@ -22,6 +22,7 @@ const (
 	ReasonProtocolFiltered          ReasonCode = "protocol_filtered"
 	ReasonModelFiltered             ReasonCode = "model_filtered"
 	ReasonModelRequiredByFilter     ReasonCode = "model_required_by_filter"
+	ReasonAdvisorModelUnavailable   ReasonCode = "advisor_model_unavailable"
 	ReasonOperationUnsupported      ReasonCode = "operation_unsupported"
 	ReasonNativeRouteRequired       ReasonCode = "native_route_required"
 	ReasonNoRouteTarget             ReasonCode = "no_route_target"
@@ -183,6 +184,9 @@ func evaluateTargets(
 		case query.responsesWebsocket != nil && !snapshot.Groups[route.GroupID].ResponsesWebsocketEnabled:
 			decision.included = false
 			decision.reason = ReasonWebsocketDisabled
+		case !advisorModelsAllowed(snapshot.Groups[route.GroupID].Models, query):
+			decision.included = false
+			decision.reason = ReasonAdvisorModelUnavailable
 		}
 		if decision.included {
 			included++
@@ -247,6 +251,28 @@ func routeRequirementSatisfied(
 	default:
 		return false, false, ReasonOperationUnsupported
 	}
+}
+
+// advisor 子推理用同一上游凭据执行并按 advisor 模型计费：该模型须由分组提供，
+// 且对外名称通过访问密钥的模型过滤。advisor 工具写的是上游模型 ID，按 ID 匹配。
+func advisorModelsAllowed(models []state.ModelConfig, query normalizedQuery) bool {
+	filter := query.accessKey.Filters.Models
+	for _, advisor := range query.advisorModels {
+		allowed := false
+		for _, model := range models {
+			if model.ID != advisor {
+				continue
+			}
+			if _, permitted := filter[model.ExternalName()]; len(filter) == 0 || permitted {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func accessKeyAllowsGroup(accessKey state.AccessKeyView, groupID uint) bool {
