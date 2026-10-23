@@ -112,6 +112,7 @@ type requestLogPricingMultiplierResponse struct {
 
 type requestLogPricingLineResponse struct {
 	Code                  string                              `json:"code"`
+	ModelID               *string                             `json:"model_id,omitempty"`
 	Quantity              string                              `json:"quantity"`
 	RateNanoUSDPerMillion *string                             `json:"rate_nano_usd_per_million"`
 	Multiplier            requestLogPricingMultiplierResponse `json:"multiplier"`
@@ -1542,6 +1543,10 @@ func mapRequestLogPricingReceipt(
 				Denominator: strconv.FormatInt(line.Multiplier.Denominator, 10),
 			},
 			State: line.State,
+		}
+		if line.ModelID != "" {
+			value := line.ModelID
+			mapped.ModelID = &value
 		}
 		if line.RateNanoUSDPerMillion != nil {
 			value := strconv.FormatInt(*line.RateNanoUSDPerMillion, 10)

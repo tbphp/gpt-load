@@ -8,6 +8,46 @@ import (
 	"gpt-load/internal/pricing"
 )
 
+func TestMapRequestLogReceiptIncludesAdvisorModel(t *testing.T) {
+	var receipt pricing.Receipt
+	if err := json.Unmarshal([]byte(`{
+		"schema_version":7,"method":"unit_rate_sum","method_version":1,
+		"currency":"USD","pricing_mode":"standard",
+		"rule":{"channel_id":"anthropic","model_id":"claude-haiku-4-5"},
+		"price_multipliers":{"group":"1","access_key":"1"},
+		"line_items":[
+			{"code":"input","quantity":1000,"rate_nano_usd_per_million":1000000000,
+			"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":1000000},
+			{"code":"advisor_output","model_id":"claude-opus-4-8","quantity":400,"rate_nano_usd_per_million":25000000000,
+			"multiplier":{"numerator":1,"denominator":1},"state":"priced","amount_nano_usd":10000000}],
+		"base_total_nano_usd":11000000,"total_nano_usd":11000000
+	}`), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	response, err := mapRequestLogPricingReceipt(&receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual struct {
+		SchemaVersion int `json:"schema_version"`
+		LineItems     []struct {
+			Code    string  `json:"code"`
+			ModelID *string `json:"model_id"`
+		} `json:"line_items"`
+	}
+	if err := json.Unmarshal(encoded, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if actual.SchemaVersion != 7 || len(actual.LineItems) != 2 || actual.LineItems[0].ModelID != nil ||
+		actual.LineItems[1].ModelID == nil || *actual.LineItems[1].ModelID != "claude-opus-4-8" {
+		t.Fatalf("receipt response = %s", encoded)
+	}
+}
+
 func TestMapRequestLogReceiptIncludesFrozenPriceMultipliers(t *testing.T) {
 	for _, test := range []struct {
 		name       string

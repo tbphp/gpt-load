@@ -49,6 +49,10 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 		metadata = parsed
 		if req.Method == http.MethodPost && req.Path == openAIResponsesPath {
 			metadata.PromptCacheKey = inspectPromptCacheKey(req.Body)
+			metadata.AdvisorModels, err = inspectAdvisorModels(req.Body)
+			if err != nil {
+				return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
+			}
 		}
 	}
 	if req.Method == http.MethodGet {
@@ -76,6 +80,10 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 	}
 	metadata.Operation, metadata.RouteRequirement, metadata.ResponsesStorePreference =
 		responsesExecutionMetadata(req)
+	if len(metadata.AdvisorModels) > 0 {
+		// advisor 用量只能从原生响应的轮次明细读取，转换路由会丢失。
+		metadata.RouteRequirement = execution.RouteRequirementNative
+	}
 	return metadata, nil
 }
 

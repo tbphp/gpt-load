@@ -690,6 +690,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		RouteRequirement:         metadata.RouteRequirement,
 		ResponsesStorePreference: metadata.ResponsesStorePreference,
 		ExternalModel:            metadata.Model,
+		AdvisorModels:            metadata.AdvisorModels,
 		AccessKey:                accessKey,
 	}
 	candidateGroupIDs := scheduler.CandidateGroupIDsForQuery(snapshot, query)
@@ -1652,6 +1653,10 @@ func (handler *Handler) executeAttempts(
 	}
 	if iterator.StaticReason() == scheduler.ReasonModelRequiredByFilter {
 		handler.completeReason(ginContext, recorder, reasonModelRequiredByFilter)
+		return
+	}
+	if iterator.StaticReason() == scheduler.ReasonAdvisorModelUnavailable {
+		handler.completeReason(ginContext, recorder, reasonAdvisorModelUnavailable)
 		return
 	}
 	if parameterOverrideFailure != nil && lastAttemptIndex < 0 {

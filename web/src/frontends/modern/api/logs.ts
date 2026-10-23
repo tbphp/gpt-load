@@ -174,6 +174,8 @@ export interface LogAutoDecision {
 }
 export interface LogPricingLine {
   code: string
+  // 仅 advisor 行携带，记录计价所用的 advisor 模型。
+  model_id: string | null
   quantity: string
   rate_nano_usd_per_million: string | null
   multiplier: { numerator: string; denominator: string }
@@ -297,6 +299,7 @@ function receipt(value: unknown): LogReceipt | null {
       if (denominator === '0') throw new InvalidResponseError()
       return {
         code: text(line.code),
+        model_id: optionalText(line.model_id),
         quantity: count(line.quantity),
         rate_nano_usd_per_million: optionalCount(line.rate_nano_usd_per_million),
         multiplier: { numerator: count(multiplier.numerator), denominator },

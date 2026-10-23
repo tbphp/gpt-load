@@ -119,11 +119,25 @@ func (d *Diagnostics) Merge(other Diagnostics) {
 	}
 }
 
+// ModelTokens is usage billed at another model's rates.
+type ModelTokens struct {
+	Model  string
+	Tokens Tokens
+}
+
+// AdvisorUsage holds advisor sub-inference usage reported outside the
+// top-level counters, merged per advisor model.
+type AdvisorUsage struct {
+	Models []ModelTokens
+}
+
 // Result is a finalized provider-neutral usage result.
 type Result struct {
 	Tokens      Tokens
 	State       State
 	Diagnostics Diagnostics
+	// Advisor 指针保持 Result 可比较；内容只读，nil 表示没有 advisor 用量。
+	Advisor *AdvisorUsage
 }
 
 // Patch updates one or more token fields in an accumulator.

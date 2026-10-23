@@ -37,8 +37,8 @@ func TestQuotePriceMultipliersAdjustsCompletedBaseTotal(t *testing.T) {
 			if quote != (Quote{State: CostStatePriced, Completeness: CompletenessComplete, EstimatedCostNanoUSD: test.want}) {
 				t.Fatalf("quote = %#v, want amount %d", quote, test.want)
 			}
-			if receipt == nil || receipt.SchemaVersion != 6 || receipt.PriceMultipliers == nil || *receipt.PriceMultipliers != multipliers {
-				t.Fatalf("receipt did not freeze v6 multipliers: %#v", receipt)
+			if receipt == nil || receipt.SchemaVersion != 7 || receipt.PriceMultipliers == nil || *receipt.PriceMultipliers != multipliers {
+				t.Fatalf("receipt did not freeze v7 multipliers: %#v", receipt)
 			}
 			baseQuote, baseReceipt := table.QuoteForModeWithReceipt(identity, usage.Result{
 				State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: test.tokens},

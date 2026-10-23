@@ -121,7 +121,9 @@ export interface RequestLogFilters {
 }
 
 export interface RequestLogPricingLineDto {
-  code: 'input' | 'cache_read' | 'cache_write_5m' | 'cache_write_1h' | 'cache_write' | 'output'
+  code: (typeof receiptCodes)[number]
+  // 仅 v7 的 advisor 行携带，记录计价所用的 advisor 模型。
+  model_id?: string
   quantity: string
   rate_nano_usd_per_million: string | null
   multiplier: { numerator: string; denominator: string }
@@ -130,7 +132,7 @@ export interface RequestLogPricingLineDto {
 }
 
 export interface RequestLogPricingReceiptDto {
-  schema_version: 1 | 2 | 3 | 4 | 5 | 6
+  schema_version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   method: 'unit_rate_sum'
   method_version: 1
   currency: 'USD'
@@ -340,6 +342,12 @@ const receiptCodes = [
   'cache_write_1h',
   'cache_write',
   'output',
+  'advisor_input',
+  'advisor_cache_read',
+  'advisor_cache_write_5m',
+  'advisor_cache_write_1h',
+  'advisor_cache_write',
+  'advisor_output',
 ] as const
 const receiptLineStates = ['priced', 'unpriced'] as const
 const itemFields = [
@@ -453,6 +461,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     const line = projectRecord(lineValue)
     assertNoSecretLikeFields(line, [
       'code',
+      'model_id',
       'quantity',
       'rate_nano_usd_per_million',
       'multiplier',
@@ -464,8 +473,12 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     const numerator = projectNonNegativeInt64String(multiplier.numerator)
     const denominator = projectNonNegativeInt64String(multiplier.denominator)
     if (numerator === '0' || denominator === '0') invalidResponse()
+    const code = projectEnum(line.code, receiptCodes)
+    const advisor = code.startsWith('advisor_')
+    if (advisor !== (line.model_id !== undefined)) invalidResponse()
     return {
-      code: projectEnum(line.code, receiptCodes),
+      code,
+      ...(advisor ? { model_id: projectNonBlankString(line.model_id) } : {}),
       quantity: projectNonNegativeInt64String(line.quantity),
       rate_nano_usd_per_million:
         line.rate_nano_usd_per_million === null
@@ -480,8 +493,9 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
         line.amount_nano_usd === null ? null : projectNonNegativeInt64String(line.amount_nano_usd),
     }
   })
-  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 6 }) as
-    1 | 2 | 3 | 4 | 5 | 6
+  const schemaVersion = projectSafeInteger(record.schema_version, { minimum: 1, maximum: 7 }) as
+    1 | 2 | 3 | 4 | 5 | 6 | 7
+  if (schemaVersion < 7 && lines.some((line) => line.model_id !== undefined)) invalidResponse()
   let priceMultipliers: RequestLogPricingReceiptDto['price_multipliers']
   if (schemaVersion >= 5) {
     const multipliers = projectRecord(record.price_multipliers)
@@ -494,7 +508,7 @@ function projectPricingReceipt(value: unknown): RequestLogPricingReceiptDto | nu
     invalidResponse()
   }
   let baseTotal: string | undefined
-  if (schemaVersion === 6) {
+  if (schemaVersion >= 6) {
     baseTotal = projectNonNegativeInt64String(record.base_total_nano_usd)
   } else if (record.base_total_nano_usd !== undefined) {
     invalidResponse()

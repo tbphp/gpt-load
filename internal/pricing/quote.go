@@ -50,7 +50,7 @@ func (table *Table) QuoteForModeWithMultipliers(identity Identity, result usage.
 		quote.EstimatedCostNanoUSD = adjusted
 		receipt.TotalNanoUSD = int64(adjusted)
 	}
-	receipt.SchemaVersion = 6
+	receipt.SchemaVersion = 7
 	receipt.BaseTotalNanoUSD = &baseTotal
 	receipt.PriceMultipliers = &multipliers
 	return quote, receipt
@@ -99,18 +99,6 @@ func (table *Table) QuoteForModeWithReceipt(
 		}
 	}
 
-	components := [...]struct {
-		code       string
-		tokens     int64
-		price      Price
-		multiplier Multiplier
-	}{
-		{code: "input", tokens: result.Tokens.UncachedInput, price: prices.Input, multiplier: directPriceMultiplier},
-		{code: "cache_read", tokens: result.Tokens.CacheRead, price: prices.CacheRead, multiplier: directPriceMultiplier},
-		{code: "cache_write_5m", tokens: result.Tokens.CacheWrite5M, price: prices.CacheWrite, multiplier: directPriceMultiplier},
-		{code: "cache_write_1h", tokens: result.Tokens.CacheWrite1H, price: prices.CacheWrite, multiplier: cacheWriteOneHourMultiplier},
-		{code: "output", tokens: result.Tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
-	}
 	receipt := &Receipt{
 		SchemaVersion: 4,
 		Method:        ReceiptMethodUnitRateSum,
@@ -122,28 +110,76 @@ func (table *Table) QuoteForModeWithReceipt(
 			ModelID:   identity.ModelID,
 		},
 		ContextThresholdTokens: selectedThreshold,
-		LineItems:              make([]ReceiptLine, 0, len(components)+1),
+		LineItems:              make([]ReceiptLine, 0, 6),
 	}
 
-	positiveBillable := result.Tokens.CacheWriteUnknown > 0
-	pricedPositive := false
-	partial := result.State == usage.StatePartial ||
-		result.Tokens.CacheWriteUnknown > 0
-	cost := NanoUSD(0)
-	for _, component := range components {
+	lines := quoteLines{receipt: receipt, partial: result.State == usage.StatePartial}
+	if !lines.add("", "", result.Tokens, prices) {
+		return unavailableQuote(), nil
+	}
+	if result.Advisor != nil {
+		for _, advisor := range result.Advisor.Models {
+			if !table.addAdvisorLines(&lines, identity.ChannelID, advisor) {
+				return unavailableQuote(), nil
+			}
+		}
+	}
+	receipt.TotalNanoUSD = int64(lines.cost)
+
+	if lines.positiveBillable && !lines.pricedPositive {
+		return unavailableQuote(), receipt
+	}
+	completeness := CompletenessComplete
+	if lines.partial {
+		completeness = CompletenessPartial
+	}
+	return Quote{
+		State:                CostStatePriced,
+		Completeness:         completeness,
+		EstimatedCostNanoUSD: lines.cost,
+	}, receipt
+}
+
+// advisorLinePrefix 标记按 advisor 模型计价的明细行，仅 v7 明细允许出现。
+const advisorLinePrefix = "advisor_"
+
+// quoteLines 逐项写入明细行并累计请求总价。
+type quoteLines struct {
+	receipt          *Receipt
+	cost             NanoUSD
+	positiveBillable bool
+	pricedPositive   bool
+	partial          bool
+}
+
+// add 按 prices 为 tokens 的每个正数分量追加明细行；prefix 与 modelID 只用于 advisor 行。
+func (lines *quoteLines) add(prefix, modelID string, tokens usage.Tokens, prices Prices) bool {
+	for _, component := range [...]struct {
+		code       string
+		tokens     int64
+		price      Price
+		multiplier Multiplier
+	}{
+		{code: "input", tokens: tokens.UncachedInput, price: prices.Input, multiplier: directPriceMultiplier},
+		{code: "cache_read", tokens: tokens.CacheRead, price: prices.CacheRead, multiplier: directPriceMultiplier},
+		{code: "cache_write_5m", tokens: tokens.CacheWrite5M, price: prices.CacheWrite, multiplier: directPriceMultiplier},
+		{code: "cache_write_1h", tokens: tokens.CacheWrite1H, price: prices.CacheWrite, multiplier: cacheWriteOneHourMultiplier},
+		{code: "output", tokens: tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
+	} {
 		if component.tokens == 0 {
 			continue
 		}
-		positiveBillable = true
+		lines.positiveBillable = true
 		line := ReceiptLine{
-			Code:       component.code,
+			Code:       prefix + component.code,
+			ModelID:    modelID,
 			Quantity:   component.tokens,
 			Multiplier: component.multiplier,
 			State:      ReceiptLineUnpriced,
 		}
 		if !component.price.Set {
-			partial = true
-			receipt.LineItems = append(receipt.LineItems, line)
+			lines.partial = true
+			lines.receipt.LineItems = append(lines.receipt.LineItems, line)
 			continue
 		}
 		componentCost, ok := QuoteComponent(
@@ -152,42 +188,51 @@ func (table *Table) QuoteForModeWithReceipt(
 			component.multiplier,
 		)
 		if !ok {
-			return unavailableQuote(), nil
+			return false
 		}
-		cost, ok = CheckedAddNanoUSD(cost, componentCost)
+		lines.cost, ok = CheckedAddNanoUSD(lines.cost, componentCost)
 		if !ok {
-			return unavailableQuote(), nil
+			return false
 		}
 		rate := int64(component.price.NanoUSDPerMillion)
 		amount := int64(componentCost)
 		line.RateNanoUSDPerMillion = &rate
 		line.AmountNanoUSD = &amount
 		line.State = ReceiptLinePriced
-		receipt.LineItems = append(receipt.LineItems, line)
-		pricedPositive = true
+		lines.receipt.LineItems = append(lines.receipt.LineItems, line)
+		lines.pricedPositive = true
 	}
-	if result.Tokens.CacheWriteUnknown > 0 {
-		receipt.LineItems = append(receipt.LineItems, ReceiptLine{
-			Code:       "cache_write",
-			Quantity:   result.Tokens.CacheWriteUnknown,
+	if tokens.CacheWriteUnknown > 0 {
+		lines.positiveBillable = true
+		lines.partial = true
+		lines.receipt.LineItems = append(lines.receipt.LineItems, ReceiptLine{
+			Code:       prefix + "cache_write",
+			ModelID:    modelID,
+			Quantity:   tokens.CacheWriteUnknown,
 			Multiplier: directPriceMultiplier,
 			State:      ReceiptLineUnpriced,
 		})
 	}
-	receipt.TotalNanoUSD = int64(cost)
+	return true
+}
 
-	if positiveBillable && !pricedPositive {
-		return unavailableQuote(), receipt
+// addAdvisorLines 按同一渠道下 advisor 模型的标准价计价；缺少价格行时各项记为未计价。
+func (table *Table) addAdvisorLines(lines *quoteLines, channelID string, advisor usage.ModelTokens) bool {
+	if validateModelID(advisor.Model) != nil {
+		return false
 	}
-	completeness := CompletenessComplete
-	if partial {
-		completeness = CompletenessPartial
+	if _, ok := usage.CheckedTotal(advisor.Tokens); !ok {
+		return false
 	}
-	return Quote{
-		State:                CostStatePriced,
-		Completeness:         completeness,
-		EstimatedCostNanoUSD: cost,
-	}, receipt
+	inputTokens, ok := checkedInputTokens(advisor.Tokens)
+	if !ok {
+		return false
+	}
+	var prices Prices
+	if rule, found := table.Lookup(Identity{ChannelID: channelID, ModelID: advisor.Model}); found {
+		prices, _ = selectSchedulePrices(rule.Prices, rule.ContextTiers, inputTokens)
+	}
+	return lines.add(advisorLinePrefix, advisor.Model, advisor.Tokens, prices)
 }
 
 func selectSchedulePrices(
