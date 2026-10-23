@@ -103,7 +103,9 @@ const (
 
 // ReceiptLine is one frozen term in the request-time cost calculation.
 type ReceiptLine struct {
-	Code                  string           `json:"code"`
+	Code string `json:"code"`
+	// ModelID 只出现在 v7 的 advisor 行，记录计价所用的 advisor 模型。
+	ModelID               string           `json:"model_id,omitempty"`
 	Quantity              int64            `json:"quantity"`
 	RateNanoUSDPerMillion *int64           `json:"rate_nano_usd_per_million,omitempty"`
 	Multiplier            Multiplier       `json:"multiplier"`

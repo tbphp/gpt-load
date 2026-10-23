@@ -31,6 +31,8 @@ type RequestMetadata struct {
 	PricingMode              pricing.Mode
 	UsageDiagnostics         usage.Diagnostics
 	Reasoning                reasoning.Config
+	// AdvisorModels 是请求里 advisor 工具声明的模型，上游会按这些模型执行并计费。
+	AdvisorModels []string
 }
 
 type Dialect interface {

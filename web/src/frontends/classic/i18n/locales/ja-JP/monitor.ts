@@ -1059,6 +1059,7 @@ export default {
         identity: '価格識別情報',
         historicalSchema1: '履歴スコープ',
         historicalSchema2: '履歴グローバル価格',
+        advisor: 'Advisor（{model}）',
       },
       pricingMode: {
         fastLabel: 'Fast モード料金',

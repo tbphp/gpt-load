@@ -119,17 +119,24 @@ const cacheRateLabel = computed(() => {
 })
 const formula = computed(() => {
   const lines = receipt.value?.line_items ?? []
-  const input = lines
+  const requestLines = lines.filter((line) => line.model_id === undefined)
+  const input = requestLines
     .filter((line) => line.code !== 'output')
     .map(formatFormulaLine)
     .join(' + ')
-  const output = lines
+  const output = requestLines
     .filter((line) => line.code === 'output')
     .map(formatFormulaLine)
     .join(' + ')
+  const advisors = new Map<string, string[]>()
+  for (const line of lines) {
+    if (line.model_id === undefined) continue
+    advisors.set(line.model_id, [...(advisors.get(line.model_id) ?? []), formatFormulaLine(line)])
+  }
   return {
     input: input || '—',
     output: output || '—',
+    advisors: [...advisors].map(([model, parts]) => ({ model, formula: parts.join(' + ') })),
   }
 })
 
@@ -874,12 +881,16 @@ function decisionRuleLabel(ruleID: string): string {
               <template v-if="receipt && usageDisplayState === 'reported'">
                 <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
                 <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+                <span v-for="advisor in formula.advisors" :key="'advisor-' + advisor.model"
+                  >{{ t('monitor.logs.receipt.advisor', { model: advisor.model }) }} =
+                  {{ advisor.formula }}</span
+                >
               </template>
               <template
                 v-if="
                   receipt &&
                   usageDisplayState === 'reported' &&
-                  receipt.schema_version === 6 &&
+                  receipt.schema_version >= 6 &&
                   receipt.base_total_nano_usd !== undefined &&
                   receipt.price_multipliers
                 "
