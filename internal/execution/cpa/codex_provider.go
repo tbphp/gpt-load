@@ -30,7 +30,8 @@ type codexProviderBridge struct {
 }
 
 type codexBootstrapRejectionError struct {
-	cause error
+	cause    error
+	inStream bool
 }
 
 func (err *codexBootstrapRejectionError) Error() string { return err.cause.Error() }
@@ -414,7 +415,7 @@ func (*codexProviderBridge) ClassifyError(
 	typeValue, codeValue := codexErrorTypeCode(err)
 	var bootstrapRejection *codexBootstrapRejectionError
 	isBootstrapRejection := errors.As(err, &bootstrapRejection)
-	if isBootstrapRejection && codexBootstrapOverloadMessage(err) {
+	if isBootstrapRejection && bootstrapRejection.inStream && codexBootstrapOverloadMessage(err) {
 		status, kind, codeValue = http.StatusServiceUnavailable, execution.ErrorKindHTTP, "server_is_overloaded"
 	}
 	evidence := &execution.ErrorEvidence{

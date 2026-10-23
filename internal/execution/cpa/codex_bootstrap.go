@@ -8,12 +8,12 @@ import (
 const (
 	codexBootstrapEvents = 8
 	codexBootstrapChunks = 48
-	codexBootstrapBytes  = 256 << 10
+	codexBootstrapBytes  = 1 << 20
 )
 
-// CPA 会把未识别的过载错误排在前导之后交付。只暂存没有产出的开始事件，
+// CPA 会把未识别的过载错误排在前导之后交付。只暂存前导和空内容声明，
 // 让这类容量拒绝仍能作为提交前错误交给网关。读取继续使用原有首包、空闲和
-// 请求超时；任一产出、工具、未知事件或缓冲上限都会结束这次预读。
+// 请求超时；任一产出、服务端工具、未知事件或缓冲上限都会结束这次预读。
 type codexBootstrapBuffer struct {
 	pending  [][]byte
 	size     int
@@ -73,10 +73,61 @@ func codexBootstrapPreamble(event []byte) bool {
 		Response struct {
 			Output []json.RawMessage `json:"output"`
 		} `json:"response"`
+		Item struct {
+			Type             string               `json:"type"`
+			Content          []codexBootstrapPart `json:"content"`
+			Summary          []codexBootstrapPart `json:"summary"`
+			EncryptedContent string               `json:"encrypted_content"`
+			Arguments        string               `json:"arguments"`
+			Input            string               `json:"input"`
+		} `json:"item"`
+		Part codexBootstrapPart `json:"part"`
 	}
 	if json.Unmarshal(payload, &envelope) != nil || len(envelope.Response.Output) != 0 ||
 		len(name) > 0 && string(name) != envelope.Type {
 		return false
 	}
-	return envelope.Type == "response.created" || envelope.Type == "response.in_progress"
+	switch envelope.Type {
+	case "response.created", "response.in_progress":
+		return true
+	case "response.output_item.added":
+		item := envelope.Item
+		switch item.Type {
+		case "message":
+			return codexBootstrapEmptyParts(item.Content...)
+		case "reasoning":
+			return item.EncryptedContent == "" && codexBootstrapEmptyParts(item.Summary...) && codexBootstrapEmptyParts(item.Content...)
+		case "function_call":
+			return item.Arguments == ""
+		case "custom_tool_call":
+			return item.Input == ""
+		}
+	case "response.content_part.added", "response.reasoning_summary_part.added":
+		return codexBootstrapEmptyParts(envelope.Part)
+	}
+	return false
+}
+
+type codexBootstrapPart struct {
+	Type    string `json:"type"`
+	Text    string `json:"text"`
+	Refusal string `json:"refusal"`
+}
+
+func codexBootstrapEmptyParts(parts ...codexBootstrapPart) bool {
+	for _, part := range parts {
+		switch part.Type {
+		case "output_text", "summary_text", "text", "reasoning_text":
+			if part.Text != "" {
+				return false
+			}
+		case "refusal":
+			if part.Refusal != "" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }

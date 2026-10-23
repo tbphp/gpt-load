@@ -38,6 +38,7 @@ func TestCodexGatewayRetriesBootstrapOverload(t *testing.T) {
 		name            string
 		before          string
 		errorEvent      string
+		httpStatus      int
 		rules           []health.ErrorRule
 		wantRetry       bool
 		wantUncommitted bool
@@ -49,8 +50,24 @@ func TestCodexGatewayRetriesBootstrapOverload(t *testing.T) {
 			rules: []health.ErrorRule{{Keywords: []string{"overloaded"}, Retry: health.RetryNextCandidate, Effect: health.EffectNone}}},
 		{name: "custom rule disables retry", errorEvent: overload, wantUncommitted: true,
 			rules: []health.ErrorRule{{Keywords: []string{"overloaded"}, Retry: health.RetryNone, Effect: health.EffectNone}}},
+		{name: "custom rule matches HTTP 500 overload", errorEvent: overload, httpStatus: http.StatusInternalServerError, wantUncommitted: true,
+			rules: []health.ErrorRule{{StatusCodes: []int{500}, Retry: health.RetryNone, Effect: health.EffectNone}}},
+		{name: "overload after empty reasoning", before: "data: " + `{"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}` + "\n\n", errorEvent: overload, wantRetry: true},
+		{name: "overload after empty message", before: "data: " + `{"type":"response.output_item.added","item":{"type":"message","content":[]}}` + "\n\n", errorEvent: overload, wantRetry: true},
+		{name: "overload after empty function call", before: "data: " + `{"type":"response.output_item.added","item":{"type":"function_call","name":"get_weather","arguments":""}}` + "\n\n", errorEvent: overload, wantRetry: true},
+		{name: "overload after empty custom tool call", before: "data: " + `{"type":"response.output_item.added","item":{"type":"custom_tool_call","name":"get_weather","input":""}}` + "\n\n", errorEvent: overload, wantRetry: true},
+		{name: "overload after empty text part", before: "data: " + `{"type":"response.content_part.added","part":{"type":"output_text","text":""}}` + "\n\n", errorEvent: overload, wantRetry: true},
+		{name: "overload after empty reasoning part", before: "data: " + `{"type":"response.reasoning_summary_part.added","part":{"type":"summary_text","text":""}}` + "\n\n", errorEvent: overload, wantRetry: true},
+		{name: "overload after large prelude", before: "data: " + `{"type":"response.in_progress","response":{"id":"resp_primary","instructions":"` + strings.Repeat("x", 300<<10) + `","output":[]}}` + "\n\n", errorEvent: overload, wantRetry: true},
 		{name: "other server error remains in stream", errorEvent: `{"type":"error","error":{"type":"server_error","code":"server_error","message":"Unknown server failure"}}`},
 		{name: "overload after output", before: output, errorEvent: overload},
+		{name: "overload after reasoning content", before: "data: " + `{"type":"response.output_item.added","item":{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking"}]}}` + "\n\n", errorEvent: overload},
+		{name: "overload after encrypted reasoning", before: "data: " + `{"type":"response.output_item.added","item":{"type":"reasoning","summary":[],"encrypted_content":"ciphertext"}}` + "\n\n", errorEvent: overload},
+		{name: "overload after unknown message content", before: "data: " + `{"type":"response.output_item.added","item":{"type":"message","content":[{"type":"output_audio","audio":"audio"}]}}` + "\n\n", errorEvent: overload},
+		{name: "overload after function arguments", before: "data: " + `{"type":"response.output_item.added","item":{"type":"function_call","name":"get_weather","arguments":"{}"}}` + "\n\n", errorEvent: overload},
+		{name: "overload after custom tool input", before: "data: " + `{"type":"response.output_item.added","item":{"type":"custom_tool_call","name":"get_weather","input":"weather"}}` + "\n\n", errorEvent: overload},
+		{name: "overload after nonempty text part", before: "data: " + `{"type":"response.content_part.added","part":{"type":"output_text","text":"partial answer"}}` + "\n\n", errorEvent: overload},
+		{name: "overload after unknown part", before: "data: " + `{"type":"response.content_part.added","part":{"type":"output_audio","audio":"audio"}}` + "\n\n", errorEvent: overload},
 		{name: "overload after server tool", before: tool, errorEvent: overload},
 		{name: "overload after unknown event", before: "data: " + `{"type":"response.unknown","response_id":"resp_primary"}` + "\n\n", errorEvent: overload},
 		{name: "created event with output", before: "data: " + `{"type":"response.created","response":{"id":"resp_primary","output":[{"type":"message","content":[{"type":"output_text","text":"partial answer"}]}]}}` + "\n\n", errorEvent: overload},
@@ -64,6 +81,12 @@ func TestCodexGatewayRetriesBootstrapOverload(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				if r.Header.Get("Chatgpt-Account-Id") == "account-1" {
 					primaryCalls.Add(1)
+					if test.httpStatus != 0 {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(test.httpStatus)
+						_, _ = io.WriteString(w, test.errorEvent)
+						return
+					}
 					_, _ = io.WriteString(w, prelude+test.before)
 					w.(http.Flusher).Flush()
 					_, _ = io.WriteString(w, "data: "+test.errorEvent+"\n\n")
@@ -88,7 +111,7 @@ func TestCodexGatewayRetriesBootstrapOverload(t *testing.T) {
 			t.Logf("primary=%d backup=%d attempts=%d committed=%t retry=%t status=%d error=%s", primaryCalls.Load(), backupCalls.Load(), len(log.Attempts), first.Committed, first.WillRetry, log.StatusCode, log.ErrorCode)
 			if test.wantRetry {
 				if backupCalls.Load() != 1 || len(log.Attempts) != 2 || first.Committed || !first.WillRetry || log.Status != telemetry.RequestStatusSuccess {
-					t.Fatalf("bootstrap error did not fall back: first=%+v final=%s/%d backup=%d body=%s", first, log.Status, log.StatusCode, backupCalls.Load(), response.Body)
+					t.Fatalf("bootstrap error did not fall back: first=%+v final=%s/%d backup=%d body_bytes=%d", first, log.Status, log.StatusCode, backupCalls.Load(), response.Body.Len())
 				}
 				if !strings.Contains(response.Body.String(), "backup answer") || strings.Contains(response.Body.String(), "resp_primary") || strings.Contains(response.Body.String(), "overloaded") {
 					t.Fatalf("failed attempt leaked into successful response: %s", response.Body)
@@ -100,8 +123,12 @@ func TestCodexGatewayRetriesBootstrapOverload(t *testing.T) {
 					t.Fatalf("custom rule did not handle bootstrap error: %+v", first)
 				}
 			} else if test.wantUncommitted {
+				wantStatus := test.httpStatus
+				if wantStatus == 0 {
+					wantStatus = http.StatusServiceUnavailable
+				}
 				if backupCalls.Load() != 0 || len(log.Attempts) != 1 || first.Committed || first.WillRetry ||
-					first.RuleID != "custom.global.1" || response.Code != http.StatusServiceUnavailable ||
+					first.RuleID != "custom.global.1" || first.StatusCode != wantStatus || response.Code != wantStatus ||
 					strings.Contains(response.Body.String(), "resp_primary") {
 					t.Fatalf("custom stop rule was ignored: first=%+v response=%d %s backup=%d", first, response.Code, response.Body, backupCalls.Load())
 				}

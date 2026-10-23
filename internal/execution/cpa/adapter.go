@@ -485,7 +485,7 @@ func (a *Adapter) ExecuteStream(
 			if codexBootstrap != nil && !codexBootstrap.released && len(chunk.Payload) == 0 &&
 				len(bytes.TrimSpace(nativeResponsesAssembler.pending)) == 0 && codexBootstrapCapacityRejection(chunk.Err) {
 				return streamExecutionError(streamCtx, provider, upstreamProtocol, headers,
-					&codexBootstrapRejectionError{cause: chunk.Err}, credential, applied, false)
+					&codexBootstrapRejectionError{cause: chunk.Err, inStream: true}, credential, applied, false)
 			}
 			if failure := emitPayloads(codexBootstrap.flush()); failure != nil {
 				return *failure
