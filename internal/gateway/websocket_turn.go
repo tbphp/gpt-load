@@ -18,6 +18,7 @@ import (
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/automodel"
+	"gpt-load/internal/codexrecovery"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -318,6 +319,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		return
 	}
 	affinity := h.resolveRequestAffinity(snapshot, key.ID, protocol.OpenAIResponses, original.metadata.AffinityPrefix, query.AllowedCredentialRefs, original.metadata.PromptCacheKey)
+	lineageSession := h.invalidLineageKey(key.ID, protocol.OpenAIResponses, original.metadata)
 	if requiredRef == nil {
 		query.PreferredCredentialID = affinity.preferredCredentialID
 	}
@@ -332,6 +334,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 	var refreshSelection *scheduler.Selection
 	var refreshRef state.CredentialRef
 	authRefreshUsed := false
+	// 与 HTTP 一致：上游拒绝续接内容后，在同一凭据上重放一次清理后的请求。
+	var encryptedRetry *encryptedContentRecoveryRetry
+	encryptedReplayUsed := false
 	var finishRejectedAttempt func()
 	var finishFailedAttempt func()
 	var parameterOverrideFailure *reason
@@ -383,6 +388,8 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			forceCredentialRefresh = currentRef.Version <= refreshRef.Version
 			authRefreshUsed = true
 			refreshSelection = nil
+		} else if encryptedRetry != nil {
+			selection, ref = encryptedRetry.selection, encryptedRetry.ref
 		} else {
 			selection, err = iterator.Next()
 			if err != nil {
@@ -426,6 +433,23 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		if err != nil || len(payload) > maxWebsocketPayloadBytes {
 			reject(reasonRedactionFailed)
 			return
+		}
+		lineageKey := codexrecovery.InvalidLineageKey(ref.ID, ref.IdentityGeneration, lineageSession)
+		if encryptedRetry != nil {
+			payload, encryptedRetry = encryptedRetry.body, nil
+		} else if encryptedReplayUsed {
+			// 重放后换号的候选沿用清理后的历史，不再带回已被拒的内容。
+			if cleaned, _, ok := codexrecovery.Sanitize(payload); ok {
+				payload = cleaned
+			}
+		} else {
+			// 发往该凭据前移除本会话已被它拒绝的密文和条目 ID；没有记录时请求体不变。
+			if stripped, _, ok := codexrecovery.StripEncryptedContentDigests(payload, h.invalidLineage.Lookup(lineageKey, h.invalidLineageNow())); ok {
+				payload = stripped
+			}
+			if stripped, _, ok := codexrecovery.StripHistoryItemIDs(payload, h.invalidLineage.LookupItemIDs(lineageKey, h.invalidLineageNow())); ok {
+				payload = stripped
+			}
 		}
 		extraBytes := max(0, len(payload)-len(turn.body))
 		if !s.reserveInput(extraBytes) {
@@ -601,7 +625,9 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			result.ExecutionError = &execution.ErrorEvidence{Kind: execution.ErrorKindCanceled, OriginHint: execution.ErrorOriginDownstream, Code: "websocket_canceled"}
 		} else if binding != nil {
 			bufferFirstError := startedBound || (newBinding && requiredRef == nil && !binding.capabilities.Multiplex)
-			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock, firstByteDeadline, bufferFirstError)
+			// 共享连接不换号，只压住可在同一凭据上清理后重放的拒绝。
+			bufferRecoverableError := newBinding && requiredRef == nil
+			result = s.runWebsocketAttempt(ctx, cancel, binding, turn.lane, selection, ref, input, recorder, unlock, firstByteDeadline, bufferFirstError, bufferRecoverableError)
 		} else {
 			result.Err = executionFailureError(ctx, wsResult.Error)
 			result.StatusCode = wsResult.Error.StatusCode
@@ -658,6 +684,39 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		// 是否可重放仍由错误规则决定；续接和共享连接不能随某一轮切换身份。
 		retryableTurn := result.DispatchState == execution.DispatchNotSent ||
 			(len(result.Body) > 0 && result.Stream.EndReason == StreamEndSSEError)
+		signal := encryptedContentRecoverySignal(result)
+		if signal == "" {
+			signal = codexrecovery.Classify(string(result.Body))
+		}
+		if signal != "" && !result.Committed {
+			if codexrecovery.InvalidEncryptedContentSignal(signal) {
+				h.invalidLineage.Mark(lineageKey, codexrecovery.EncryptedContentDigests(payload), h.invalidLineageNow())
+			}
+			if codexrecovery.InvalidItemIDSignal(signal) {
+				// 条目 ID 报错只说明 ID 不可用，不能据此判定同一请求里的密文失效。
+				h.invalidLineage.MarkItemIDs(lineageKey, codexrecovery.HistoryItemIDs(payload), h.invalidLineageNow())
+			}
+			// 新连接首轮在同一凭据上清理后重放一次；已绑定连接只记录拒绝，沿用下方的重连。
+			// 重放遵守错误规则、重试次数与凭据冷却，不满足时按原流程换号或交付错误。
+			if !encryptedReplayUsed && retryableTurn && newBinding && requiredRef == nil &&
+				decision.Retry != health.RetryNone && decision.Effect != health.EffectSkipGroup &&
+				forwardAttempts < limit && s.ctx.Err() == nil {
+				if sanitized, _, ok := codexrecovery.Sanitize(payload); ok && iterator.ChargeReplay(selection, ref) {
+					encryptedRetry = &encryptedContentRecoveryRetry{selection: selection, ref: ref, body: sanitized}
+					encryptedReplayUsed = true
+					// 串行连接与换号一样重新建连（Codex 等上游出错后即关闭会话）；共享连接沿用当前会话。
+					if binding != nil && !binding.capabilities.Multiplex {
+						_ = binding.session.Close()
+						s.mu.Lock()
+						s.binding = nil
+						s.mu.Unlock()
+						binding = nil
+					}
+					recorder.retryIfAnotherForward(index)
+					continue
+				}
+			}
+		}
 		if retryableTurn && !result.Committed && newBinding &&
 			(binding == nil || !binding.capabilities.Multiplex) && decision.Retry != health.RetryNone &&
 			forwardAttempts < limit && requiredRef == nil && s.ctx.Err() == nil {
@@ -918,7 +977,7 @@ func (output *websocketRedactionOutput) unpack(released []byte) ([][]byte, error
 	return frames, nil
 }
 
-func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func(), firstByteDeadline time.Time, bufferFirstError bool) UpstreamResult {
+func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel context.CancelFunc, binding *websocketBinding, lane string, selection scheduler.Selection, ref state.CredentialRef, input ForwardInput, recorder *requestRecorder, unlock func(), firstByteDeadline time.Time, bufferFirstError, bufferRecoverableError bool) UpstreamResult {
 	observer := newStreamEventObserver(input.Dialect, newUsageCaptureBoundary().newStreamForRequest(input.Dialect, input.ObserveUsage))
 	result := UpstreamResult{UpstreamProtocol: protocol.OpenAIResponses}
 	var responseID string
@@ -1086,7 +1145,7 @@ func (s *websocketConnection) runWebsocketAttempt(ctx context.Context, cancel co
 			result.ResponseModelObserved = true
 			result.ResponseModelMismatch = response.Model != input.UpstreamModelID
 		}
-		if providerError && !result.Committed && bufferFirstError {
+		if providerError && !result.Committed && (bufferFirstError || (bufferRecoverableError && codexrecovery.Classify(string(body)) != "")) {
 			// 先保留已脱敏的错误，待分类及候选选择结束后再决定是否交付。
 			// 失败响应不能登记为后续请求的续接目标。
 			result.Body = append([]byte(nil), body...)
