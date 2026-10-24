@@ -2,14 +2,15 @@
 // continuation recovery. Explicit item ownership, missing history item, and
 // encrypted-content errors trigger a rewrite of self-contained inline history:
 // remove upstream item IDs and rejected opaque state, preserving readable
-// contents and tool call associations. Normal requests are never rewritten.
-// The gateway replays once on the current credential and retains this recovery
-// for subsequent candidate failover within the existing retry budget.
+// contents and tool call associations. Compaction items and server-side item
+// references hold history that cannot be rebuilt here, so they are never
+// removed. Normal requests are never rewritten.
+// The gateway replays once on the current credential within the retry budget
+// and retains this recovery for subsequent candidate failover.
 // Rejected history item IDs and encrypted-content digests are also remembered
-// per client session and routing group, so later turns remove only the
+// per client session and credential, so later turns remove only the
 // already-rejected state before contacting the upstream instead of repeating
 // the same failure.
-// Reference-only history cannot be rebuilt without its original server state.
 //
 // The package is pure: it classifies upstream error evidence and rewrites a
 // request body without any IO, so it can be unit tested in isolation.

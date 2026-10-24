@@ -1,15 +1,16 @@
 package codexrecovery
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
 
-func TestInvalidLineageIsGroupScopedAndExpires(t *testing.T) {
+func TestInvalidLineageIsCredentialScopedAndExpires(t *testing.T) {
 	lineage := NewInvalidLineage()
 	now := time.Unix(1_700_000_000, 0)
-	keyA := InvalidLineageKey(1, "session-a")
-	keyB := InvalidLineageKey(2, "session-a")
+	keyA := InvalidLineageKey(1, 1, "session-a")
+	keyB := InvalidLineageKey(2, 1, "session-a")
 
 	d1 := EncryptedContentDigest("opaque-a")
 	d2 := EncryptedContentDigest("opaque-b")
@@ -20,16 +21,19 @@ func TestInvalidLineageIsGroupScopedAndExpires(t *testing.T) {
 		t.Fatalf("added item IDs = %d, want 2", added)
 	}
 	if got := lineage.Lookup(keyA, now.Add(time.Minute)); len(got) != 2 {
-		t.Fatalf("group A digests = %d, want 2", len(got))
+		t.Fatalf("credential A digests = %d, want 2", len(got))
 	}
 	if got := lineage.Lookup(keyB, now.Add(time.Minute)); len(got) != 0 {
-		t.Fatalf("group B inherited group A digests: %v", got)
+		t.Fatalf("credential B inherited credential A digests: %v", got)
+	}
+	if got := lineage.Lookup(InvalidLineageKey(1, 2, "session-a"), now.Add(time.Minute)); len(got) != 0 {
+		t.Fatalf("a re-authorized credential inherited old digests: %v", got)
 	}
 	if got := lineage.LookupItemIDs(keyA, now.Add(time.Minute)); len(got) != 2 {
-		t.Fatalf("group A item IDs = %d, want 2", len(got))
+		t.Fatalf("credential A item IDs = %d, want 2", len(got))
 	}
 	if got := lineage.LookupItemIDs(keyB, now.Add(time.Minute)); len(got) != 0 {
-		t.Fatalf("group B inherited group A item IDs: %v", got)
+		t.Fatalf("credential B inherited credential A item IDs: %v", got)
 	}
 	if got := lineage.Lookup(keyA, now.Add(InvalidLineageTTL+2*time.Minute)); len(got) != 0 {
 		t.Fatalf("expired lineage remained: %v", got)
@@ -42,7 +46,7 @@ func TestInvalidLineageIsGroupScopedAndExpires(t *testing.T) {
 func TestInvalidLineageUsesIdleTTLForActiveSessions(t *testing.T) {
 	lineage := NewInvalidLineage()
 	now := time.Unix(1_700_000_000, 0)
-	key := InvalidLineageKey(1, "session-a")
+	key := InvalidLineageKey(1, 1, "session-a")
 	if added := lineage.Mark(key, []string{EncryptedContentDigest("opaque")}, now); added != 1 {
 		t.Fatalf("added digests = %d, want 1", added)
 	}
@@ -70,7 +74,7 @@ func TestEncryptedContentDigestsCollectNestedValues(t *testing.T) {
 	}
 }
 
-func TestHistoryItemIDsCollectsReplayableItemsAndReferences(t *testing.T) {
+func TestHistoryItemIDsCollectsReplayableItems(t *testing.T) {
 	body := []byte(`{
 		"input":[
 			{"type":"message","id":"msg_1","role":"assistant","content":"history"},
@@ -81,7 +85,31 @@ func TestHistoryItemIDsCollectsReplayableItemsAndReferences(t *testing.T) {
 		]
 	}`)
 	ids := HistoryItemIDs(body)
-	if len(ids) != 3 {
-		t.Fatalf("history item IDs = %v, want 3", ids)
+	if len(ids) != 2 {
+		t.Fatalf("history item IDs = %v, want only the 2 replayable items", ids)
+	}
+}
+
+func TestInvalidLineageKeepsLongSessionsWithinGlobalBound(t *testing.T) {
+	lineage := NewInvalidLineage()
+	now := time.Unix(1_700_000_000, 0)
+	longSession := InvalidLineageKey(1, 1, "session-long")
+	values := make([]string, 0, invalidLineageMaxValues+10)
+	for index := range 200 {
+		values = append(values, EncryptedContentDigest(fmt.Sprintf("opaque-%d", index)))
+	}
+	if added := lineage.Mark(longSession, values, now); added != 200 {
+		t.Fatalf("long session remembered %d digests, want 200", added)
+	}
+
+	values = values[:0]
+	for index := range invalidLineageMaxValues + 10 {
+		values = append(values, fmt.Sprintf("value-%d", index))
+	}
+	otherSession := InvalidLineageKey(1, 1, "session-other")
+	lineage.Mark(otherSession, values, now)
+	stored := len(lineage.Lookup(longSession, now)) + len(lineage.Lookup(otherSession, now))
+	if stored != invalidLineageMaxValues {
+		t.Fatalf("stored values = %d, want the global bound %d", stored, invalidLineageMaxValues)
 	}
 }

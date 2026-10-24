@@ -15,7 +15,8 @@ const (
 	InvalidLineageTTL = time.Hour
 	// InvalidLineageCapacity bounds the number of sessions retained in memory.
 	InvalidLineageCapacity = 10_000
-	invalidLineageMaxItems = 64
+	// 长会话的被拒内容可能远超几十条，只限制所有会话的总条数来约束内存。
+	invalidLineageMaxValues = 100_000
 )
 
 type invalidLineageEntry struct {
@@ -38,15 +39,16 @@ func NewInvalidLineage() *InvalidLineage {
 	return &InvalidLineage{entries: make(map[string]invalidLineageEntry)}
 }
 
-// InvalidLineageKey scopes a session lineage to one routing group. The same
-// item can be valid for the account that created it and invalid for another
-// group's account.
-func InvalidLineageKey(groupID uint, sessionKey string) string {
+// InvalidLineageKey scopes a session lineage to one credential identity. The
+// same item can be valid for the account that created it and invalid for any
+// other account, including another account in the same group.
+func InvalidLineageKey(credentialID uint, identityGeneration uint64, sessionKey string) string {
 	sessionKey = strings.TrimSpace(sessionKey)
-	if groupID == 0 || sessionKey == "" {
+	if credentialID == 0 || sessionKey == "" {
 		return ""
 	}
-	return strconv.FormatUint(uint64(groupID), 10) + "\x00" + sessionKey
+	return strconv.FormatUint(uint64(credentialID), 10) + ":" +
+		strconv.FormatUint(identityGeneration, 10) + "\x00" + sessionKey
 }
 
 // Lookup returns a copy of the rejected digests for key.
@@ -123,6 +125,7 @@ func (lineage *InvalidLineage) markSet(key string, values []string, now time.Tim
 	if set == nil {
 		set = make(map[string]struct{}, len(values))
 	}
+	stored := lineage.storedValuesLocked()
 	added := 0
 	for _, value := range values {
 		value = strings.TrimSpace(value)
@@ -132,11 +135,12 @@ func (lineage *InvalidLineage) markSet(key string, values []string, now time.Tim
 		if _, duplicate := set[value]; duplicate {
 			continue
 		}
-		if len(set) >= invalidLineageMaxItems {
-			continue
+		if stored >= invalidLineageMaxValues {
+			break
 		}
 		set[value] = struct{}{}
 		added++
+		stored++
 	}
 	if itemIDs {
 		entry.itemIDs = set
@@ -146,6 +150,14 @@ func (lineage *InvalidLineage) markSet(key string, values []string, now time.Tim
 	entry.expiresAt = now.Add(InvalidLineageTTL)
 	lineage.entries[key] = entry
 	return added
+}
+
+func (lineage *InvalidLineage) storedValuesLocked() int {
+	stored := 0
+	for _, entry := range lineage.entries {
+		stored += len(entry.digests) + len(entry.itemIDs)
+	}
+	return stored
 }
 
 func (lineage *InvalidLineage) pruneExpiredLocked(now time.Time) {
@@ -213,8 +225,8 @@ func EncryptedContentDigests(body []byte) []string {
 	return digests
 }
 
-// HistoryItemIDs collects IDs from replayable Responses input items and item
-// references. Only these IDs can be removed safely before a later attempt.
+// HistoryItemIDs collects IDs from replayable Responses input items. Only these
+// IDs can be removed safely before a later attempt.
 func HistoryItemIDs(body []byte) []string {
 	object, ok := decodeJSONObject(body)
 	if !ok {
@@ -231,8 +243,7 @@ func HistoryItemIDs(body []byte) []string {
 		if !ok {
 			continue
 		}
-		itemType, _ := record["type"].(string)
-		if itemType != "item_reference" && !replayableHistoryItem(record) {
+		if !replayableHistoryItem(record) {
 			continue
 		}
 		id, _ := record["id"].(string)

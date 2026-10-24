@@ -9,6 +9,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -309,13 +310,115 @@ func TestResponsesContextRecoveryLineageStripsRejectedItemIDsOnLaterTurns(t *tes
 	if strings.Contains(bodies[2], "msg_bad") || strings.Contains(bodies[2], "fc_bad") {
 		t.Fatalf("later turn did not pre-strip rejected item IDs: %s", bodies[2])
 	}
-	if strings.Contains(bodies[2], "opaque_old") || !strings.Contains(bodies[2], "opaque_good") {
-		t.Fatalf("later turn did not preserve only current encrypted state: %s", bodies[2])
+	if !strings.Contains(bodies[2], "opaque_old") || !strings.Contains(bodies[2], "opaque_good") {
+		t.Fatalf("item-ID rejection must not mark encrypted content as invalid: %s", bodies[2])
 	}
 	for _, preserved := range []string{"msg_good", "rs_good", "call_keep", "lookup", "valid account state", "old summary"} {
 		if !strings.Contains(bodies[2], preserved) {
 			t.Fatalf("later turn lost readable state %q: %s", preserved, bodies[2])
 		}
+	}
+}
+
+func contextRecoveryRejectingUpstream(t *testing.T, observed *encryptedRecoveryBodies, rejects func(key, body string) bool) *httptest.Server {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key, body := r.Header.Get("Authorization"), readAllString(t, r)
+		observed.add(key, body)
+		w.Header().Set("Content-Type", "application/json")
+		if rejects(key, body) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"invalid_encrypted_content","message":"The encrypted content could not be verified."}}`))
+			return
+		}
+		_, _ = w.Write([]byte(contextRecoverySuccess))
+	}))
+	t.Cleanup(upstream.Close)
+	return upstream
+}
+
+func TestResponsesContextRecoveryHonorsRetryPolicy(t *testing.T) {
+	encryptedRule := func(retry health.RetryDirective, effect health.Effect, cooldownSeconds int64) config.Settings {
+		return config.Settings{state.SettingErrorRules: []health.ErrorRule{{
+			StatusCodes: []int{http.StatusBadRequest}, Keywords: []string{"invalid_encrypted_content"},
+			Retry: retry, Effect: effect, CooldownSeconds: cooldownSeconds,
+		}}}
+	}
+	for _, test := range []struct {
+		name   string
+		system config.Settings
+		group  config.Settings
+	}{
+		{name: "retry_count_zero", system: config.Settings{state.SettingRetryCount: 0}},
+		{name: "error_rule_without_retry", group: encryptedRule(health.RetryNone, health.EffectNone, 0)},
+		{name: "error_rule_cooldown", group: encryptedRule(health.RetryNextCandidate, health.EffectCooldownCredential, 60)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observed := &encryptedRecoveryBodies{}
+			upstream := contextRecoveryRejectingUpstream(t, observed, func(_, body string) bool { return strings.Contains(body, "opaque") })
+			engine, _ := newDialectGatewayEngineWithSystemSettings(t, protocol.OpenAIResponses, "model-a", dialect.NewSet(dialect.NewOpenAIResponses()), newTestExecutionForwarder(t), test.system,
+				dialectGatewayGroup{id: 1, name: "relay", channelID: channel.NewAPI, params: openAIBaseURLParams(t, upstream.URL), apiKeys: []string{"sk-one"}, settings: test.group},
+			)
+			serveContinuation(t, engine, "gl-client", contextRecoveryRequest, http.StatusBadRequest)
+			if keys, _ := observed.snapshot(); len(keys) != 1 {
+				t.Fatalf("recovery replay ignored the retry policy: %d upstream attempts", len(keys))
+			}
+			if test.name != "retry_count_zero" {
+				return
+			}
+			// 重试次数为 0 时本次不重放，但拒绝已记录，下一次请求发送前即清理。
+			serveContinuation(t, engine, "gl-client", contextRecoveryRequest, http.StatusOK)
+			if _, bodies := observed.snapshot(); len(bodies) != 2 || strings.Contains(bodies[1], "opaque") {
+				t.Fatalf("the next request did not reuse the remembered rejection: %v", bodies)
+			}
+		})
+	}
+}
+
+func TestResponsesContextRecoveryLineageIsCredentialScoped(t *testing.T) {
+	observed := &encryptedRecoveryBodies{}
+	upstream := contextRecoveryRejectingUpstream(t, observed, func(key, body string) bool {
+		return key == "Bearer sk-b" && strings.Contains(body, "opaque-a")
+	})
+	engine, registry := newDialectGatewayEngine(t, protocol.OpenAIResponses, "model-a", dialect.NewSet(dialect.NewOpenAIResponses()),
+		dialectGatewayGroup{id: 1, name: "relay", channelID: channel.NewAPI, params: openAIBaseURLParams(t, upstream.URL), apiKeys: []string{"sk-a", "sk-b"}},
+	)
+	setStatus := func(id uint, status state.CredentialStatus) {
+		t.Helper()
+		if err := registry.SetCredentialStatus(id, status); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := `{"model":"model-a","prompt_cache_key":"credential-scope","store":false,"input":[{"type":"reasoning","encrypted_content":"opaque-a","summary":[{"type":"summary_text","text":"from a"}]},{"type":"message","role":"user","content":"continue"}]}`
+	setStatus(1, state.CredentialStatusDisabled)
+	serveContinuation(t, engine, "gl-client", body, http.StatusOK)
+	setStatus(1, state.CredentialStatusActive)
+	setStatus(2, state.CredentialStatusDisabled)
+	serveContinuation(t, engine, "gl-client", body, http.StatusOK)
+
+	keys, bodies := observed.snapshot()
+	if len(keys) != 3 || keys[2] != "Bearer sk-a" || !strings.Contains(bodies[2], "opaque-a") {
+		t.Fatalf("one credential's rejection removed state for another credential: keys=%v bodies=%v", keys, bodies)
+	}
+}
+
+func TestResponsesContextRecoveryKeepsCompactionHistory(t *testing.T) {
+	observed := &encryptedRecoveryBodies{}
+	upstream := contextRecoveryRejectingUpstream(t, observed, func(_, body string) bool {
+		return strings.Contains(body, "opaque") || strings.Contains(body, "compacted-elsewhere")
+	})
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIResponses, "model-a", dialect.NewSet(dialect.NewOpenAIResponses()),
+		dialectGatewayGroup{id: 1, name: "relay", channelID: channel.NewAPI, params: openAIBaseURLParams(t, upstream.URL), apiKeys: []string{"sk-one"}},
+	)
+	body := `{"model":"model-a","store":false,"input":[{"type":"compaction","encrypted_content":"compacted-elsewhere"},{"type":"reasoning","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"summary"}]},{"type":"message","role":"user","content":"continue"}]}`
+	response := serveContinuation(t, engine, "gl-client", body, http.StatusBadRequest)
+
+	_, bodies := observed.snapshot()
+	if len(bodies) != 2 || !strings.Contains(bodies[1], "compacted-elsewhere") || strings.Contains(bodies[1], "opaque") {
+		t.Fatalf("compaction history was not kept on the cleaned replay: %v", bodies)
+	}
+	if !strings.Contains(response.Body.String(), "encrypted_content_recovery_exhausted") {
+		t.Fatalf("unusable compaction did not produce an explicit error: %s", response.Body.String())
 	}
 }
 

@@ -13,10 +13,8 @@ type Removals struct {
 	ReasoningEncryptedContent      int
 	FunctionOutputEncryptedContent int
 	AgentMessageEncryptedContent   int
-	CompactionEncryptedContent     int
 	ReasoningItem                  int
 	AgentMessageItem               int
-	CompactionItem                 int
 	HistoryItemID                  int
 }
 
@@ -31,7 +29,6 @@ func (r Removals) Empty() bool {
 	return r.ReasoningEncryptedContent == 0 &&
 		r.FunctionOutputEncryptedContent == 0 &&
 		r.AgentMessageEncryptedContent == 0 &&
-		r.CompactionEncryptedContent == 0 &&
 		r.HistoryItemID == 0
 }
 
@@ -39,14 +36,14 @@ func (r Removals) Empty() bool {
 func (r Removals) Total() int {
 	return r.ReasoningEncryptedContent +
 		r.FunctionOutputEncryptedContent +
-		r.AgentMessageEncryptedContent +
-		r.CompactionEncryptedContent + r.HistoryItemID
+		r.AgentMessageEncryptedContent + r.HistoryItemID
 }
 
 // Sanitize rebuilds self-contained inline history after an upstream rejects
 // continuation state. It removes replayable items' upstream IDs and opaque
-// reasoning, tool output, agent message, and compaction encrypted_content.
-// Server-side references cannot be reconstructed here and are left alone.
+// reasoning, tool output, and agent message encrypted_content.
+// Compaction items and server-side references hold history that cannot be
+// rebuilt here, so they are never removed.
 //
 // Message contents, tool call_id/name/arguments/output, and other resource
 // identifiers are preserved. The caller keeps the original body when there
@@ -77,7 +74,7 @@ func StripEncryptedContentDigests(body []byte, digests map[string]struct{}) ([]b
 
 // StripHistoryItemIDs removes IDs that were rejected as belonging to another
 // upstream resource. Replayable items keep their readable content; a bare
-// item_reference is removed because it has no content to replay without its ID.
+// item_reference is kept because its history cannot be replayed without it.
 func StripHistoryItemIDs(body []byte, itemIDs map[string]struct{}) ([]byte, Removals, bool) {
 	if len(itemIDs) == 0 {
 		return nil, Removals{}, false
@@ -102,11 +99,6 @@ func StripHistoryItemIDs(body []byte, itemIDs map[string]struct{}) ([]byte, Remo
 		id, _ := record["id"].(string)
 		if _, rejected := itemIDs[strings.TrimSpace(id)]; !rejected {
 			kept = append(kept, item)
-			continue
-		}
-		itemType, _ := record["type"].(string)
-		if itemType == "item_reference" {
-			removals.HistoryItemID++
 			continue
 		}
 		if !replayableHistoryItem(record) {
@@ -182,12 +174,6 @@ func sanitizeBody(body []byte, options sanitizeOptions) ([]byte, Removals, bool)
 				kept = append(kept, copy)
 				continue
 			}
-		}
-
-		if isCompactionItemWithEncryptedContent(record) && options.shouldStrip(record["encrypted_content"].(string)) {
-			removals.CompactionEncryptedContent++
-			removals.CompactionItem++
-			continue
 		}
 
 		if itemType == "function_call_output" || itemType == "custom_tool_call_output" {
@@ -281,15 +267,6 @@ func replayableHistoryItem(item map[string]any) bool {
 		return hasString("author") && hasString("recipient") && hasContent("content")
 	}
 	return false
-}
-
-func isCompactionItemWithEncryptedContent(item map[string]any) bool {
-	itemType, _ := item["type"].(string)
-	if itemType != "compaction" && itemType != "compaction_summary" && itemType != "context_compaction" {
-		return false
-	}
-	_, encryptedIsString := item["encrypted_content"].(string)
-	return encryptedIsString
 }
 
 type strippedItems struct {

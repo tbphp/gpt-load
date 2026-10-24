@@ -97,7 +97,7 @@ func TestSanitizePreservesServerSideContextReferences(t *testing.T) {
 	}
 }
 
-func TestSanitizeStripsToolOutputAndCompaction(t *testing.T) {
+func TestSanitizeStripsToolOutputAndKeepsCompaction(t *testing.T) {
 	body := []byte(`{
 		"input": [
 			{"type": "function_call_output", "call_id": "c1", "output": [
@@ -115,21 +115,31 @@ func TestSanitizeStripsToolOutputAndCompaction(t *testing.T) {
 	if removals.FunctionOutputEncryptedContent != 1 {
 		t.Fatalf("function output removals = %d, want 1", removals.FunctionOutputEncryptedContent)
 	}
-	if removals.CompactionItem != 1 {
-		t.Fatalf("compaction item removals = %d, want 1", removals.CompactionItem)
-	}
 
 	var decoded map[string]any
 	if err := json.Unmarshal(sanitized, &decoded); err != nil {
 		t.Fatalf("sanitized body is not valid JSON: %v", err)
 	}
 	items := decoded["input"].([]any)
-	if len(items) != 1 {
-		t.Fatalf("expected the compaction item to be dropped, got %d items", len(items))
+	if len(items) != 2 {
+		t.Fatalf("compaction history must be kept, got %d items", len(items))
+	}
+	if compaction := items[1].(map[string]any); compaction["encrypted_content"] != "CCCC" {
+		t.Fatalf("compaction item was rewritten: %v", compaction)
 	}
 	output := items[0].(map[string]any)["output"].([]any)
 	if len(output) != 1 {
 		t.Fatalf("expected the encrypted tool output to be dropped, got %d entries", len(output))
+	}
+}
+
+func TestSanitizeLeavesCompactionOnlyBodiesUntouched(t *testing.T) {
+	body := []byte(`{"input":[{"type":"compaction","encrypted_content":"CCCC"},{"type":"message","role":"user","content":"next"}]}`)
+	if _, _, ok := Sanitize(body); ok {
+		t.Fatal("a body whose only encrypted state is compaction must not be rewritten")
+	}
+	if _, _, ok := StripEncryptedContentDigests(body, map[string]struct{}{EncryptedContentDigest("CCCC"): {}}); ok {
+		t.Fatal("remembered compaction digests must not remove compaction history")
 	}
 }
 
@@ -188,7 +198,7 @@ func TestStripEncryptedContentDigestsRemovesOnlyRejectedValues(t *testing.T) {
 	}
 }
 
-func TestStripHistoryItemIDsPreservesReadableItemsAndDropsBareReferences(t *testing.T) {
+func TestStripHistoryItemIDsPreservesReadableItemsAndReferences(t *testing.T) {
 	body := []byte(`{
 		"input": [
 			{"type":"message","id":"msg_bad","role":"assistant","content":[{"type":"output_text","text":"keep"}]},
@@ -203,14 +213,17 @@ func TestStripHistoryItemIDsPreservesReadableItemsAndDropsBareReferences(t *test
 		"rs_server_only": {},
 	}
 	stripped, removals, ok := StripHistoryItemIDs(body, rejected)
-	if !ok || removals.HistoryItemID != 3 {
+	if !ok || removals.HistoryItemID != 2 {
 		t.Fatalf("strip result = %t %+v", ok, removals)
 	}
 	text := string(stripped)
-	for _, removed := range []string{"msg_bad", "fc_bad", "rs_server_only"} {
+	for _, removed := range []string{"msg_bad", "fc_bad"} {
 		if bytes.Contains(stripped, []byte(removed)) {
 			t.Fatalf("rejected item ID %q survived: %s", removed, text)
 		}
+	}
+	if !bytes.Contains(stripped, []byte(`{"id":"rs_server_only","type":"item_reference"}`)) {
+		t.Fatalf("server-side item reference must not be removed: %s", text)
 	}
 	for _, preserved := range []string{"keep", "call_keep", "lookup", "rs_good", "keep good"} {
 		if !bytes.Contains(stripped, []byte(preserved)) {

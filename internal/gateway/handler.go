@@ -956,8 +956,9 @@ func (handler *Handler) executeAttempts(
 	var refreshRetry *credentialRefreshRetry
 	authRefreshReplayUsed := false
 	// encryptedRetry pins one same-credential replay with the rejected
-	// encrypted continuation state stripped. It is a one-shot budget: the
-	// opaque state is account-bound and does not change between attempts.
+	// encrypted continuation state stripped. It is used at most once per request
+	// and counts toward the retry budget: the opaque state is account-bound and
+	// does not change between attempts.
 	var encryptedRetry *encryptedContentRecoveryRetry
 	encryptedReplayUsed := false
 	type preparedRequest struct {
@@ -1149,9 +1150,7 @@ func (handler *Handler) executeAttempts(
 		}
 		return decision.Retry != health.RetryNone
 	}
-	// The pending encrypted-content replay is a dedicated one-shot budget and
-	// must not be starved by an exhausted candidate-retry budget.
-	for forwardAttempts < forwardAttemptLimit || encryptedRetry != nil {
+	for forwardAttempts < forwardAttemptLimit {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, lastAttemptIndex)
 			return
@@ -1230,7 +1229,7 @@ func (handler *Handler) executeAttempts(
 			}
 		}
 		if encryptedRetry == nil && !encryptedReplayUsed && invalidLineageSession != "" && handler.invalidLineage != nil {
-			lineageKey := codexrecovery.InvalidLineageKey(selection.GroupID, invalidLineageSession)
+			lineageKey := codexrecovery.InvalidLineageKey(ref.ID, ref.IdentityGeneration, invalidLineageSession)
 			if rejected := handler.invalidLineage.Lookup(lineageKey, handler.invalidLineageNow()); len(rejected) > 0 {
 				if stripped, removals, ok := codexrecovery.StripEncryptedContentDigests(prepared.request.Body, rejected); ok {
 					prepared = replacePreparedBody(prepared, stripped)
@@ -1572,10 +1571,30 @@ func (handler *Handler) executeAttempts(
 			selection, normalizedCredential.secrets, result, decision, attemptStarted, attemptCompleted,
 		)
 		lastAttemptIndex = recordedAttempt
+		handler.applyGroupDecisionEffect(
+			selection.Group,
+			ref,
+			refreshCooldownCredentialVersion(result, ref.Version),
+			decision,
+			result.StatusCode,
+			attemptNow,
+			optionalModelValue(selection.UpstreamModelID),
+		)
+		if decision.Retry == health.RetryRefreshCredential &&
+			!authRefreshReplayUsed && forwardAttempts < forwardAttemptLimit {
+			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
+		}
+		if decision.Retry != health.RetryNone {
+			iterator.AdvancePriority(selection)
+		}
+		if decision.Effect == health.EffectSkipGroup {
+			iterator.SkipGroup(selection.GroupID)
+		}
 		// Recover rejected continuation state before ordinary account failover:
 		// rebuild inline history without upstream-bound IDs/encrypted content
-		// and replay once on the current credential. Later candidate retries
-		// keep using recovered history rather than restoring the rejected state.
+		// and replay once on the current credential. The replay runs after the
+		// group's error rules and counts toward the retry budget. Later candidate
+		// retries keep using recovered history rather than restoring the rejected state.
 		if signal := encryptedContentRecoverySignal(result); signal != "" &&
 			encryptedContentRecoveryApplies(selectedDialect.Protocol(), result.Committed) {
 			if encryptedReplayUsed {
@@ -1594,7 +1613,7 @@ func (handler *Handler) executeAttempts(
 				codexrecovery.InvalidEncryptedContentSignal(signal) {
 				digests := codexrecovery.EncryptedContentDigests(prepared.request.Body)
 				if added := handler.invalidLineage.Mark(
-					codexrecovery.InvalidLineageKey(selection.GroupID, invalidLineageSession),
+					codexrecovery.InvalidLineageKey(ref.ID, ref.IdentityGeneration, invalidLineageSession),
 					digests,
 					handler.invalidLineageNow(),
 				); added > 0 {
@@ -1614,19 +1633,13 @@ func (handler *Handler) executeAttempts(
 			}
 			if handler.invalidLineage != nil && invalidLineageSession != "" &&
 				codexrecovery.InvalidItemIDSignal(signal) {
-				lineageKey := codexrecovery.InvalidLineageKey(selection.GroupID, invalidLineageSession)
-				itemIDs := codexrecovery.HistoryItemIDs(prepared.request.Body)
+				// 条目 ID 报错只说明 ID 不可用，不能据此判定同一请求里的密文失效。
 				itemIDsAdded := handler.invalidLineage.MarkItemIDs(
-					lineageKey,
-					itemIDs,
+					codexrecovery.InvalidLineageKey(ref.ID, ref.IdentityGeneration, invalidLineageSession),
+					codexrecovery.HistoryItemIDs(prepared.request.Body),
 					handler.invalidLineageNow(),
 				)
-				digestsAdded := handler.invalidLineage.Mark(
-					lineageKey,
-					codexrecovery.EncryptedContentDigests(prepared.request.Body),
-					handler.invalidLineageNow(),
-				)
-				if itemIDsAdded > 0 || digestsAdded > 0 {
+				if itemIDsAdded > 0 {
 					utils.LogPlaneBestEffort(
 						handler.logger,
 						logrus.InfoLevel,
@@ -1636,75 +1649,59 @@ func (handler *Handler) executeAttempts(
 							"credential_id": selection.CredentialID,
 							"group_id":      selection.GroupID,
 							"item_ids":      itemIDsAdded,
-							"digests":       digestsAdded,
 						},
 						"Remembered rejected history item IDs for this client session",
 					)
 				}
 			}
-			if sanitized, removals, ok := codexrecovery.Sanitize(prepared.request.Body); ok {
+			// 错误规则不允许重试或重试次数已用完时不重放，沿用普通失败处理；
+			// 拒绝记录已写入，下一次请求发送前仍会清理。
+			if decision.Retry != health.RetryNone && forwardAttempts < forwardAttemptLimit {
+				if sanitized, removals, ok := codexrecovery.Sanitize(prepared.request.Body); ok {
+					utils.LogPlaneBestEffort(
+						handler.logger,
+						logrus.InfoLevel,
+						utils.LogPlaneData,
+						logrus.Fields{
+							"event":         "codex_encrypted_content_recovery_retry",
+							"signal":        string(signal),
+							"credential_id": selection.CredentialID,
+							"group_id":      selection.GroupID,
+							"removed":       removals.Total(),
+							"history_ids":   removals.HistoryItemID,
+						},
+						"Replaying the request on the same credential with rejected continuation state removed",
+					)
+					encryptedRetry = &encryptedContentRecoveryRetry{
+						selection: selection,
+						ref:       ref,
+						body:      sanitized,
+					}
+					encryptedReplayUsed = true
+					// Keep the rejection only until another forwarding attempt starts.
+					// It is the fallback if the recovery replay cannot execute.
+					recoveryRejection = &deferredAttempt{
+						result: result, decision: decision,
+						upstreamModel: optionalModelValue(selection.UpstreamModelID),
+						attemptIndex:  recordedAttempt,
+					}
+					recorder.retryIfAnotherForward(recordedAttempt)
+					continue
+				}
 				utils.LogPlaneBestEffort(
 					handler.logger,
-					logrus.InfoLevel,
+					logrus.WarnLevel,
 					utils.LogPlaneData,
 					logrus.Fields{
-						"event":         "codex_encrypted_content_recovery_retry",
+						"event":         "codex_encrypted_content_recovery_skipped",
 						"signal":        string(signal),
 						"credential_id": selection.CredentialID,
 						"group_id":      selection.GroupID,
-						"removed":       removals.Total(),
-						"history_ids":   removals.HistoryItemID,
+						"reason":        "no_removable_encrypted_content",
 					},
-					"Replaying the request on the same credential with rejected continuation state removed",
+					"Continuation state was rejected but no safely removable state was found",
 				)
-				encryptedRetry = &encryptedContentRecoveryRetry{
-					selection: selection,
-					ref:       ref,
-					body:      sanitized,
-				}
-				encryptedReplayUsed = true
-				// Keep the rejection only until another forwarding attempt starts.
-				// It is the fallback if the recovery replay cannot execute.
-				recoveryRejection = &deferredAttempt{
-					result: result, decision: decision,
-					upstreamModel: optionalModelValue(selection.UpstreamModelID),
-					attemptIndex:  recordedAttempt,
-				}
-				recorder.retryIfAnotherForward(recordedAttempt)
-				continue
 			}
-			utils.LogPlaneBestEffort(
-				handler.logger,
-				logrus.WarnLevel,
-				utils.LogPlaneData,
-				logrus.Fields{
-					"event":         "codex_encrypted_content_recovery_skipped",
-					"signal":        string(signal),
-					"credential_id": selection.CredentialID,
-					"group_id":      selection.GroupID,
-					"reason":        "no_removable_encrypted_content",
-				},
-				"Continuation state was rejected but no safely removable state was found",
-			)
-		}
-		handler.applyGroupDecisionEffect(
-			selection.Group,
-			ref,
-			refreshCooldownCredentialVersion(result, ref.Version),
-			decision,
-			result.StatusCode,
-			attemptNow,
-			optionalModelValue(selection.UpstreamModelID),
-		)
-		if decision.Retry == health.RetryRefreshCredential &&
-			!authRefreshReplayUsed && forwardAttempts < forwardAttemptLimit {
-			refreshRetry = &credentialRefreshRetry{selection: selection, ref: ref}
-		}
-		if decision.Retry != health.RetryNone {
-			iterator.AdvancePriority(selection)
-		}
-		if decision.Effect == health.EffectSkipGroup {
-			iterator.SkipGroup(selection.GroupID)
 		}
 		if result.StatusCode >= http.StatusContinue && result.StatusCode < http.StatusOK {
 			recorder.completeTransport(
