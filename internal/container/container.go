@@ -28,6 +28,7 @@ import (
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/httproute"
+	"gpt-load/internal/platform/memlimit"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/provideradapter"
@@ -51,6 +52,7 @@ func BuildContainer() (*dig.Container, error) {
 
 	providers := []any{
 		config.Load,
+		memlimit.Detect,
 		func(cfg *config.Config) (encryption.Service, error) {
 			return encryption.NewServiceWithKeyFile(cfg.EncryptionKey, cfg.DataDir)
 		},
@@ -256,8 +258,10 @@ func BuildContainer() (*dig.Container, error) {
 		handler *gateway.Handler,
 		adapter *cpaexecutor.Adapter,
 		cfg *config.Config,
+		memory memlimit.Memory,
 	) *gateway.Handler {
 		handler.ConfigureCodexLive(adapter, cfg.CodexLive)
+		handler.ConfigureRequestBodyLimit(memory)
 		return handler
 	}); err != nil {
 		return nil, err

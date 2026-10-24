@@ -1040,6 +1040,7 @@ export default {
         identity: '计价身份',
         historicalSchema1: '历史作用域',
         historicalSchema2: '历史全局价格',
+        advisor: 'Advisor（{model}）',
       },
       pricingMode: {
         fastLabel: 'Fast 模式计价',

@@ -48,7 +48,7 @@ const creditBalanceLabel = computed(() => {
   const credits = observation.value?.credits
   if (credits?.unlimited) return t('credentialCards.creditUnlimited')
   const balance = Number(credits?.balance)
-  return Number.isFinite(balance) && balance > 0 ? n(balance, { maximumFractionDigits: 20 }) : ''
+  return Number.isFinite(balance) && balance > 0 ? n(Math.ceil(balance)) : ''
 })
 const creditLabel = computed(() => {
   const expirations = observation.value?.creditExpirations ?? []

@@ -495,6 +495,65 @@ func TestInspectUsesExactKeyReasonPriority(t *testing.T) {
 	}
 }
 
+func TestInspectRequiresAdvisorModelsInGroupAndAccessKeyFilter(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{
+		ChannelRegistry: channel.NewRegistry(),
+		Groups: []state.GroupConfig{
+			{ConnectionType: "api_key", ID: 1, Name: "with-advisor", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+				Models:  []state.ModelConfig{{ID: "claude-haiku-4-5"}, {ID: "claude-opus-4-8", Alias: "opus"}},
+				Enabled: true,
+			},
+			{ConnectionType: "api_key", ID: 2, Name: "executor-only", ChannelID: channel.Anthropic, Params: json.RawMessage(`{}`),
+				Models:  []state.ModelConfig{{ID: "claude-haiku-4-5"}},
+				Enabled: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	for _, test := range []struct {
+		name     string
+		advisors []string
+		filter   map[string]struct{}
+		reason   ReasonCode
+		included map[uint]bool
+	}{
+		{name: "advisor model must be in the group", advisors: []string{"claude-opus-4-8"},
+			reason: ReasonNoAvailableCredential, included: map[uint]bool{1: true, 2: false}},
+		{name: "advisor model passes the access key filter by external name", advisors: []string{"claude-opus-4-8"},
+			filter: map[string]struct{}{"claude-haiku-4-5": {}, "opus": {}}, reason: ReasonNoAvailableCredential, included: map[uint]bool{1: true, 2: false}},
+		{name: "filtered advisor model", advisors: []string{"claude-opus-4-8"},
+			filter: map[string]struct{}{"claude-haiku-4-5": {}}, reason: ReasonAdvisorModelUnavailable,
+			included: map[uint]bool{1: false, 2: false}},
+		{name: "advisor model is matched by upstream ID", advisors: []string{"opus"},
+			reason: ReasonAdvisorModelUnavailable, included: map[uint]bool{1: false, 2: false}},
+		{name: "no advisor", reason: ReasonNoAvailableCredential, included: map[uint]bool{1: true, 2: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := Inspect(snapshot, nil, Query{
+				ClientProtocol: protocol.Anthropic, Operation: execution.OperationChatCompletion,
+				ExternalModel: modelPointer("claude-haiku-4-5"), AdvisorModels: test.advisors,
+				AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive, Filters: state.FilterSet{Models: test.filter}},
+			}, inspectNow())
+			if err != nil {
+				t.Fatalf("Inspect() error = %v", err)
+			}
+			if got.Reason != test.reason || len(got.Groups) != len(test.included) {
+				t.Fatalf("Inspection = %#v, want reason %q", got, test.reason)
+			}
+			for _, group := range got.Groups {
+				if group.Included != test.included[group.GroupID] ||
+					(!group.Included && group.Reason != ReasonAdvisorModelUnavailable) {
+					t.Fatalf("group %d = %#v, want included %t", group.GroupID, group, test.included[group.GroupID])
+				}
+			}
+		})
+	}
+}
+
 func TestInspectSummarizesStaticGroupExclusions(t *testing.T) {
 	group := func(id uint, enabled bool) state.GroupConfig {
 		return state.GroupConfig{ConnectionType: "api_key", ID: id, Name: fmt.Sprintf("group-%d", id),

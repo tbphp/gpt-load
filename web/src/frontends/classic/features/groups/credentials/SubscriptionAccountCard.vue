@@ -178,7 +178,7 @@ const creditBalanceLabel = computed(() => {
   const credits = snapshot.value?.credits
   if (credits?.unlimited) return t('group.credentials.subscription.creditUnlimited')
   const balance = Number(credits?.balance)
-  return Number.isFinite(balance) && balance > 0 ? n(balance, { maximumFractionDigits: 20 }) : ''
+  return Number.isFinite(balance) && balance > 0 ? n(Math.ceil(balance)) : ''
 })
 function isAccountWideQuotaWindow(window: CredentialQuotaWindowDto): boolean {
   return window.scope === 'account'

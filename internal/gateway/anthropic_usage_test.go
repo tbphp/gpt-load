@@ -73,3 +73,57 @@ func TestExecutionForwarderAnthropicUsageAuthority(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutionForwarderAnthropicNonStreamUsageAuthority(t *testing.T) {
+	sdkUsage := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 100, Output: 10}}
+	advisor := usage.ModelTokens{Model: "claude-opus-4-8", Tokens: usage.Tokens{UncachedInput: 300, Output: 400}}
+	body := `{"id":"msg","type":"message","model":"public","content":[],"usage":{"input_tokens":100,"output_tokens":10,` +
+		`"iterations":[{"type":"message","input_tokens":40,"output_tokens":4},` +
+		`{"type":"advisor_message","model":"claude-opus-4-8","input_tokens":300,"output_tokens":400},` +
+		`{"type":"compaction","input_tokens":5,"output_tokens":1},` +
+		`{"type":"message","input_tokens":60,"output_tokens":6}]}}`
+	for _, test := range []struct {
+		name        string
+		mode        execution.RouteMode
+		observe     bool
+		body        string
+		wantTokens  usage.Tokens
+		wantAdvisor bool
+	}{
+		{name: "native body carries iteration usage", mode: execution.RouteNative, observe: true, body: body,
+			wantTokens: usage.Tokens{UncachedInput: 105, Output: 11}, wantAdvisor: true},
+		{name: "native body without usage retains executor accounting", mode: execution.RouteNative, observe: true,
+			body: `{"id":"msg","type":"message","model":"public","content":[]}`, wantTokens: sdkUsage.Tokens},
+		{name: "converted body retains executor accounting", mode: execution.RouteConverted, observe: true, body: body, wantTokens: sdkUsage.Tokens},
+		{name: "disabled observation retains executor accounting", mode: execution.RouteNative, body: body, wantTokens: sdkUsage.Tokens},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := executionForwardInput()
+			input.Dialect, input.ClientProtocol = dialect.NewAnthropic(), protocol.Anthropic
+			input.RouteMode, input.RouteRequirement = test.mode, execution.RouteRequirementAny
+			input.ObserveUsage = test.observe
+			input.Request.Path = "/v1/messages"
+			input.Request.Body = []byte(`{"model":"public","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+			executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+				return execution.AttemptResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+					Body: []byte(test.body), Usage: &execution.UsageEvidence{Normalized: sdkUsage},
+				}
+			}}
+			result := NewExecutionForwarder(executor).Forward(t.Context(), input)
+			if result.Err != nil || result.Usage.State != usage.StateComplete || result.Usage.Tokens != test.wantTokens {
+				t.Fatalf("usage = %+v, err = %v, want tokens %+v", result.Usage, result.Err, test.wantTokens)
+			}
+			if !test.wantAdvisor {
+				if result.Usage.Advisor != nil {
+					t.Fatalf("advisor usage = %+v, want none", result.Usage.Advisor)
+				}
+				return
+			}
+			if result.Usage.Advisor == nil || len(result.Usage.Advisor.Calls) != 1 || result.Usage.Advisor.Calls[0] != advisor {
+				t.Fatalf("advisor usage = %+v, want %+v", result.Usage.Advisor, advisor)
+			}
+		})
+	}
+}

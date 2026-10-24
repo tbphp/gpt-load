@@ -90,7 +90,7 @@ func TestHandlerFreezesPriceMultipliersAndAccountsTheSameEstimate(t *testing.T) 
 			if err := json.Unmarshal([]byte(events[0].Usage.Pricing.ReceiptJSON), &receipt); err != nil {
 				t.Fatal(err)
 			}
-			if receipt.SchemaVersion != 6 || receipt.PriceMultipliers.Group != "2" || receipt.PriceMultipliers.AccessKey != "1" || receipt.BaseTotalNanoUSD == nil || *receipt.BaseTotalNanoUSD != 2 {
+			if receipt.SchemaVersion != 7 || receipt.PriceMultipliers.Group != "2" || receipt.PriceMultipliers.AccessKey != "1" || receipt.BaseTotalNanoUSD == nil || *receipt.BaseTotalNanoUSD != 2 {
 				t.Fatalf("frozen receipt = %#v", receipt)
 			}
 			view := runtime.Snapshot(1, time.Now())
