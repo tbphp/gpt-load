@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -134,6 +135,80 @@ func TestCodexGatewayRetriesBootstrapOverload(t *testing.T) {
 				}
 			} else if backupCalls.Load() != 0 || len(log.Attempts) != 1 || !first.Committed || first.WillRetry || log.ErrorCode != "upstream_sse_error" {
 				t.Fatalf("started response was replayed: first=%+v error=%s backup=%d", first, log.ErrorCode, backupCalls.Load())
+			}
+		})
+	}
+}
+
+func TestCodexGatewayRecoversHistoryRejectedAfterBootstrap(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	// Fernet 外层格式的合成密文（解码后 73 字节），避免被 CPA 当作无效格式提前清理。
+	cipher := "gAAAA" + strings.Repeat("A", 93)
+	const prelude = "data: " + `{"type":"response.created","response":{"id":"resp_primary","object":"response","status":"in_progress","model":"gpt-5","output":[]}}` + "\n\n" +
+		"data: " + `{"type":"response.in_progress","response":{"id":"resp_primary","status":"in_progress","output":[]}}` + "\n\n"
+	const encrypted = `{"type":"response.failed","response":{"id":"resp_primary","object":"response","status":"failed","model":"gpt-5","error":{"code":"invalid_encrypted_content","message":"The encrypted content for item rs_foreign could not be verified."}}}`
+	const ownership = `{"type":"error","error":{"type":"invalid_request_error","message":"The requested item was created under a different Azure OpenAI resource. Use the same resource that created the item to access it."}}`
+	const output = "data: " + `{"type":"response.output_text.delta","response_id":"resp_primary","output_index":0,"content_index":0,"delta":"partial answer"}` + "\n\n"
+	for _, test := range []struct {
+		name        string
+		before      string
+		rejection   string
+		wantRecover bool
+	}{
+		{name: "encrypted content after prelude", rejection: encrypted, wantRecover: true},
+		{name: "item ownership after prelude", rejection: ownership, wantRecover: true},
+		{name: "encrypted content after output", before: output, rejection: encrypted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var accounts, bodies []string
+			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				mu.Lock()
+				accounts = append(accounts, r.Header.Get("Chatgpt-Account-Id"))
+				bodies = append(bodies, string(body))
+				mu.Unlock()
+				w.Header().Set("Content-Type", "text/event-stream")
+				if strings.Contains(string(body), cipher) {
+					_, _ = io.WriteString(w, prelude+test.before)
+					w.(http.Flusher).Flush()
+					_, _ = io.WriteString(w, "data: "+test.rejection+"\n\n")
+					return
+				}
+				_, _ = io.WriteString(w, "data: "+`{"type":"response.completed","response":{"id":"resp_recovered","object":"response","status":"completed","model":"gpt-5","output":[{"id":"msg_recovered","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"recovered answer","annotations":[]}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}`+"\n\n")
+			}))
+			defer upstream.Close()
+			engine, sink := newCodexBootstrapGateway(t, upstream.URL, nil)
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5","stream":true,"store":false,"input":[`+
+				`{"type":"reasoning","id":"rs_foreign","encrypted_content":"`+cipher+`","summary":[{"type":"summary_text","text":"kept summary"}]},`+
+				`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"previous answer"}]},`+
+				`{"type":"message","role":"user","content":"continue"}]}`))
+			request = request.WithContext(context.WithValue(t.Context(), "cliproxy.roundtripper", upstream.Client().Transport))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			mu.Lock()
+			defer mu.Unlock()
+			if len(accounts) == 0 || len(sink.events) != 1 || len(sink.events[0].Attempts) == 0 {
+				t.Fatalf("calls=%v logs=%+v response=%d %s", accounts, sink.events, response.Code, response.Body)
+			}
+			log := sink.events[0]
+			first := log.Attempts[0]
+			if test.wantRecover {
+				if len(accounts) != 2 || accounts[0] != "account-1" || accounts[1] != "account-1" || strings.Contains(bodies[1], cipher) ||
+					first.Committed || !first.WillRetry || log.Status != telemetry.RequestStatusSuccess {
+					t.Fatalf("rejected history was not replayed on the same credential: calls=%v first=%+v final=%s/%d body=%s", accounts, first, log.Status, log.StatusCode, response.Body)
+				}
+				if !strings.Contains(response.Body.String(), "recovered answer") || strings.Contains(response.Body.String(), "resp_primary") {
+					t.Fatalf("rejected attempt leaked into recovered response: %s", response.Body)
+				}
+			} else if len(accounts) != 1 || !first.Committed || first.WillRetry || !strings.Contains(response.Body.String(), "partial answer") {
+				t.Fatalf("started response was replayed: calls=%v first=%+v body=%s", accounts, first, response.Body)
 			}
 		})
 	}
