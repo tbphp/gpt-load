@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/channel"
+	"gpt-load/internal/codexrecovery"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/execution/responsealias"
@@ -483,9 +484,15 @@ func (a *Adapter) ExecuteStream(
 		}
 		if chunk.Err != nil {
 			if codexBootstrap != nil && !codexBootstrap.released && len(chunk.Payload) == 0 &&
-				len(bytes.TrimSpace(nativeResponsesAssembler.pending)) == 0 && codexBootstrapCapacityRejection(chunk.Err) {
-				return streamExecutionError(streamCtx, provider, upstreamProtocol, headers,
-					&codexBootstrapRejectionError{cause: chunk.Err, inStream: true}, credential, applied, false)
+				len(bytes.TrimSpace(nativeResponsesAssembler.pending)) == 0 {
+				if codexBootstrapCapacityRejection(chunk.Err) {
+					return streamExecutionError(streamCtx, provider, upstreamProtocol, headers,
+						&codexBootstrapRejectionError{cause: chunk.Err, inStream: true}, credential, applied, false)
+				}
+				// 历史续接状态被拒时丢弃前导，与没有前导的拒绝一致，交给网关清理后重放。
+				if codexrecovery.Classify(chunk.Err.Error()) != "" {
+					return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, chunk.Err, credential, applied, false)
+				}
 			}
 			if failure := emitPayloads(codexBootstrap.flush()); failure != nil {
 				return *failure
