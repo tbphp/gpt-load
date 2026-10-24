@@ -1655,9 +1655,10 @@ func (handler *Handler) executeAttempts(
 					)
 				}
 			}
-			// 错误规则不允许重试或重试次数已用完时不重放，沿用普通失败处理；
+			// 错误规则不允许重试、要求跳过分组或重试次数已用完时不重放，沿用普通失败处理；
 			// 拒绝记录已写入，下一次请求发送前仍会清理。
-			if decision.Retry != health.RetryNone && forwardAttempts < forwardAttemptLimit {
+			if decision.Retry != health.RetryNone && decision.Effect != health.EffectSkipGroup &&
+				forwardAttempts < forwardAttemptLimit {
 				if sanitized, removals, ok := codexrecovery.Sanitize(prepared.request.Body); ok {
 					utils.LogPlaneBestEffort(
 						handler.logger,

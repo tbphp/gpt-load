@@ -352,6 +352,7 @@ func TestResponsesContextRecoveryHonorsRetryPolicy(t *testing.T) {
 		{name: "retry_count_zero", system: config.Settings{state.SettingRetryCount: 0}},
 		{name: "error_rule_without_retry", group: encryptedRule(health.RetryNone, health.EffectNone, 0)},
 		{name: "error_rule_cooldown", group: encryptedRule(health.RetryNextCandidate, health.EffectCooldownCredential, 60)},
+		{name: "error_rule_skip_group", group: encryptedRule(health.RetryNextCandidate, health.EffectSkipGroup, 0)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			observed := &encryptedRecoveryBodies{}
