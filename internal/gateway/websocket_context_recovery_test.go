@@ -112,6 +112,43 @@ func TestWebsocketContextRecoveryReplaysFirstTurnOnSameCredential(t *testing.T) 
 	}
 }
 
+func TestWebsocketContextRecoveryReplaysAfterCredentialRefresh(t *testing.T) {
+	for _, id := range []channel.ID{channel.CLIProxyAPI, channel.OpenAI} {
+		t.Run(string(id), func(t *testing.T) {
+			observed := &encryptedRecoveryBodies{}
+			var refresh atomic.Pointer[func()]
+			upstream := websocketContextRecoveryUpstream(t, observed, false, func(key, body string) string {
+				rejected := rejectEncryptedContent(key, body)
+				// 被拒与重放之间凭据刷新：版本与密文变化，身份不变。
+				if fn := refresh.Load(); rejected != "" && fn != nil {
+					(*fn)()
+				}
+				return rejected
+			})
+			h, engine, _ := websocketTestHandler(t, upstream.URL, id)
+			refreshed := testCredentialEntry(t, h.encryption, 1, 1, "refreshed-key")
+			refreshed.Version = 2
+			registry := h.registry.(*state.CredentialRegistry)
+			fn := func() {
+				if err := registry.ReplaceCredentials([]state.CredentialEntry{refreshed}); err != nil {
+					t.Error(err)
+				}
+			}
+			refresh.Store(&fn)
+			server := httptest.NewServer(engine)
+			defer server.Close()
+			if reply := websocketContextRecoveryExchange(t, dialGatewayWebsocket(t, server.URL), websocketContextRecoveryTurn); !strings.Contains(reply, `"response.completed"`) {
+				t.Fatalf("replay was skipped after the credential refresh: %s", reply)
+			}
+			if _, bodies := observed.snapshot(); len(bodies) != 2 {
+				t.Fatalf("upstream turns = %d, want rejection and replay: %v", len(bodies), bodies)
+			} else {
+				assertRecoveredContext(t, bodies[1])
+			}
+		})
+	}
+}
+
 func TestWebsocketContextRecoveryKeepsCleanedHistoryAcrossFailover(t *testing.T) {
 	observed := &encryptedRecoveryBodies{}
 	upstream := websocketContextRecoveryUpstream(t, observed, false, func(key, body string) string {

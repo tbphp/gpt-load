@@ -389,7 +389,14 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 			authRefreshUsed = true
 			refreshSelection = nil
 		} else if encryptedRetry != nil {
-			selection, ref = encryptedRetry.selection, encryptedRetry.ref
+			// 与 HTTP 一致按当前引用重放：上一轮期间凭据可能已刷新，只要求仍是同一身份。
+			selection = encryptedRetry.selection
+			currentRef, exists := h.registry.CredentialRef(selection.CredentialID)
+			if !exists || !sameWebsocketIdentity(currentRef, encryptedRetry.ref) {
+				encryptedRetry = nil
+				continue
+			}
+			ref = currentRef
 		} else {
 			selection, err = iterator.Next()
 			if err != nil {
