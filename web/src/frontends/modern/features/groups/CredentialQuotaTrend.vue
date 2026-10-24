@@ -30,10 +30,12 @@ const curves = computed(() =>
       ),
       { observedAt: props.report.to, usedBasisPoints: last.usedBasisPoints },
     ]
+    // 历史只在显示值变化时记录，两次观测之间保持上一值，到下一观测处再跳变。
     const path = points
-      .map(
-        (point, pointIndex) =>
-          `${pointIndex ? 'L' : 'M'}${x(point.observedAt)},${y(point.usedBasisPoints)}`,
+      .map((point, pointIndex) =>
+        pointIndex
+          ? `H${x(point.observedAt)} V${y(point.usedBasisPoints)}`
+          : `M${x(point.observedAt)},${y(point.usedBasisPoints)}`,
       )
       .join(' ')
     const startX = x(points[0]!.observedAt)
