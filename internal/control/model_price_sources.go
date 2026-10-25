@@ -129,11 +129,29 @@ func (s *Service) ModelPriceSources(ctx context.Context, mode, search string) (M
 			})
 		}
 	}
-	sort.Slice(result.Items, func(i, j int) bool {
-		if result.Items[i].Kind != result.Items[j].Kind {
-			return result.Items[i].Kind == "local"
+	providerRanks := make(map[string]int)
+	for rank, providerID := range catalog.AutomaticPriceProviderPriority() {
+		providerRanks[providerID] = rank
+	}
+	sourceRank := func(source ModelPriceSourceDTO) int {
+		if source.Kind == "local" {
+			return len(providerRanks)
 		}
-		return result.Items[i].Key < result.Items[j].Key
+		if rank, exists := providerRanks[source.ProviderID]; exists {
+			return rank
+		}
+		return len(providerRanks) + 1
+	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		left, right := result.Items[i], result.Items[j]
+		leftExact, rightExact := strings.EqualFold(left.ModelID, search), strings.EqualFold(right.ModelID, search)
+		if leftExact != rightExact {
+			return leftExact
+		}
+		if leftRank, rightRank := sourceRank(left), sourceRank(right); leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		return left.Key < right.Key
 	})
 	const limit = 50
 	if len(result.Items) > limit {

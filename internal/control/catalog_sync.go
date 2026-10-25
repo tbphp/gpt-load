@@ -690,7 +690,7 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 		if err != nil {
 			return fmt.Errorf("validate automatic model price identity: %w", app_errors.ErrInternalServer)
 		}
-		if _, referenced := references[identity]; !referenced {
+		if _, referenced := references[identity]; !referenced && row.ReferenceProviderID == "" {
 			continue
 		}
 		var cost *catalog.ModelCost
@@ -811,7 +811,7 @@ func cleanupUnreferencedAutomaticPrices(tx *gorm.DB) error {
 		return err
 	}
 	var rows []models.ModelPrice
-	if err := tx.Where("is_manual = ?", false).Order("id ASC").Find(&rows).Error; err != nil {
+	if err := tx.Where("is_manual = ? AND reference_provider_id = ?", false, "").Order("id ASC").Find(&rows).Error; err != nil {
 		return fmt.Errorf("load automatic prices for cleanup: %w", app_errors.ParseDBError(err))
 	}
 	ids := make([]uint, 0)
@@ -827,7 +827,7 @@ func cleanupUnreferencedAutomaticPrices(tx *gorm.DB) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	if err := tx.Where("is_manual = ? AND id IN ?", false, ids).Delete(&models.ModelPrice{}).Error; err != nil {
+	if err := tx.Where("is_manual = ? AND reference_provider_id = ? AND id IN ?", false, "", ids).Delete(&models.ModelPrice{}).Error; err != nil {
 		return fmt.Errorf("remove unreferenced automatic prices: %w", app_errors.ParseDBError(err))
 	}
 	return nil

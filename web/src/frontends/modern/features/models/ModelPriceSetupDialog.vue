@@ -3,7 +3,7 @@ import { computed, onScopeDispose, ref } from 'vue'
 import { DialogRoot } from 'reka-ui'
 import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@shared/http/client-context'
-import { InvalidResponseError } from '@shared/http/errors'
+import { ApiError, InvalidResponseError } from '@shared/http/errors'
 import { useMessages } from '@modern/app/messages'
 import {
   batchModelPrices,
@@ -144,9 +144,12 @@ async function link(): Promise<void> {
       messages.show({ tone: 'success', text: t('modelManager.saveSuccess') })
       saved()
     }
-  } catch {
+  } catch (cause) {
     if (!controller.signal.aborted)
-      messages.show({ tone: 'danger', text: t('modelManager.saveFailed') })
+      messages.show({
+        tone: 'danger',
+        text: cause instanceof ApiError ? cause.message : t('modelManager.saveFailed'),
+      })
   } finally {
     linking.value = false
   }

@@ -114,7 +114,7 @@ func (s *Service) BatchModelPrices(ctx context.Context, request ModelPriceBatchR
 	if request.Mode == "link" {
 		model, available := lookupCatalogPrice(snapshot, request.Reference.ProviderID, request.Reference.ModelID)
 		if !available {
-			return result, app_errors.ErrValidation
+			return result, app_errors.ErrModelPriceSourceUnavailable
 		}
 		var err error
 		desired, err = automaticCatalogValues(model.Cost)

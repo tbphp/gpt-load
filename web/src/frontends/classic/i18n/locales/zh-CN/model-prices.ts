@@ -1,7 +1,7 @@
 export default {
   modelPrices: {
     reuse: {
-      selectPage: '选择本页（最多 100 个）',
+      selectPage: '选择本页前 {count} 个上游',
       removeMode: '移除价格档',
       title: '价格设置',
       copy: '复制',

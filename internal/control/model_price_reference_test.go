@@ -123,3 +123,70 @@ func TestCatalogPriceReferenceClearedByManualSaveAndReset(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogPriceReferenceSurvivesGroupRemoval(t *testing.T) {
+	t.Parallel()
+	fixture, _, row := newModelPriceHTTPFixture(t, true)
+	referencedCatalogFixture(t, fixture, row)
+	fixture.catalogRuntime.Publish(referenceCatalog(3_000_000_000))
+	var group models.Group
+	if err := fixture.db.Where("name = ?", "reference-group").First(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	unused := models.ModelPrice{ChannelID: row.ChannelID, ModelID: "unused-automatic"}
+	if err := fixture.db.Create(&unused).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.DeleteGroup(t.Context(), group.ID); err != nil {
+		t.Fatal(err)
+	}
+	var saved models.ModelPrice
+	if err := fixture.db.First(&saved, row.ID).Error; err != nil {
+		t.Fatalf("removing the last group lost the user's catalog link: %v", err)
+	}
+	var count int64
+	if err := fixture.db.Model(&models.ModelPrice{}).Where("id = ?", unused.ID).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("ordinary automatic price was not cleaned up: count=%d, err=%v", count, err)
+	}
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), referenceCatalog(5_000_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{})
+	if err := fixture.service.EnsureInitialState(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.First(&saved, row.ID).Error; err != nil || saved.ReferenceProviderID != "google" || saved.InputPriceNanoUSDPerMillionTokens == nil || *saved.InputPriceNanoUSDPerMillionTokens != 5_000_000_000 {
+		t.Fatalf("unused link stopped following its source or was lost on restart: %#v, %v", saved, err)
+	}
+	createPriceTestGroup(t, fixture.db, models.Group{
+		Name: "readded-reference", ChannelID: row.ChannelID,
+		Models: models.JSON(fmt.Sprintf(`[{"id":%q}]`, row.ModelID)), Overrides: models.JSON(`{}`), Enabled: true,
+	})
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), referenceCatalog(6_000_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.First(&saved, row.ID).Error; err != nil || saved.ReferenceProviderID != "google" || *saved.InputPriceNanoUSDPerMillionTokens != 6_000_000_000 {
+		t.Fatalf("readding the model replaced the user's catalog link: %#v, %v", saved, err)
+	}
+}
+
+func TestUnreferencedCatalogPriceCanBeDeleted(t *testing.T) {
+	t.Parallel()
+	fixture, _, row := newModelPriceHTTPFixture(t, true)
+	fixture.catalogRuntime.Publish(referenceCatalog(3_000_000_000))
+	linked, err := fixture.service.BatchModelPrices(t.Context(), ModelPriceBatchRequest{
+		IDs: []uint{row.ID}, Mode: "link", Reference: &ModelPriceCatalogReferenceRequest{ProviderID: "google", ModelID: "source-model"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !linked.Items[0].CanDelete {
+		t.Fatal("an unused user-configured catalog link cannot be explicitly deleted")
+	}
+	if err := fixture.service.DeleteModelPrice(t.Context(), row.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := fixture.priceRuntime.Load().Lookup(pricing.Identity{ChannelID: row.ChannelID, ModelID: row.ModelID}); exists {
+		t.Fatal("deleted catalog link remains in the runtime")
+	}
+}

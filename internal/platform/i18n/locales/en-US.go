@@ -26,6 +26,7 @@ var MessagesEnUS = map[string]string{
 	"model_price.unpriced_confirmation_required": "Marking a model price as unpriced requires explicit confirmation",
 	"model_price.referenced":                     "The model price is still referenced by Groups",
 	"model_price.automatic_delete_forbidden":     "Automatic model prices cannot be deleted manually",
+	"model_price.source_unavailable":             "The reference price source is no longer available; select another source",
 	"auth.invalid_key":                           "Invalid authorization key",
 	"auth.forbidden":                             "The current key cannot access this feature",
 	"auth.locked":                                "Too many authentication attempts; try again later",

@@ -1,6 +1,6 @@
 export const zhCN = {
   reuse: {
-    selectPage: '选择本页（最多 100 个）',
+    selectPage: '选择本页前 {count} 个上游',
     title: '价格设置',
     copy: '复制',
     link: '关联',
@@ -206,7 +206,7 @@ export const zhCN = {
 }
 export const enUS = {
   reuse: {
-    selectPage: 'Select page (up to 100)',
+    selectPage: 'Select the first {count} upstreams on this page',
     title: 'Price settings',
     copy: 'Copy',
     link: 'Link',
@@ -419,7 +419,7 @@ export const enUS = {
 }
 export const jaJP = {
   reuse: {
-    selectPage: 'このページを選択（最大 100 件）',
+    selectPage: 'このページの先頭 {count} 件の上流を選択',
     title: '価格設定',
     copy: 'コピー',
     link: '関連付け',

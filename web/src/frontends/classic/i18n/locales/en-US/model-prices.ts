@@ -1,7 +1,7 @@
 export default {
   modelPrices: {
     reuse: {
-      selectPage: 'Select page (up to 100)',
+      selectPage: 'Select the first {count} upstreams on this page',
       removeMode: 'Remove price mode',
       title: 'Price settings',
       copy: 'Copy',

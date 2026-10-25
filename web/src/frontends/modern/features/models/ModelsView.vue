@@ -311,7 +311,7 @@ useMessageSource(() =>
     </div>
     <div v-if="admin && pagePriceIDs.length" class="modern-models-price-selection">
       <AppCheckbox
-        :label="t('modelManager.reuse.selectPage')"
+        :label="t('modelManager.reuse.selectPage', { count: pagePriceIDs.length })"
         :model-value="pagePriceIDs.every((id) => checkedPrices.includes(id))"
         :indeterminate="
           checkedPrices.length > 0 && !pagePriceIDs.every((id) => checkedPrices.includes(id))

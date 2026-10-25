@@ -3,6 +3,7 @@ import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@shared/http/client-context'
+import { ApiError } from '@shared/http/errors'
 import {
   batchModelPrices,
   getModelPriceSources,
@@ -175,8 +176,9 @@ async function save(confirmed = false): Promise<void> {
     selected.value = undefined
     await applyInvalidationPlan(cache, mutationInvalidationPlans.modelPrice.update)
     if (!controller.signal.aborted) emit('saved')
-  } catch {
-    if (!controller.signal.aborted) failure.value = t('modelPrices.reuse.failed')
+  } catch (cause) {
+    if (!controller.signal.aborted)
+      failure.value = cause instanceof ApiError ? cause.message : t('modelPrices.reuse.failed')
   } finally {
     pending.value = false
   }

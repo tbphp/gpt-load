@@ -1,7 +1,7 @@
 export default {
   modelPrices: {
     reuse: {
-      selectPage: 'このページを選択（最大 100 件）',
+      selectPage: 'このページの先頭 {count} 件の上流を選択',
       removeMode: '価格モードを削除',
       title: '価格設定',
       copy: 'コピー',

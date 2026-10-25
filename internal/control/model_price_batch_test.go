@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/channel"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -84,7 +85,7 @@ func TestExternalModelPriceDirectoryReuse(t *testing.T) {
 	fixture := newServiceFixtureWithDSN(t, dsn)
 	suffix := time.Now().UnixNano()
 	modelID := fmt.Sprintf("referenced-price-%d", suffix)
-	createPriceTestGroup(t, fixture.db, models.Group{
+	group := createPriceTestGroup(t, fixture.db, models.Group{
 		Name: fmt.Sprintf("price-reuse-%d", suffix), ChannelID: string(channel.OpenAICompatible),
 		Models: models.JSON(fmt.Sprintf(`[{"id":%q}]`, modelID)), Overrides: models.JSON(`{}`), Enabled: true,
 	})
@@ -100,6 +101,9 @@ func TestExternalModelPriceDirectoryReuse(t *testing.T) {
 		t.Fatalf("external link failed: %#v, %v", linked, err)
 	}
 	if err := fixture.service.applyCatalogSnapshot(t.Context(), referenceCatalog(5_000_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.DeleteGroup(t.Context(), group.ID); err != nil {
 		t.Fatal(err)
 	}
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{})
@@ -220,5 +224,66 @@ func TestModelPriceBatchRejectsInvalidReferenceAndMixedPayload(t *testing.T) {
 		if response.Code < 400 || response.Code >= 500 {
 			t.Fatalf("invalid batch status = %d: %s", response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestModelPriceSourcesPrioritizeExactModelsAndCatalogProviders(t *testing.T) {
+	t.Parallel()
+	fixture, _, _ := newModelPriceHTTPFixture(t, false)
+	modelID := "gpt-example"
+	cost := &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1_000_000_000)}}
+	snapshot := &catalog.Snapshot{Providers: map[string]catalog.Provider{}}
+	for _, providerID := range []string{"openai", "anthropic"} {
+		snapshot.Providers[providerID] = catalog.Provider{ID: providerID, Models: map[string]catalog.Model{
+			modelID: {ID: modelID, Cost: cost},
+		}}
+	}
+	for i := range 60 {
+		providerID := fmt.Sprintf("aaa-provider-%02d", i)
+		snapshot.Providers[providerID] = catalog.Provider{ID: providerID, Models: map[string]catalog.Model{
+			modelID: {ID: modelID, Cost: cost},
+		}}
+		variant := fmt.Sprintf("%s-%02d", modelID, i)
+		snapshot.Providers["openai"].Models[variant] = catalog.Model{ID: variant, Cost: cost}
+		input := int64(1_000_000_000)
+		if err := fixture.db.Create(&models.ModelPrice{ChannelID: string(channel.OpenAICompatible), ModelID: variant, IsManual: true, InputPriceNanoUSDPerMillionTokens: &input}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.catalogRuntime.Publish(snapshot)
+	for _, mode := range []string{"copy", "link"} {
+		result, err := fixture.service.ModelPriceSources(t.Context(), mode, "GPT-EXAMPLE")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.HasMore || len(result.Items) != 50 {
+			t.Fatalf("%s search returned %d sources, has_more=%t", mode, len(result.Items), result.HasMore)
+		}
+		if result.Items[0].ProviderID != "openai" || result.Items[1].ProviderID != "anthropic" {
+			t.Fatalf("%s search buried preferred sources behind %q and %q", mode, result.Items[0].Key, result.Items[1].Key)
+		}
+		for _, source := range result.Items {
+			if source.ModelID != modelID {
+				t.Fatalf("%s search ranked a partial match above exact matches: %#v", mode, source)
+			}
+		}
+	}
+}
+
+func TestModelPriceBatchReportsUnavailableCatalogSource(t *testing.T) {
+	t.Parallel()
+	fixture, engine, row := newModelPriceHTTPFixture(t, true)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{})
+	body := fmt.Sprintf(`{"ids":[%d],"mode":"link","reference":{"provider_id":"google","model_id":"source-model"}}`, row.ID)
+	response := serveModelPriceHTTPRequestWithLanguage(engine, http.MethodPost, "/api/model-prices/batch", body, authTestKey, "zh-CN")
+	assertModelPriceHTTPError(t, response, http.StatusConflict, "MODEL_PRICE_SOURCE_UNAVAILABLE", nil)
+	var envelope struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Message != "参考价格来源已不可用，请重新选择" {
+		t.Fatalf("unhelpful source error: %q", envelope.Message)
 	}
 }

@@ -26,6 +26,7 @@ var MessagesJaJP = map[string]string{
 	"model_price.unpriced_confirmation_required": "モデル価格を未設定としてマークするには明示的な確認が必要です",
 	"model_price.referenced":                     "モデル価格はグループから参照されています",
 	"model_price.automatic_delete_forbidden":     "自動モデル価格は手動で削除できません",
+	"model_price.source_unavailable":             "参照元の価格は利用できなくなりました。別の参照元を選択してください",
 	"auth.invalid_key":                           "無効な認証キー",
 	"auth.forbidden":                             "現在のキーにはこの機能へのアクセス権がありません",
 	"auth.locked":                                "認証試行回数が多すぎます。しばらくしてから再試行してください",

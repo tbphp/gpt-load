@@ -326,7 +326,7 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 				},
 			)
 		}
-		if !row.IsManual {
+		if !row.IsManual && row.ReferenceProviderID == "" {
 			return app_errors.NewAPIErrorWithData(
 				app_errors.ErrModelPriceAutomaticDeleteForbidden,
 				ModelPriceIDData{ID: id},
@@ -594,7 +594,7 @@ func projectModelPriceRow(
 		ContextTiers:        projectContextPriceTiers(rule.ContextTiers),
 		UpdatedAtMS:         row.UpdatedAtMS,
 		CanReset:            row.IsManual || row.ReferenceProviderID != "",
-		CanDelete:           row.IsManual && reference.referenceCount == 0,
+		CanDelete:           (row.IsManual || row.ReferenceProviderID != "") && reference.referenceCount == 0,
 		CatalogReference:    projectCatalogPriceReference(catalogSnapshot, row.ReferenceProviderID, row.ReferenceModelID),
 	}
 	return modelPriceListRecord{dto: dto}, nil

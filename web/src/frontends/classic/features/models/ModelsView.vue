@@ -498,7 +498,7 @@ function goToGroups(): void {
                     ? [...pagePriceIDs]
                     : []
                 "
-              />{{ t('modelPrices.reuse.selectPage') }}</label
+              />{{ t('modelPrices.reuse.selectPage', { count: pagePriceIDs.length }) }}</label
             >
             <span v-if="selectedPriceIDs.length">{{
               t('modelPrices.reuse.selected', { count: selectedPriceIDs.length })
