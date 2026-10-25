@@ -339,6 +339,7 @@ func stripAntigravityReplayHeaders(headers http.Header) {
 	for name := range headers {
 		switch {
 		case strings.EqualFold(name, "Session-Id"),
+			strings.EqualFold(name, "Session_id"),
 			strings.EqualFold(name, "X-Claude-Code-Session-Id"),
 			strings.EqualFold(name, "X-Claude-Code-Agent-Id"):
 			delete(headers, name)
