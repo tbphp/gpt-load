@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { SlidersHorizontal } from '@lucide/vue'
-import { Boxes, ListOrdered, RefreshCw, Search } from '@lucide/vue'
+import { Boxes, Coins, ListOrdered, ListX, RefreshCw, Search } from '@lucide/vue'
 import { keepPreviousData, useIsFetching, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -309,37 +309,43 @@ useMessageSource(() =>
       <p v-else class="modern-models-price-help">{{ t('modelManager.readOnlyPriceHelp') }}</p>
       <AppFilterSummary :items="summary" @remove="reset" @reset="reset()" />
     </div>
-    <div v-if="admin && pagePriceIDs.length" class="modern-models-price-selection">
-      <AppCheckbox
-        :label="t('modelManager.reuse.selectPage', { count: pagePriceIDs.length })"
-        :model-value="pagePriceIDs.every((id) => checkedPrices.includes(id))"
-        :indeterminate="
-          checkedPrices.length > 0 && !pagePriceIDs.every((id) => checkedPrices.includes(id))
-        "
-        :disabled="query.isPlaceholderData.value"
-        @update:model-value="checkedPrices = $event ? [...pagePriceIDs] : []"
-      />
-      <span v-if="checkedPrices.length">{{
-        t('modelManager.reuse.selected', { count: checkedPrices.length })
-      }}</span>
-      <AppButton
-        v-if="checkedPrices.length"
-        size="sm"
-        variant="primary"
-        :disabled="!selectedSources.length || query.isPlaceholderData.value"
-        @click="openPriceSetup"
-        >{{ t('modelManager.reuse.title') }}</AppButton
-      >
-      <AppButton v-if="checkedPrices.length" size="sm" variant="text" @click="checkedPrices = []">{{
-        t('modelManager.reuse.clear')
-      }}</AppButton>
-    </div>
     <AppListFrame
       ref="frame"
       mobile-flow
       :label="t('pages.models.title')"
       :loading="Boolean(data) && query.isFetching.value"
     >
+      <template v-if="admin && pagePriceIDs.length" #header>
+        <div class="modern-models-price-selection">
+          <div class="modern-models-selected-actions">
+            <AppCheckbox
+              :label="t('modelManager.reuse.selectPage', { count: pagePriceIDs.length })"
+              :model-value="pagePriceIDs.every((id) => checkedPrices.includes(id))"
+              :indeterminate="
+                checkedPrices.length > 0 && !pagePriceIDs.every((id) => checkedPrices.includes(id))
+              "
+              :disabled="query.isPlaceholderData.value"
+              @update:model-value="checkedPrices = $event ? [...pagePriceIDs] : []"
+            />
+            <template v-if="checkedPrices.length">
+              <span>{{ t('modelManager.reuse.selected', { count: checkedPrices.length }) }}</span>
+              <AppIconButton
+                :icon="Coins"
+                :label="t('modelManager.reuse.title')"
+                size="sm"
+                :disabled="!selectedSources.length || query.isPlaceholderData.value"
+                @click="openPriceSetup"
+              />
+              <AppIconButton
+                :icon="ListX"
+                :label="t('modelManager.reuse.clear')"
+                size="sm"
+                @click="checkedPrices = []"
+              />
+            </template>
+          </div>
+        </div>
+      </template>
       <AppCollectionState
         v-if="!data && query.isPending.value"
         :title="t('modelManager.loading')"
@@ -414,11 +420,23 @@ useMessageSource(() =>
 <style scoped>
 .modern-models-price-selection {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-3) var(--modern-space-4);
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--modern-space-2);
+  min-height: var(--modern-control-nav);
+  padding: 0 var(--modern-space-1) var(--modern-space-2);
+  color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
+}
+.modern-models-selected-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--modern-space-2);
+}
+.modern-models-selected-actions > :first-child {
+  margin-right: var(--modern-space-1);
 }
 .modern-models-workspace {
   container: modern-models-workspace / inline-size;
