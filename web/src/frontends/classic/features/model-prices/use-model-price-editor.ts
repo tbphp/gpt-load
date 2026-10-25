@@ -42,7 +42,11 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   const ownershipIntent = computed(
     () => allNull.value && baseline.value.method !== 'user_marked_unpriced',
   )
-  const canSave = computed(() => !hasErrors.value && (changed.value || ownershipIntent.value))
+  const canSave = computed(
+    () =>
+      !hasErrors.value &&
+      (changed.value || ownershipIntent.value || baseline.value.method === 'catalog_reference'),
+  )
   const unsavedChanges = useUnsavedChanges(changed, { blocked: pending })
 
   function clearRequest(): void {
@@ -101,7 +105,7 @@ export function useModelPriceEditor(row: Ref<ModelPriceDto>) {
   function canSubmit(confirmUnpriced: boolean): boolean {
     if (hasErrors.value) return false
     if (allNull.value) return confirmUnpriced && (changed.value || ownershipIntent.value)
-    return !confirmUnpriced && changed.value
+    return !confirmUnpriced && (changed.value || baseline.value.method === 'catalog_reference')
   }
 
   async function save(confirmUnpriced: boolean): Promise<void> {

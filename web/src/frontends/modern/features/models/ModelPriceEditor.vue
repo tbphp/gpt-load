@@ -2,7 +2,12 @@
 import { Info, Plus, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { priceFields, saveModelPrice, type ModelPrice } from '@modern/api/models'
+import {
+  priceFields,
+  saveModelPrice,
+  type ModelPrice,
+  type ModelPriceUpdate,
+} from '@modern/api/models'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { useApiClient } from '@shared/http/client-context'
 import { ApiError } from '@shared/http/errors'
@@ -26,7 +31,13 @@ import {
   priceDraftRequest,
 } from './model-price-draft'
 
-const props = defineProps<{ price: ModelPrice; modelCount: number; groupCount: number }>()
+const props = defineProps<{
+  price: ModelPrice
+  modelCount: number
+  groupCount: number
+  submit?: (request: ModelPriceUpdate) => Promise<ModelPrice>
+  forceSave?: boolean
+}>()
 const emit = defineEmits<{
   saved: [price: ModelPrice]
   cancel: []
@@ -47,7 +58,13 @@ const request = computed(() => priceDraftRequest(draft.value))
 const ownershipIntent = computed(
   () => request.value.confirm_unpriced && props.price.method !== 'user_marked_unpriced',
 )
-const canSave = computed(() => dirty.value || ownershipIntent.value)
+const canSave = computed(
+  () =>
+    props.forceSave ||
+    dirty.value ||
+    ownershipIntent.value ||
+    props.price.method === 'catalog_reference',
+)
 const error = (key: string) =>
   submitted.value && errors.value[key] ? t('modelManager.' + errors.value[key]) : undefined
 // standard 固定存在；这两档后端一视同仁，前端也对称提供。
@@ -87,7 +104,9 @@ async function save(confirmed = false): Promise<void> {
   }
   pending.value = true
   try {
-    const price = await saveModelPrice(client, props.price.id, request.value, controller.signal)
+    const price = props.submit
+      ? await props.submit(request.value)
+      : await saveModelPrice(client, props.price.id, request.value, controller.signal)
     if (controller.signal.aborted) return
     baseline.value = JSON.stringify(draft.value)
     emit('dirty', false)
@@ -109,7 +128,7 @@ async function save(confirmed = false): Promise<void> {
 <template>
   <form class="modern-model-price-editor" novalidate @submit.prevent="save()">
     <div ref="body" class="modern-model-price-editor-body">
-      <div class="modern-model-price-editor-identity">
+      <div v-if="!submit" class="modern-model-price-editor-identity">
         <AppChannelIcon
           :icon="price.channel.icon"
           :mark="price.channel.mark"
@@ -123,8 +142,11 @@ async function save(confirmed = false): Promise<void> {
           <h3><AppCopyValue :value="price.model" /></h3>
         </div>
       </div>
-      <p class="modern-model-price-impact">
+      <p v-if="!submit" class="modern-model-price-impact">
         {{ t('modelManager.priceImpact', { models: n(modelCount), groups: n(groupCount) }) }}
+      </p>
+      <p v-if="price.catalogReference && !submit" class="modern-model-price-impact">
+        {{ t('modelManager.reuse.detach') }}
       </p>
       <div class="modern-model-price-editor-hint">
         <span>{{ t('modelManager.unit') }}</span>

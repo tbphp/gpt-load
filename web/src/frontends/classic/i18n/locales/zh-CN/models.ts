@@ -96,6 +96,8 @@ export default {
       prices: '价格',
       fastPrices: 'Fast 模式价格',
       ultrafastPrices: 'Ultrafast 模式价格',
+      addFastPrice: '添加 Fast 价格',
+      removeFastPrice: '移除 Fast 价格',
       addUltrafastPrice: '添加价格',
       removeUltrafastPrice: '移除价格',
       ultrafastFallback: '未设置 Ultrafast 单价时，沿用标准价格及长上下文档位。',

@@ -12,6 +12,7 @@ import {
   syncModelPrices,
   type ModelFilters,
   type RequestModel,
+  type ModelSource,
 } from '@modern/api/models'
 import { useApiClient } from '@shared/http/client-context'
 import { useAuthSession } from '@modern/features/auth/auth-session'
@@ -21,6 +22,7 @@ import { useURLState } from '@modern/app/url-state'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import {
   AppButton,
+  AppCheckbox,
   AppFilterSheet,
   AppIconButton,
   AppCollectionState,
@@ -35,6 +37,7 @@ import { modelStateKeys, parseModelsState, serializeModelsState } from './models
 import ModelCard from './ModelCard.vue'
 import ClientModelCatalogDialog from './ClientModelCatalogDialog.vue'
 import ModelDetailPanel from './ModelDetailPanel.vue'
+import ModelPriceSetupDialog from './ModelPriceSetupDialog.vue'
 
 const { t } = useI18n()
 const isMobile = useMobileLayout()
@@ -67,6 +70,37 @@ const query = useQuery(
 const data = computed(() => query.data.value)
 const search = ref(state.value.q)
 const catalogOpen = ref(false)
+const checkedPrices = ref<number[]>([])
+const priceSetupOpen = ref(false)
+const priceSetupTargets = ref<ModelSource[]>([])
+const selectedSources = computed(() => [
+  ...new Map(
+    (data.value?.items.flatMap((model) => model.sources) ?? [])
+      .filter((source) => checkedPrices.value.includes(source.price.id))
+      .map((source) => [source.price.id, source]),
+  ).values(),
+])
+const pagePriceIDs = computed(() =>
+  [
+    ...new Set(
+      data.value?.items.flatMap((model) => model.sources.map((source) => source.price.id)) ?? [],
+    ),
+  ].slice(0, 100),
+)
+function togglePrice(id: number, checked: boolean): void {
+  if (checked && checkedPrices.value.length < 100)
+    checkedPrices.value = [...new Set([...checkedPrices.value, id])]
+  else if (!checked) checkedPrices.value = checkedPrices.value.filter((value) => value !== id)
+}
+function openPriceSetup(): void {
+  priceSetupTargets.value = [...selectedSources.value]
+  priceSetupOpen.value = true
+}
+async function pricesSaved(): Promise<void> {
+  priceSetupOpen.value = false
+  checkedPrices.value = []
+  await changed()
+}
 const composing = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 const frame = ref<InstanceType<typeof AppListFrame>>()
@@ -175,7 +209,10 @@ watch(
 )
 watch(
   () => JSON.stringify(filters.value),
-  () => frame.value?.scrollToTop(),
+  () => {
+    checkedPrices.value = []
+    frame.value?.scrollToTop()
+  },
 )
 watch([data, () => query.isPlaceholderData.value], ([result, placeholder]) => {
   if (!result || placeholder) return
@@ -272,6 +309,31 @@ useMessageSource(() =>
       <p v-else class="modern-models-price-help">{{ t('modelManager.readOnlyPriceHelp') }}</p>
       <AppFilterSummary :items="summary" @remove="reset" @reset="reset()" />
     </div>
+    <div v-if="admin && pagePriceIDs.length" class="modern-models-price-selection">
+      <AppCheckbox
+        :label="t('modelManager.reuse.selectPage')"
+        :model-value="pagePriceIDs.every((id) => checkedPrices.includes(id))"
+        :indeterminate="
+          checkedPrices.length > 0 && !pagePriceIDs.every((id) => checkedPrices.includes(id))
+        "
+        :disabled="query.isPlaceholderData.value"
+        @update:model-value="checkedPrices = $event ? [...pagePriceIDs] : []"
+      />
+      <span v-if="checkedPrices.length">{{
+        t('modelManager.reuse.selected', { count: checkedPrices.length })
+      }}</span>
+      <AppButton
+        v-if="checkedPrices.length"
+        size="sm"
+        variant="primary"
+        :disabled="!selectedSources.length || query.isPlaceholderData.value"
+        @click="openPriceSetup"
+        >{{ t('modelManager.reuse.title') }}</AppButton
+      >
+      <AppButton v-if="checkedPrices.length" size="sm" variant="text" @click="checkedPrices = []">{{
+        t('modelManager.reuse.clear')
+      }}</AppButton>
+    </div>
     <AppListFrame
       ref="frame"
       mobile-flow
@@ -311,6 +373,8 @@ useMessageSource(() =>
           :admin="admin"
           :selected="model.name === state.model"
           :disabled="query.isPlaceholderData.value"
+          :checked="checkedPrices"
+          @toggle="togglePrice"
           @open="open(model, $event)"
         />
       </div>
@@ -338,10 +402,24 @@ useMessageSource(() =>
       @changed="changed"
     />
     <ClientModelCatalogDialog v-if="admin && catalogOpen" @close="catalogOpen = false" />
+    <ModelPriceSetupDialog
+      v-if="admin && priceSetupOpen && priceSetupTargets.length"
+      :sources="priceSetupTargets"
+      @close="priceSetupOpen = false"
+      @saved="pricesSaved"
+    />
   </div>
 </template>
 
 <style scoped>
+.modern-models-price-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-3);
+  padding: var(--modern-space-3) var(--modern-space-4);
+  font-size: var(--modern-font-size-small);
+}
 .modern-models-workspace {
   container: modern-models-workspace / inline-size;
   display: flex;

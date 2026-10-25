@@ -38,6 +38,7 @@ import { useAuthSession } from '@/features/auth/auth-session'
 import ClientModelCatalogDrawer from './ClientModelCatalogDrawer.vue'
 import ModelTree from './ModelTree.vue'
 import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
+import ModelPriceSetupDrawer from '@/features/model-prices/ModelPriceSetupDrawer.vue'
 import {
   isCanonicalModelsRouteQuery,
   parseModelsRouteQuery,
@@ -69,6 +70,45 @@ const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 
 const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters, isAccessKey))
 const data = computed(() => modelsQuery.data.value)
+const selectedPriceIDs = ref<number[]>([])
+const priceSetupOpen = ref(false)
+const priceSetupTargets = ref<ModelUpstreamDto[]>([])
+const selectedSources = computed(() => [
+  ...new Map(
+    (data.value?.items.flatMap((model) => model.upstream_models) ?? [])
+      .filter((source) => selectedPriceIDs.value.includes(source.price.id))
+      .map((source) => [source.price.id, source]),
+  ).values(),
+])
+const pagePriceIDs = computed(() =>
+  [
+    ...new Set(
+      data.value?.items.flatMap((model) =>
+        model.upstream_models.map((source) => source.price.id),
+      ) ?? [],
+    ),
+  ].slice(0, 100),
+)
+function togglePrice(id: number, selected: boolean): void {
+  if (selected && selectedPriceIDs.value.length < 100)
+    selectedPriceIDs.value = [...new Set([...selectedPriceIDs.value, id])]
+  else if (!selected)
+    selectedPriceIDs.value = selectedPriceIDs.value.filter((value) => value !== id)
+}
+function openPriceSetup(): void {
+  priceSetupTargets.value = [...selectedSources.value]
+  priceSetupOpen.value = true
+}
+function pricesSaved(): void {
+  priceSetupOpen.value = false
+  selectedPriceIDs.value = []
+}
+watch(
+  () => JSON.stringify(filters.value),
+  () => {
+    selectedPriceIDs.value = []
+  },
+)
 const collectionBusy = computed(() => data.value !== undefined && modelsQuery.isFetching.value)
 const {
   initial: initialLoading,
@@ -441,7 +481,50 @@ function goToGroups(): void {
         </EmptyState>
 
         <template v-else>
-          <ModelTree :items="data.items" :read-only="isAccessKey" @open="openUpstream" />
+          <div v-if="!isAccessKey" class="models-price-selection">
+            <label class="models-price-select-all"
+              ><input
+                type="checkbox"
+                :checked="
+                  pagePriceIDs.length > 0 &&
+                  pagePriceIDs.every((id) => selectedPriceIDs.includes(id))
+                "
+                :indeterminate="
+                  selectedPriceIDs.length > 0 &&
+                  !pagePriceIDs.every((id) => selectedPriceIDs.includes(id))
+                "
+                @change="
+                  selectedPriceIDs = ($event.target as HTMLInputElement).checked
+                    ? [...pagePriceIDs]
+                    : []
+                "
+              />{{ t('modelPrices.reuse.selectPage') }}</label
+            >
+            <span v-if="selectedPriceIDs.length">{{
+              t('modelPrices.reuse.selected', { count: selectedPriceIDs.length })
+            }}</span>
+            <AppButton
+              v-if="selectedPriceIDs.length"
+              size="compact"
+              :disabled="!selectedSources.length"
+              @click="openPriceSetup"
+              >{{ t('modelPrices.reuse.title') }}</AppButton
+            >
+            <AppButton
+              v-if="selectedPriceIDs.length"
+              variant="link"
+              size="compact"
+              @click="selectedPriceIDs = []"
+              >{{ t('modelPrices.reuse.clear') }}</AppButton
+            >
+          </div>
+          <ModelTree
+            :items="data.items"
+            :read-only="isAccessKey"
+            :selected-prices="selectedPriceIDs"
+            @toggle="togglePrice"
+            @open="openUpstream"
+          />
           <PaginationBar
             :page="data.pagination.page"
             :page-size="data.pagination.page_size"
@@ -463,10 +546,32 @@ function goToGroups(): void {
       />
     </LedgerSheet>
     <ClientModelCatalogDrawer v-if="catalogOpen && !isAccessKey" @close="catalogOpen = false" />
+    <ModelPriceSetupDrawer
+      v-if="priceSetupOpen && !isAccessKey && priceSetupTargets.length"
+      :sources="priceSetupTargets"
+      @close="priceSetupOpen = false"
+      @saved="pricesSaved"
+    />
   </PageFrame>
 </template>
 
 <style scoped>
+.models-price-selection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+}
+.models-price-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.models-price-select-all input {
+  accent-color: var(--color-action);
+}
 .models-page {
   display: grid;
   min-width: 0;

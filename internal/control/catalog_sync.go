@@ -693,13 +693,20 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 		if _, referenced := references[identity]; !referenced {
 			continue
 		}
-		match, ok := resolveAutomaticPriceForIdentity(snapshot, identity)
-		desired := models.ModelPrice{}
-		if ok {
-			desired, err = automaticCatalogValues(match.cost)
-			if err != nil {
-				return fmt.Errorf("normalize catalog price: %w", app_errors.ErrInternalServer)
+		var cost *catalog.ModelCost
+		if row.ReferenceProviderID != "" {
+			model, available := lookupCatalogPrice(snapshot, row.ReferenceProviderID, row.ReferenceModelID)
+			if !available {
+				// 目录缺失（包括离线启动）不抹掉最后有效价，也不改用其他来源。
+				continue
 			}
+			cost = model.Cost
+		} else if match, ok := resolveAutomaticPriceForIdentity(snapshot, identity); ok {
+			cost = match.cost
+		}
+		desired, err := automaticCatalogValues(cost)
+		if err != nil {
+			return fmt.Errorf("normalize catalog price: %w", app_errors.ErrInternalServer)
 		}
 		if catalogPriceValuesEqual(row, desired) {
 			continue

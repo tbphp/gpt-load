@@ -62,6 +62,10 @@ func loadPriceTable(
 func persistedPriceRule(
 	row models.ModelPrice,
 ) (pricing.Rule, error) {
+	if (row.ReferenceProviderID == "") != (row.ReferenceModelID == "") ||
+		(row.ReferenceProviderID != "" && row.IsManual) {
+		return pricing.Rule{}, fmt.Errorf("invalid model price directory reference")
+	}
 	identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
 	if err != nil {
 		return pricing.Rule{}, err

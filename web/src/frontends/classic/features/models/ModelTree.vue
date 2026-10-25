@@ -18,8 +18,12 @@ import { presentClientModel, type ClientModelRow } from './model-presenter'
 const props = defineProps<{
   items: ClientModelDto[]
   readOnly?: boolean
+  selectedPrices?: number[]
 }>()
-const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
+const emit = defineEmits<{
+  open: [upstream: ModelUpstreamDto]
+  toggle: [id: number, selected: boolean]
+}>()
 
 // 一行里的分组必定同渠道，两枚足够点出归属，其余在抽屉里看。
 const visibleRouteGroupCount = 2
@@ -122,6 +126,24 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
           >
             <div class="model-tree__cell model-tree__upstream" role="cell">
               <span class="model-tree__ident">
+                <input
+                  v-if="!readOnly"
+                  class="model-tree__checkbox"
+                  type="checkbox"
+                  :checked="selectedPrices?.includes(entry.upstream.price.id)"
+                  :disabled="
+                    !selectedPrices?.includes(entry.upstream.price.id) &&
+                    (selectedPrices?.length ?? 0) >= 100
+                  "
+                  :aria-label="entry.upstream.price.channel_name + ' · ' + entry.upstream.model_id"
+                  @change="
+                    emit(
+                      'toggle',
+                      entry.upstream.price.id,
+                      ($event.target as HTMLInputElement).checked,
+                    )
+                  "
+                />
                 <AppTooltip
                   v-if="!readOnly"
                   :content="pricingIdentityTooltip(entry.upstream)"
@@ -267,6 +289,12 @@ function pricingIdentityTooltip(upstream: ModelUpstreamDto): string {
 </template>
 
 <style scoped>
+.model-tree__checkbox {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: var(--color-action);
+}
 .model-tree {
   /* 树线锚点：客户端模型行的主干与上游行的转角共用同一条竖线位置。 */
   --model-tree-rail: 20px;

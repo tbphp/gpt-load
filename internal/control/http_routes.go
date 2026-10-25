@@ -126,6 +126,10 @@ func (s *Server) HTTPModule() httproute.Module {
 				"/model-prices",
 				s.handleListModelPrices,
 			),
+			controlRoute("control.model-prices.sources", http.MethodGet, "/model-prices/sources", s.handleModelPriceSources),
+			controlRoute("control.model-prices.batch", http.MethodPost, "/model-prices/batch",
+				s.auditMutation(newMutationDescriptor("model_prices_batch", "model_price", staticMutationLocator("model-prices:batch"))),
+				s.handleBatchModelPrices),
 			controlRoute(
 				"control.model-prices.sync",
 				http.MethodPost,

@@ -21,7 +21,8 @@ import {
 export type ModelPriceStatus = 'pending' | 'configured'
 export type ModelPriceStatusFilter = ModelPriceStatus | 'all'
 export type ModelPriceUsageFilter = 'in_use' | 'unreferenced' | 'all'
-export type ModelPriceMethod = 'auto_sync' | 'user_set' | 'user_marked_unpriced'
+export type ModelPriceMethod =
+  'auto_sync' | 'user_set' | 'user_marked_unpriced' | 'catalog_reference'
 export type ModelPriceMatchSource = 'channel_catalog_provider' | 'provider_priority_fallback'
 
 export interface ModelPriceFilters {
@@ -50,6 +51,13 @@ export interface ModelPriceScheduleDto {
 }
 
 export interface ModelPriceDto {
+  catalog_reference?: {
+    provider_id: string
+    provider_name: string
+    model_id: string
+    model_name: string
+    available: boolean
+  }
   id: number
   channel_id: string
   channel_name: string
@@ -138,6 +146,7 @@ const itemFields = [
   'updated_at_ms',
   'can_reset',
   'can_delete',
+  'catalog_reference',
 ] as const
 const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 const contextTierFields = ['threshold_tokens', 'prices'] as const
@@ -216,7 +225,12 @@ function projectContextTiers(value: unknown): ModelPriceContextTierDto[] {
 function projectMethod(value: unknown): ModelPriceMethod | null {
   return value === null
     ? null
-    : projectEnum(value, ['auto_sync', 'user_set', 'user_marked_unpriced'] as const)
+    : projectEnum(value, [
+        'auto_sync',
+        'user_set',
+        'user_marked_unpriced',
+        'catalog_reference',
+      ] as const)
 }
 
 export function projectModelPrice(value: unknown): ModelPriceDto {
@@ -251,6 +265,16 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     updated_at_ms: projectEpochMilliseconds(record.updated_at_ms),
     can_reset: projectBoolean(record.can_reset),
     can_delete: projectBoolean(record.can_delete),
+  }
+  if (record.catalog_reference !== undefined) {
+    const reference = projectRecord(record.catalog_reference)
+    result.catalog_reference = {
+      provider_id: projectIdentityString(reference.provider_id),
+      provider_name: projectDisplayString(reference.provider_name),
+      model_id: projectIdentityString(reference.model_id),
+      model_name: projectDisplayString(reference.model_name),
+      available: projectBoolean(reference.available),
+    }
   }
   const hasAutomaticReference = result.method === 'auto_sync'
   const hasManualMethod = result.method === 'user_set' || result.method === 'user_marked_unpriced'
@@ -360,6 +384,56 @@ export function modelPriceCollectionQueryOptions(
   })
 }
 
+export interface ModelPriceSourceDto extends ModelPriceScheduleDto {
+  key: string
+  kind: 'catalog' | 'local'
+  provider_id: string
+  provider_name: string
+  model_id: string
+  name: string
+  mode_schedules: Record<string, ModelPriceScheduleDto>
+}
+export async function getModelPriceSources(
+  client: ApiClient,
+  mode: 'copy' | 'link',
+  q: string,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ mode, q })
+  const result = projectRecord(
+    await client.request(`/api/model-prices/sources?${params}`, { signal }),
+  )
+  return {
+    has_more: projectBoolean(result.has_more),
+    items: projectArray(result.items, (value): ModelPriceSourceDto => {
+      const source = projectRecord(value)
+      return {
+        key: projectIdentityString(source.key),
+        kind: projectEnum(source.kind, ['catalog', 'local'] as const),
+        provider_id: projectIdentityString(source.provider_id),
+        provider_name: projectDisplayString(source.provider_name),
+        model_id: projectIdentityString(source.model_id),
+        name: projectDisplayString(source.name),
+        prices: projectPrices(source.prices),
+        context_tiers: projectContextTiers(source.context_tiers),
+        mode_schedules: projectModeSchedules(source.mode_schedules),
+      }
+    }),
+  }
+}
+export async function batchModelPrices(
+  client: ApiClient,
+  request: { ids: number[] } & (
+    | { mode: 'copy'; price: ModelPriceUpdateRequest }
+    | { mode: 'link'; reference: { provider_id: string; model_id: string } }
+  ),
+  signal?: AbortSignal,
+) {
+  const result = projectRecord(
+    await client.request('/api/model-prices/batch', { method: 'POST', json: request, signal }),
+  )
+  return projectArray(result.items, projectModelPrice)
+}
 export async function updateModelPrice(
   client: ApiClient,
   id: number,

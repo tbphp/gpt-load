@@ -6,7 +6,11 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@shared/http/client-context'
 import { useStableLoading } from '@/app/loading-state'
-import { getUpstreamModelDetail, type UpstreamModelDetailDto } from '@/app/resources/models'
+import {
+  getUpstreamModelDetail,
+  type UpstreamModelDetailDto,
+  type ModelUpstreamDto,
+} from '@/app/resources/models'
 import { controlQueryKeys } from '@/app/query-keys'
 import { groupDetailLocation } from '@/app/route-locations'
 import ChannelIcon from '@/components/brand/ChannelIcon.vue'
@@ -19,6 +23,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonSurface from '@/components/ui/SkeletonSurface.vue'
 import ModelPriceMatrix from '@/features/model-prices/ModelPriceMatrix.vue'
 import ModelPriceResetDialog from '@/features/model-prices/ModelPriceResetDialog.vue'
+import ModelPriceSetupDrawer from '@/features/model-prices/ModelPriceSetupDrawer.vue'
 import {
   type ModelPriceSlotDraft,
   type ModelPriceSlotErrors,
@@ -80,7 +85,7 @@ const emptyModeDraft: ModelPriceSlotDraft = {
   cache_write: '',
 }
 const emptyModeErrors: ModelPriceSlotErrors = {}
-const hasFastSchedule = computed(() => Boolean(price.value.mode_schedules.fast))
+const hasFastSchedule = computed(() => Boolean(editor.draft.value.modeSchedules.fast))
 const fastDraft = computed({
   get: () => editor.draft.value.modeSchedules.fast?.base ?? emptyModeDraft,
   set: (value) => {
@@ -103,6 +108,32 @@ const ultrafastErrors = computed(
 
 function addUltrafastPrice(): void {
   editor.draft.value.modeSchedules.ultrafast = { base: { ...emptyModeDraft }, tiers: [] }
+}
+function addFastPrice(): void {
+  editor.draft.value.modeSchedules.fast = { base: { ...emptyModeDraft }, tiers: [] }
+}
+const priceSetupOpen = ref(false)
+const priceSetupSources = computed<ModelUpstreamDto[]>(() => {
+  if (!detail.value) return []
+  const groups = [
+    ...new Map(detail.value.associations.map((entry) => [entry.group.id, entry.group])).values(),
+  ]
+  return [
+    {
+      model_id: detail.value.model_id,
+      alias_applied: false,
+      price: price.value,
+      route_groups: groups,
+      affected_groups: groups,
+      catalog_reference: detail.value.catalog_reference,
+    },
+  ]
+})
+async function openPriceSetup(): Promise<void> {
+  if (await editor.confirmDiscardSwitch()) {
+    editor.cancel()
+    priceSetupOpen.value = true
+  }
 }
 
 function removeUltrafastPrice(): void {
@@ -176,6 +207,9 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
     />
     <div v-else-if="detail" class="upstream-drawer">
       <div class="upstream-drawer__meta">
+        <AppButton variant="secondary" size="compact" @click="openPriceSetup">{{
+          t('modelPrices.reuse.title')
+        }}</AppButton>
         <ModelPriceStatusBadge
           :price="price"
           :provider-name="detail.catalog_reference?.provider_name"
@@ -185,6 +219,22 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           <AppDateTime :instant="price.updated_at_ms" :locale="locale" />
         </span>
       </div>
+      <InlineFeedback
+        v-if="price.catalog_reference"
+        :tone="price.catalog_reference.available ? 'info' : 'warning'"
+      >
+        {{
+          t('modelPrices.reuse.linkedTo', {
+            provider: price.catalog_reference.provider_name,
+            model: price.catalog_reference.model_id,
+          })
+        }}
+        {{
+          price.catalog_reference.available
+            ? t('modelPrices.reuse.detach')
+            : t('modelPrices.reuse.cached') + ' · ' + t('modelPrices.reuse.detach')
+        }}
+      </InlineFeedback>
 
       <dl class="upstream-drawer__identity">
         <div>
@@ -239,7 +289,7 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
           @remove-tier="editor.removeTier"
           @confirm-unpriced="editor.confirmUnpricedSave"
         />
-        <div v-if="hasFastSchedule" class="upstream-drawer__mode-heading">
+        <div class="upstream-drawer__mode-heading">
           <h3>
             <span>
               <Zap :size="13" aria-hidden="true" />
@@ -247,6 +297,22 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
             </span>
             <span class="upstream-drawer__eyebrow">{{ t('modelPrices.matrix.unit') }}</span>
           </h3>
+          <AppButton
+            v-if="hasFastSchedule"
+            variant="ghost"
+            size="compact"
+            :disabled="editor.pending.value || resetting"
+            @click="delete editor.draft.value.modeSchedules.fast"
+            >{{ t('models.drawer.removeFastPrice') }}</AppButton
+          >
+          <AppButton
+            v-else
+            variant="secondary"
+            size="compact"
+            :disabled="editor.pending.value || resetting"
+            @click="addFastPrice"
+            >{{ t('models.drawer.addFastPrice') }}</AppButton
+          >
         </div>
         <ModelPriceSlotsEditor
           v-if="hasFastSchedule"
@@ -364,6 +430,12 @@ defineExpose({ requestClose, confirmDiscardSwitch, discardChanges, hasUnsavedCha
       </span>
     </template>
   </AppDrawer>
+  <ModelPriceSetupDrawer
+    v-if="priceSetupOpen && priceSetupSources.length"
+    :sources="priceSetupSources"
+    @close="priceSetupOpen = false"
+    @saved="priceSetupOpen = false"
+  />
 </template>
 
 <style scoped>

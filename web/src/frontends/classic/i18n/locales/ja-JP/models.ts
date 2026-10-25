@@ -98,6 +98,8 @@ export default {
       prices: '料金',
       fastPrices: 'Fast モード料金',
       ultrafastPrices: 'Ultrafast モード料金',
+      addFastPrice: 'Fast 価格を追加',
+      removeFastPrice: 'Fast 価格を削除',
       addUltrafastPrice: '料金を追加',
       removeUltrafastPrice: '料金を削除',
       ultrafastFallback:

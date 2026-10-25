@@ -97,6 +97,8 @@ export default {
       prices: 'Price',
       fastPrices: 'Fast mode price',
       ultrafastPrices: 'Ultrafast mode price',
+      addFastPrice: 'Add Fast prices',
+      removeFastPrice: 'Remove Fast prices',
       addUltrafastPrice: 'Add prices',
       removeUltrafastPrice: 'Remove prices',
       ultrafastFallback: 'Without Ultrafast rates, standard prices and long-context tiers apply.',

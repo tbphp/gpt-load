@@ -51,9 +51,9 @@ onScopeDispose(() => {
   window.removeEventListener('beforeunload', unload)
 })
 defineExpose({
-  confirm: async () => {
+  confirm: async (bypassNextNavigation = true) => {
     const allowed = await confirm()
-    if (allowed) approved = true
+    if (allowed) approved = bypassNextNavigation
     return allowed
   },
 })

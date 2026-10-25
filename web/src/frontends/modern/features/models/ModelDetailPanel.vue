@@ -37,6 +37,7 @@ import { useLoadingActivity } from '@modern/components/ui/loading'
 import AppDraftGuard from '@modern/components/AppDraftGuard.vue'
 import ModelPricingDetails from './ModelPricingDetails.vue'
 import ModelPriceEditor from './ModelPriceEditor.vue'
+import ModelPriceSetupDialog from './ModelPriceSetupDialog.vue'
 
 const isMobile = useMobileLayout()
 const props = defineProps<{
@@ -96,6 +97,14 @@ const sourceMap = computed(
   () => new Map(modelData.value?.sources.map((source) => [String(source.price.id), source])),
 )
 const editing = ref(false)
+const priceSetupOpen = ref(false)
+const priceSetupSources = computed(() =>
+  chosen.value && price.value ? [{ ...chosen.value, price: price.value }] : [],
+)
+function pricesConfigured(): void {
+  priceSetupOpen.value = false
+  emit('changed')
+}
 const dirty = ref(false)
 const saving = ref(false)
 const resetting = ref(false)
@@ -318,6 +327,9 @@ async function reset(): Promise<void> {
                 compact
               >
                 <template v-if="admin" #actions>
+                  <AppButton size="xs" variant="text" @click="priceSetupOpen = true">{{
+                    t('modelManager.reuse.title')
+                  }}</AppButton>
                   <AppBadge
                     :tone="price.status === 'pending' ? 'warning' : 'neutral'"
                     size="xs"
@@ -325,6 +337,17 @@ async function reset(): Promise<void> {
                     >{{ t('modelManager.priceMethods.' + priceStatus(price)) }}</AppBadge
                   >
                 </template>
+                <p v-if="admin && price.catalogReference" class="modern-model-price-reference">
+                  {{
+                    t('modelManager.reuse.linkedTo', {
+                      provider: price.catalogReference.provider,
+                      model: price.catalogReference.model,
+                    })
+                  }}
+                  <span v-if="!price.catalogReference.available">
+                    · {{ t('modelManager.reuse.cached') }}</span
+                  >
+                </p>
                 <ModelPricingDetails :price="price" />
               </AppFormSection>
               <AppFormSection
@@ -502,9 +525,21 @@ async function reset(): Promise<void> {
     @confirm="reset"
     @cancel="cancelReset"
   />
+  <ModelPriceSetupDialog
+    v-if="admin && priceSetupOpen && priceSetupSources.length"
+    :sources="priceSetupSources"
+    @close="priceSetupOpen = false"
+    @saved="pricesConfigured"
+  />
 </template>
 
 <style scoped>
+.modern-model-price-reference {
+  margin: 0 0 var(--modern-space-3);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+  overflow-wrap: anywhere;
+}
 .modern-model-detail-header {
   overflow-wrap: anywhere;
 }
