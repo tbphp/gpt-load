@@ -1081,7 +1081,7 @@ func TestCodexWSSessionPreservesDoneErrorCode(t *testing.T) {
 }
 
 func TestCodexWSSessionFixedIdentity(t *testing.T) {
-	const wantUA = "codex-tui/0.163.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.163.0)"
+	const wantUA = "codex-tui/0.164.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.164.0)"
 	for _, model := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-5.6-luna"} {
 		for _, test := range []struct {
 			name        string
@@ -1102,7 +1102,7 @@ func TestCodexWSSessionFixedIdentity(t *testing.T) {
 				var handshakes atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handshakes.Add(1)
-					if r.Header.Get("Version") != "0.163.0" || r.Header.Get("User-Agent") != wantUA {
+					if r.Header.Get("Version") != "0.164.0" || r.Header.Get("User-Agent") != wantUA {
 						t.Errorf("handshake identity: version=%q UA=%q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 					}
 					if r.Header.Get("Authorization") != "Bearer test-access" {
