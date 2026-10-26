@@ -2,10 +2,9 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -19,16 +18,15 @@ import (
 
 const maxModelPriceBatchSize = 100
 
-type ModelPriceCatalogReferenceRequest struct {
-	ProviderID string `json:"provider_id"`
-	ModelID    string `json:"model_id"`
+type ModelPriceReferenceRequest struct {
+	PriceID uint `json:"price_id"`
 }
 
 type ModelPriceBatchRequest struct {
-	IDs       []uint                             `json:"ids"`
-	Mode      string                             `json:"mode"`
-	Price     *ModelPriceUpdateRequest           `json:"price,omitempty"`
-	Reference *ModelPriceCatalogReferenceRequest `json:"reference,omitempty"`
+	IDs       []uint                      `json:"ids"`
+	Mode      string                      `json:"mode"`
+	Price     *ModelPriceUpdateRequest    `json:"price,omitempty"`
+	Reference *ModelPriceReferenceRequest `json:"reference,omitempty"`
 }
 
 type ModelPriceBatchResponse struct {
@@ -88,13 +86,11 @@ func (s *Service) BatchModelPrices(ctx context.Context, request ModelPriceBatchR
 			return result, err
 		}
 	case "link":
-		if request.Reference == nil || request.Price != nil || request.Reference.ModelID == "" ||
-			len(request.Reference.ModelID) > 255 || !utf8.ValidString(request.Reference.ModelID) ||
-			strings.TrimSpace(request.Reference.ModelID) != request.Reference.ModelID {
+		if request.Reference == nil || request.Price != nil || request.Reference.PriceID == 0 || uint64(request.Reference.PriceID) > uint64(maxSafeInteger) {
 			return result, app_errors.ErrValidation
 		}
-		if _, err := pricing.ProviderScopeKey(request.Reference.ProviderID); err != nil {
-			return result, app_errors.ErrValidation
+		if seen[request.Reference.PriceID] {
+			return result, app_errors.ErrModelPriceReferenceCycle
 		}
 	default:
 		return result, app_errors.ErrValidation
@@ -111,19 +107,7 @@ func (s *Service) BatchModelPrices(ctx context.Context, request ModelPriceBatchR
 	if s.catalogRuntime != nil {
 		snapshot = s.catalogRuntime.Load()
 	}
-	if request.Mode == "link" {
-		model, available := lookupCatalogPrice(snapshot, request.Reference.ProviderID, request.Reference.ModelID)
-		if !available {
-			return result, app_errors.ErrModelPriceSourceUnavailable
-		}
-		var err error
-		desired, err = automaticCatalogValues(model.Cost)
-		if err != nil {
-			return result, app_errors.ErrValidation
-		}
-		desired.ReferenceProviderID = request.Reference.ProviderID
-		desired.ReferenceModelID = request.Reference.ModelID
-	}
+
 	var table *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		var rows []models.ModelPrice
@@ -137,7 +121,24 @@ func (s *Service) BatchModelPrices(ctx context.Context, request ModelPriceBatchR
 		if err != nil {
 			return err
 		}
+		if request.Mode == "link" {
+			if err := tx.First(&desired, request.Reference.PriceID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return app_errors.ErrModelPriceSourceUnavailable
+				}
+				return app_errors.ParseDBError(err)
+			}
+			identity := pricing.Identity{ChannelID: desired.ChannelID, ModelID: desired.ModelID}
+			if references.references[identity].referenceCount == 0 || !modelPriceHasConfiguredValue(desired) {
+				return app_errors.ErrModelPriceSourceUnavailable
+			}
+			desired.SourcePriceID = &request.Reference.PriceID
+			desired.IsManual = false
+		}
 		for _, row := range rows {
+			if request.Mode == "link" && references.references[pricing.Identity{ChannelID: row.ChannelID, ModelID: row.ModelID}].referenceCount == 0 {
+				return app_errors.ErrResourceNotFound
+			}
 			next := desired
 			next.ID, next.ChannelID, next.ModelID = row.ID, row.ChannelID, row.ModelID
 			next.CreatedAtMS, next.UpdatedAtMS = row.CreatedAtMS, row.UpdatedAtMS
@@ -146,15 +147,8 @@ func (s *Service) BatchModelPrices(ctx context.Context, request ModelPriceBatchR
 				if err != nil {
 					return app_errors.ErrInternalServer
 				}
-				if err := tx.Model(&models.ModelPrice{}).Where("id = ?", row.ID).Updates(map[string]any{
-					"input_price_nano_usd_per_million_tokens":       next.InputPriceNanoUSDPerMillionTokens,
-					"output_price_nano_usd_per_million_tokens":      next.OutputPriceNanoUSDPerMillionTokens,
-					"cache_read_price_nano_usd_per_million_tokens":  next.CacheReadPriceNanoUSDPerMillionTokens,
-					"cache_write_price_nano_usd_per_million_tokens": next.CacheWritePriceNanoUSDPerMillionTokens,
-					"context_price_tiers":                           next.ContextPriceTiers, "mode_price_schedules": next.ModePriceSchedules,
-					"is_manual": next.IsManual, "reference_provider_id": next.ReferenceProviderID,
-					"reference_model_id": next.ReferenceModelID, "updated_at_ms": next.UpdatedAtMS,
-				}).Error; err != nil {
+				next.UpdatedAtMS = max(next.UpdatedAtMS, row.UpdatedAtMS+1)
+				if err := tx.Model(&models.ModelPrice{}).Where("id = ?", row.ID).Updates(modelPriceAssignments(next)).Error; err != nil {
 					return app_errors.ParseDBError(err)
 				}
 			}
@@ -164,7 +158,7 @@ func (s *Service) BatchModelPrices(ctx context.Context, request ModelPriceBatchR
 			}
 			result.Items = append(result.Items, projected.dto)
 		}
-		table, err = loadPriceTable(ctx, tx)
+		table, err = refreshPriceTable(ctx, tx)
 		return err
 	})
 	if err != nil {

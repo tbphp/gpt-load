@@ -21,8 +21,7 @@ import {
 export type ModelPriceStatus = 'pending' | 'configured'
 export type ModelPriceStatusFilter = ModelPriceStatus | 'all'
 export type ModelPriceUsageFilter = 'in_use' | 'unreferenced' | 'all'
-export type ModelPriceMethod =
-  'auto_sync' | 'user_set' | 'user_marked_unpriced' | 'catalog_reference'
+export type ModelPriceMethod = 'auto_sync' | 'user_set' | 'user_marked_unpriced' | 'model_reference'
 export type ModelPriceMatchSource = 'channel_catalog_provider' | 'provider_priority_fallback'
 
 export interface ModelPriceFilters {
@@ -51,13 +50,7 @@ export interface ModelPriceScheduleDto {
 }
 
 export interface ModelPriceDto {
-  catalog_reference?: {
-    provider_id: string
-    provider_name: string
-    model_id: string
-    model_name: string
-    available: boolean
-  }
+  source_price_id?: number
   id: number
   channel_id: string
   channel_name: string
@@ -146,18 +139,11 @@ const itemFields = [
   'updated_at_ms',
   'can_reset',
   'can_delete',
-  'catalog_reference',
+  'source_price_id',
 ] as const
 const priceFields = ['input', 'output', 'cache_read', 'cache_write'] as const
 const contextTierFields = ['threshold_tokens', 'prices'] as const
 const modeScheduleFields = ['prices', 'context_tiers'] as const
-const updateFields = [
-  ...priceFields,
-  'context_tiers',
-  'mode_schedules',
-  'confirm_unpriced',
-] as const
-
 function invalidResponse(): never {
   throw new InvalidResponseError()
 }
@@ -229,7 +215,7 @@ function projectMethod(value: unknown): ModelPriceMethod | null {
         'auto_sync',
         'user_set',
         'user_marked_unpriced',
-        'catalog_reference',
+        'model_reference',
       ] as const)
 }
 
@@ -266,25 +252,18 @@ export function projectModelPrice(value: unknown): ModelPriceDto {
     can_reset: projectBoolean(record.can_reset),
     can_delete: projectBoolean(record.can_delete),
   }
-  if (record.catalog_reference !== undefined) {
-    const reference = projectRecord(record.catalog_reference)
-    result.catalog_reference = {
-      provider_id: projectIdentityString(reference.provider_id),
-      provider_name: projectDisplayString(reference.provider_name),
-      model_id: projectIdentityString(reference.model_id),
-      model_name: projectDisplayString(reference.model_name),
-      available: projectBoolean(reference.available),
-    }
-  }
+  if (record.source_price_id != null)
+    result.source_price_id = projectSafeInteger(record.source_price_id, { minimum: 1 })
   const hasAutomaticReference = result.method === 'auto_sync'
   const hasManualMethod = result.method === 'user_set' || result.method === 'user_marked_unpriced'
   if (
     result.reference_group_count > result.reference_count ||
     result.referenced !== result.reference_count > 0 ||
     (result.pricing_status === 'pending' &&
-      (result.method !== null || result.matched_provider_id !== null)) ||
+      ((result.method !== null && result.method !== 'model_reference') ||
+        result.matched_provider_id !== null)) ||
     (hasAutomaticReference &&
-      (result.matched_provider_id === null || result.match_source === null)) ||
+      (result.matched_provider_id === null) !== (result.match_source === null)) ||
     (hasManualMethod && (result.matched_provider_id !== null || result.match_source !== null)) ||
     (result.method === null &&
       (result.matched_provider_id !== null || result.match_source !== null)) ||
@@ -384,48 +363,35 @@ export function modelPriceCollectionQueryOptions(
   })
 }
 
-export interface ModelPriceSourceDto extends ModelPriceScheduleDto {
-  key: string
-  kind: 'catalog' | 'local'
-  provider_id: string
-  provider_name: string
-  model_id: string
-  name: string
-  mode_schedules: Record<string, ModelPriceScheduleDto>
+export const modelPriceSourcesKey = [...controlQueryKeys.modelPrices(), 'sources'] as const
+export interface ModelPriceSourceDto {
+  price: ModelPriceDto
+  groups: { id: number; name: string; enabled: boolean }[]
+  aliases: string[]
 }
-export async function getModelPriceSources(
-  client: ApiClient,
-  mode: 'copy' | 'link',
-  q: string,
-  signal?: AbortSignal,
-) {
-  const params = new URLSearchParams({ mode, q })
-  const result = projectRecord(
-    await client.request(`/api/model-prices/sources?${params}`, { signal }),
-  )
-  return {
-    has_more: projectBoolean(result.has_more),
-    items: projectArray(result.items, (value): ModelPriceSourceDto => {
-      const source = projectRecord(value)
-      return {
-        key: projectIdentityString(source.key),
-        kind: projectEnum(source.kind, ['catalog', 'local'] as const),
-        provider_id: projectIdentityString(source.provider_id),
-        provider_name: projectDisplayString(source.provider_name),
-        model_id: projectIdentityString(source.model_id),
-        name: projectDisplayString(source.name),
-        prices: projectPrices(source.prices),
-        context_tiers: projectContextTiers(source.context_tiers),
-        mode_schedules: projectModeSchedules(source.mode_schedules),
-      }
-    }),
-  }
+export async function getModelPriceSources(client: ApiClient, signal?: AbortSignal) {
+  const result = projectRecord(await client.request('/api/model-prices/sources', { signal }))
+  return projectArray(result.items, (value): ModelPriceSourceDto => {
+    const source = projectRecord(value)
+    return {
+      price: projectModelPrice(source.price),
+      groups: projectArray(source.groups, (value) => {
+        const group = projectRecord(value)
+        return {
+          id: projectSafeInteger(group.id, { minimum: 1 }),
+          name: projectDisplayString(group.name),
+          enabled: projectBoolean(group.enabled),
+        }
+      }),
+      aliases: projectArray(source.aliases, projectIdentityString),
+    }
+  })
 }
 export async function batchModelPrices(
   client: ApiClient,
   request: { ids: number[] } & (
     | { mode: 'copy'; price: ModelPriceUpdateRequest }
-    | { mode: 'link'; reference: { provider_id: string; model_id: string } }
+    | { mode: 'link'; reference: { price_id: number } }
   ),
   signal?: AbortSignal,
 ) {
@@ -434,21 +400,6 @@ export async function batchModelPrices(
   )
   return projectArray(result.items, projectModelPrice)
 }
-export async function updateModelPrice(
-  client: ApiClient,
-  id: number,
-  request: ModelPriceUpdateRequest,
-  signal?: AbortSignal,
-): Promise<ModelPriceDto> {
-  return projectModelPrice(
-    await client.request(`/api/model-prices/${id}`, {
-      method: 'PUT',
-      json: Object.fromEntries(updateFields.map((field) => [field, request[field]])),
-      signal,
-    }),
-  )
-}
-
 export async function resetModelPrice(
   client: ApiClient,
   id: number,

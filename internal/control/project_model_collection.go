@@ -237,6 +237,9 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 		if err != nil {
 			return ProjectModelListResponse{}, err
 		}
+		if query.AccessKeyID != nil {
+			record.dto.SourcePriceID = nil
+		}
 		priceRecords[identity] = record
 	}
 
@@ -318,7 +321,8 @@ func (s *Service) ListProjectModels(ctx context.Context, query ProjectModelListQ
 			UpstreamModels: []ProjectUpstreamModelDTO{},
 		}
 		for _, upstream := range record.upstreams {
-			if !projectModelPricingVisible(upstream.price.PricingStatus, query.PricingStatus) {
+			if !projectModelPricingVisible(upstream.price.PricingStatus, query.PricingStatus) ||
+				!projectModelPricingMethodVisible(upstream.price, query.PricingMethod) {
 				continue
 			}
 			sortProjectModelGroups(upstream.routeGroups)
@@ -639,6 +643,26 @@ func projectModelSummary(
 
 func projectModelGroupVisible(group models.Group, status ProjectModelGroupStatus) bool {
 	return status == ProjectModelGroupStatusAll || group.Enabled
+}
+
+// 方式描述价格维护来源，与是否已配置独立；手动标记未定价仍属于手动方式。
+func projectModelPricingMethodVisible(price ModelPriceDTO, filter ProjectModelPricingMethod) bool {
+	method := ""
+	if price.Method != nil {
+		method = *price.Method
+	}
+	switch filter {
+	case "", ProjectModelPricingMethodAll:
+		return true
+	case ProjectModelPricingMethodAutomatic:
+		return method == "" || method == "auto_sync"
+	case ProjectModelPricingMethodManual:
+		return method == "user_set" || method == "user_marked_unpriced"
+	case ProjectModelPricingMethodLinked:
+		return method == "model_reference"
+	default:
+		return false
+	}
 }
 
 func projectModelPricingVisible(status PricingStatus, filter ProjectModelPricingStatus) bool {

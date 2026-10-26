@@ -44,7 +44,7 @@ type ModelPriceDTO struct {
 	UpdatedAtMS         int64                                  `json:"updated_at_ms"`
 	CanReset            bool                                   `json:"can_reset"`
 	CanDelete           bool                                   `json:"can_delete"`
-	CatalogReference    *ModelPriceCatalogReferenceDTO         `json:"catalog_reference,omitempty"`
+	SourcePriceID       *uint                                  `json:"source_price_id,omitempty"`
 }
 
 type ModelPriceScheduleDTO struct {
@@ -96,11 +96,7 @@ func (s *Service) UpdateModelPrice(
 	if err := request.validate(); err != nil {
 		return ModelPriceDTO{}, err
 	}
-	contextTiers, err := buildContextPriceTiersJSON(request.ContextTiers.tiers)
-	if err != nil {
-		return ModelPriceDTO{}, err
-	}
-	modeSchedules, err := buildModePriceSchedulesJSON(request.ModeSchedules.schedules)
+	values, err := modelPriceRequestValues(request)
 	if err != nil {
 		return ModelPriceDTO{}, err
 	}
@@ -136,42 +132,22 @@ func (s *Service) UpdateModelPrice(
 			)
 		}
 
-		desired := row
-		desired.InputPriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.Input.nanoUSD)
-		desired.OutputPriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.Output.nanoUSD)
-		desired.CacheReadPriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.CacheRead.nanoUSD)
-		desired.CacheWritePriceNanoUSDPerMillionTokens = cloneModelPriceValue(request.CacheWrite.nanoUSD)
-		desired.ContextPriceTiers = contextTiers
-		desired.ModePriceSchedules = modeSchedules
-		desired.IsManual = true
-		desired.ReferenceProviderID = ""
-		desired.ReferenceModelID = ""
+		desired := values
+		desired.ID, desired.ChannelID, desired.ModelID = row.ID, row.ChannelID, row.ModelID
+		desired.CreatedAtMS, desired.UpdatedAtMS = row.CreatedAtMS, row.UpdatedAtMS
 		if !modelPriceMutableValuesEqual(row, desired) {
 			updatedAtMS, err := safeEpochMilliseconds(s.now())
 			if err != nil {
 				return fmt.Errorf("timestamp model price update: %w", app_errors.ErrInternalServer)
 			}
-			if err := tx.Model(&models.ModelPrice{}).
-				Where("id = ?", id).
-				Updates(map[string]any{
-					"input_price_nano_usd_per_million_tokens":       desired.InputPriceNanoUSDPerMillionTokens,
-					"output_price_nano_usd_per_million_tokens":      desired.OutputPriceNanoUSDPerMillionTokens,
-					"cache_read_price_nano_usd_per_million_tokens":  desired.CacheReadPriceNanoUSDPerMillionTokens,
-					"cache_write_price_nano_usd_per_million_tokens": desired.CacheWritePriceNanoUSDPerMillionTokens,
-					"context_price_tiers":                           desired.ContextPriceTiers,
-					"mode_price_schedules":                          desired.ModePriceSchedules,
-					"is_manual":                                     true,
-					"reference_provider_id":                         "",
-					"reference_model_id":                            "",
-					"updated_at_ms":                                 updatedAtMS,
-				}).Error; err != nil {
+			desired.UpdatedAtMS = max(updatedAtMS, row.UpdatedAtMS+1)
+			if err := tx.Model(&models.ModelPrice{}).Where("id = ?", id).Updates(modelPriceAssignments(desired)).Error; err != nil {
 				return fmt.Errorf("update model price: %w", app_errors.ParseDBError(err))
 			}
-			desired.UpdatedAtMS = updatedAtMS
 			row = desired
 		}
 
-		table, err = loadPriceTable(ctx, tx)
+		table, err = refreshPriceTable(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -229,40 +205,21 @@ func (s *Service) ResetModelPrice(
 		if err != nil {
 			return fmt.Errorf("normalize catalog model price: %w", app_errors.ErrInternalServer)
 		}
+		desired.ID, desired.ChannelID, desired.ModelID = row.ID, row.ChannelID, row.ModelID
+		desired.CreatedAtMS, desired.UpdatedAtMS = row.CreatedAtMS, row.UpdatedAtMS
 		if !modelPriceMutableValuesEqual(row, desired) {
 			updatedAtMS, err := safeEpochMilliseconds(s.now())
 			if err != nil {
 				return fmt.Errorf("timestamp model price reset: %w", app_errors.ErrInternalServer)
 			}
-			if err := tx.Model(&models.ModelPrice{}).
-				Where("id = ?", id).
-				Updates(map[string]any{
-					"input_price_nano_usd_per_million_tokens":       desired.InputPriceNanoUSDPerMillionTokens,
-					"output_price_nano_usd_per_million_tokens":      desired.OutputPriceNanoUSDPerMillionTokens,
-					"cache_read_price_nano_usd_per_million_tokens":  desired.CacheReadPriceNanoUSDPerMillionTokens,
-					"cache_write_price_nano_usd_per_million_tokens": desired.CacheWritePriceNanoUSDPerMillionTokens,
-					"context_price_tiers":                           desired.ContextPriceTiers,
-					"mode_price_schedules":                          desired.ModePriceSchedules,
-					"is_manual":                                     false,
-					"reference_provider_id":                         "",
-					"reference_model_id":                            "",
-					"updated_at_ms":                                 updatedAtMS,
-				}).Error; err != nil {
+			desired.UpdatedAtMS = max(updatedAtMS, row.UpdatedAtMS+1)
+			if err := tx.Model(&models.ModelPrice{}).Where("id = ?", id).Updates(modelPriceAssignments(desired)).Error; err != nil {
 				return fmt.Errorf("reset model price: %w", app_errors.ParseDBError(err))
 			}
-			row.InputPriceNanoUSDPerMillionTokens = desired.InputPriceNanoUSDPerMillionTokens
-			row.OutputPriceNanoUSDPerMillionTokens = desired.OutputPriceNanoUSDPerMillionTokens
-			row.CacheReadPriceNanoUSDPerMillionTokens = desired.CacheReadPriceNanoUSDPerMillionTokens
-			row.CacheWritePriceNanoUSDPerMillionTokens = desired.CacheWritePriceNanoUSDPerMillionTokens
-			row.ContextPriceTiers = desired.ContextPriceTiers
-			row.ModePriceSchedules = desired.ModePriceSchedules
-			row.IsManual = false
-			row.ReferenceProviderID = ""
-			row.ReferenceModelID = ""
-			row.UpdatedAtMS = updatedAtMS
+			row = desired
 		}
 
-		table, err = loadPriceTable(ctx, tx)
+		table, err = refreshPriceTable(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -326,7 +283,14 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 				},
 			)
 		}
-		if !row.IsManual && row.ReferenceProviderID == "" {
+		var dependents []models.ModelPrice
+		if err := tx.Where("source_price_id = ?", id).Find(&dependents).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+		if len(dependents) > 0 {
+			return modelPriceSourceInUse(row, dependents)
+		}
+		if !row.IsManual && row.SourcePriceID == nil {
 			return app_errors.NewAPIErrorWithData(
 				app_errors.ErrModelPriceAutomaticDeleteForbidden,
 				ModelPriceIDData{ID: id},
@@ -335,7 +299,7 @@ func (s *Service) DeleteModelPrice(ctx context.Context, id uint) error {
 		if err := tx.Where("id = ?", id).Delete(&models.ModelPrice{}).Error; err != nil {
 			return fmt.Errorf("delete model price: %w", app_errors.ParseDBError(err))
 		}
-		table, err = loadPriceTable(ctx, tx)
+		table, err = refreshPriceTable(ctx, tx)
 		return err
 	})
 	if err != nil {
@@ -456,8 +420,7 @@ func modelPriceMutableValuesEqual(left, right models.ModelPrice) bool {
 		bytes.Equal(leftTiers, rightTiers) &&
 		bytes.Equal(leftSchedules, rightSchedules) &&
 		left.IsManual == right.IsManual &&
-		left.ReferenceProviderID == right.ReferenceProviderID &&
-		left.ReferenceModelID == right.ReferenceModelID
+		samePriceSource(left.SourcePriceID, right.SourcePriceID)
 }
 
 func (s *Service) ListModelPrices(
@@ -566,17 +529,13 @@ func projectModelPriceRow(
 	configured := modelPriceHasConfiguredValue(row)
 	var matchedProviderID *string
 	var matchSource *ModelPriceMatchSource
-	matchedAutomaticPrice := false
-	if !row.IsManual && row.ReferenceProviderID == "" {
+	if !row.IsManual && row.SourcePriceID == nil {
 		match, matched := resolveAutomaticPriceForIdentity(catalogSnapshot, identity)
-		matchedAutomaticPrice = matched
-		if configured && matchedAutomaticPrice {
+		if configured && matched {
 			providerID := match.providerID
 			matchedProviderID = &providerID
 			source := match.source
 			matchSource = &source
-		} else {
-			matchedAutomaticPrice = false
 		}
 	}
 	dto := ModelPriceDTO{
@@ -585,7 +544,7 @@ func projectModelPriceRow(
 		Prices:              prices,
 		ModeSchedules:       projectModeSchedules(rule.ModeSchedules),
 		PricingStatus:       status,
-		Method:              modelPriceMethod(row, configured, matchedAutomaticPrice),
+		Method:              modelPriceMethod(row, configured),
 		MatchedProviderID:   matchedProviderID,
 		MatchSource:         matchSource,
 		Referenced:          reference.referenceCount > 0,
@@ -593,9 +552,9 @@ func projectModelPriceRow(
 		ReferenceGroupCount: reference.referenceGroupCount(),
 		ContextTiers:        projectContextPriceTiers(rule.ContextTiers),
 		UpdatedAtMS:         row.UpdatedAtMS,
-		CanReset:            row.IsManual || row.ReferenceProviderID != "",
-		CanDelete:           (row.IsManual || row.ReferenceProviderID != "") && reference.referenceCount == 0,
-		CatalogReference:    projectCatalogPriceReference(catalogSnapshot, row.ReferenceProviderID, row.ReferenceModelID),
+		CanReset:            row.IsManual || row.SourcePriceID != nil,
+		CanDelete:           (row.IsManual || row.SourcePriceID != nil) && reference.referenceCount == 0,
+		SourcePriceID:       row.SourcePriceID,
 	}
 	return modelPriceListRecord{dto: dto}, nil
 }
@@ -603,14 +562,13 @@ func projectModelPriceRow(
 func modelPriceMethod(
 	row models.ModelPrice,
 	configured bool,
-	matchedAutomaticPrice bool,
 ) *string {
-	if row.ReferenceProviderID != "" {
-		method := "catalog_reference"
+	if row.SourcePriceID != nil {
+		method := "model_reference"
 		return &method
 	}
 	if !row.IsManual {
-		if !configured || !matchedAutomaticPrice {
+		if !configured {
 			return nil
 		}
 		method := "auto_sync"

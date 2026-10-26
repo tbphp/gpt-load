@@ -36,6 +36,13 @@ export default {
       searchPlaceholder: '客户端模型、上游模型或分组',
       clearSearch: '清除搜索',
       groupStatusLabel: '分组状态',
+      pricingMethodLabel: '计价方式',
+      pricingMethod: {
+        all: '全部计价方式',
+        automatic: '自动匹配',
+        manual: '手动配置',
+        linked: '跟随模型',
+      },
       pricingStatusLabel: '价格状态',
       reset: '重置条件',
       groupStatus: {

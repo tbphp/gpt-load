@@ -13,7 +13,6 @@ import {
   AppBadge,
   AppButton,
   AppChannelIcon,
-  AppCheckbox,
   AppCopyValue,
   AppIcon,
   AppIconButton,
@@ -30,9 +29,8 @@ const props = defineProps<{
   admin: boolean
   selected?: boolean
   disabled?: boolean
-  checked?: number[]
 }>()
-const emit = defineEmits<{ open: [source?: number]; toggle: [id: number, checked: boolean] }>()
+const emit = defineEmits<{ open: [source?: number] }>()
 const { t, n, locale } = useI18n()
 // 协议在同一批模型上重复度接近 100%，折成一行中性摘要，悬浮再看全量列表。
 const protocolsLabel = computed(() =>
@@ -86,16 +84,6 @@ function hiddenGroupsLabel(source: ModelSource): string {
       :key="source.price.id"
       class="modern-model-mobile-source-row"
     >
-      <AppCheckbox
-        v-if="admin"
-        :model-value="checked?.includes(source.price.id) ?? false"
-        :label="source.price.channel.name + ' · ' + source.model"
-        label-hidden
-        :disabled="
-          disabled || (!checked?.includes(source.price.id) && (checked?.length ?? 0) >= 100)
-        "
-        @update:model-value="emit('toggle', source.price.id, $event)"
-      />
       <AppButton
         variant="ghost"
         class="modern-model-mobile-source"
@@ -155,18 +143,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
       </div>
       <div class="modern-model-card-sources">
         <div v-for="source in model.sources" :key="source.price.id" class="modern-model-row">
-          <span class="modern-model-source-name" :class="{ 'is-selectable': admin }">
-            <AppCheckbox
-              v-if="admin"
-              class="modern-model-source-check"
-              :model-value="checked?.includes(source.price.id) ?? false"
-              :label="source.price.channel.name + ' · ' + source.model"
-              label-hidden
-              :disabled="
-                disabled || (!checked?.includes(source.price.id) && (checked?.length ?? 0) >= 100)
-              "
-              @update:model-value="emit('toggle', source.price.id, $event)"
-            />
+          <span class="modern-model-source-name">
             <AppChannelIcon
               :icon="source.price.channel.icon"
               :mark="source.price.channel.mark"
@@ -226,12 +203,7 @@ function hiddenGroupsLabel(source: ModelSource): string {
             <AppBadge v-if="priceStatus(source.price) === 'pending'" tone="warning" size="xs">{{
               t('modelManager.priceMethods.pending')
             }}</AppBadge>
-            <AppBadge
-              v-else-if="source.price.catalogReference && !source.price.catalogReference.available"
-              tone="warning"
-              size="xs"
-              >{{ t('modelManager.reuse.cachedShort') }}</AppBadge
-            >
+
             <template v-else>
               <AppIcon v-if="priceStatus(source.price) === 'manual'" :icon="PencilLine" size="xs" />
               <AppOverflowText
@@ -446,15 +418,6 @@ function hiddenGroupsLabel(source: ModelSource): string {
   column-gap: var(--modern-space-1-5);
   min-width: 0;
   font-size: var(--modern-font-size-small);
-}
-.modern-model-source-name.is-selectable {
-  grid-template-columns: var(--modern-checkbox-size) var(--modern-channel-sm) minmax(0, 1fr);
-}
-.modern-model-source-check {
-  grid-row: 1 / span 2;
-}
-.modern-model-source-name.is-selectable .modern-model-source-upstream {
-  grid-column: 3;
 }
 .modern-model-source-channel {
   display: flex;

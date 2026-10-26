@@ -10,7 +10,7 @@ import type { StatusIcon, StatusTone } from '@/components/ui/status-presenter'
 const props = defineProps<{
   price: Pick<
     ModelPriceDto,
-    'method' | 'pricing_status' | 'matched_provider_id' | 'match_source' | 'catalog_reference'
+    'method' | 'pricing_status' | 'matched_provider_id' | 'match_source' | 'source_price_id'
   >
   providerName?: string
 }>()
@@ -18,10 +18,8 @@ const { t } = useI18n()
 
 const presentation = computed<{ icon: StatusIcon; label: string; tone: StatusTone }>(() => {
   switch (props.price.method) {
-    case 'catalog_reference':
-      return props.price.catalog_reference?.available
-        ? { icon: 'info', label: t('modelPrices.reuse.linked'), tone: 'info' }
-        : { icon: 'alert', label: t('modelPrices.reuse.cachedShort'), tone: 'warning' }
+    case 'model_reference':
+      return { icon: 'info', label: t('modelPrices.reuse.linked'), tone: 'info' }
     case 'auto_sync':
       return props.price.match_source === 'provider_priority_fallback'
         ? { icon: 'info', label: t('modelPrices.method.reference_price'), tone: 'info' }
@@ -38,13 +36,6 @@ const presentation = computed<{ icon: StatusIcon; label: string; tone: StatusTon
 })
 
 const sourceDetail = computed(() => {
-  if (props.price.catalog_reference) {
-    const source = props.price.catalog_reference
-    return (
-      `${source.provider_name} · ${source.model_id}` +
-      (source.available ? '' : ` · ${t('modelPrices.reuse.cached')}`)
-    )
-  }
   if (props.price.method !== 'auto_sync' || props.price.match_source === null) return null
   const provider = props.providerName?.trim() || props.price.matched_provider_id
   if (!provider) return null

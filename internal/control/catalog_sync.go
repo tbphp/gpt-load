@@ -638,7 +638,7 @@ func (s *Service) applyCatalogSnapshot(ctx context.Context, snapshot *catalog.Sn
 			return err
 		}
 		var err error
-		table, err = loadPriceTable(ctx, tx)
+		table, err = refreshPriceTable(ctx, tx)
 		return err
 	})
 	if err != nil {
@@ -690,23 +690,21 @@ func reconcileCatalogAutomaticPrices(tx *gorm.DB, snapshot *catalog.Snapshot) er
 		if err != nil {
 			return fmt.Errorf("validate automatic model price identity: %w", app_errors.ErrInternalServer)
 		}
-		if _, referenced := references[identity]; !referenced && row.ReferenceProviderID == "" {
+		if _, referenced := references[identity]; !referenced || row.SourcePriceID != nil {
 			continue
 		}
-		var cost *catalog.ModelCost
-		if row.ReferenceProviderID != "" {
-			model, available := lookupCatalogPrice(snapshot, row.ReferenceProviderID, row.ReferenceModelID)
-			if !available {
-				// 目录缺失（包括离线启动）不抹掉最后有效价，也不改用其他来源。
-				continue
-			}
-			cost = model.Cost
-		} else if match, ok := resolveAutomaticPriceForIdentity(snapshot, identity); ok {
-			cost = match.cost
+		match, available := resolveAutomaticPriceForIdentity(snapshot, identity)
+		if !available || match.cost == nil {
+			// 离线启动或目录撤回时保留最后有效价，显式手动清空仍按用户意图处理。
+			continue
 		}
+		cost := match.cost
 		desired, err := automaticCatalogValues(cost)
 		if err != nil {
 			return fmt.Errorf("normalize catalog price: %w", app_errors.ErrInternalServer)
+		}
+		if !modelPriceHasConfiguredValue(desired) {
+			continue
 		}
 		if catalogPriceValuesEqual(row, desired) {
 			continue
@@ -811,24 +809,28 @@ func cleanupUnreferencedAutomaticPrices(tx *gorm.DB) error {
 		return err
 	}
 	var rows []models.ModelPrice
-	if err := tx.Where("is_manual = ? AND reference_provider_id = ?", false, "").Order("id ASC").Find(&rows).Error; err != nil {
-		return fmt.Errorf("load automatic prices for cleanup: %w", app_errors.ParseDBError(err))
+	if err := tx.Order("id ASC").Find(&rows).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	if err := validateGroupedPriceSources(rows, references); err != nil {
+		return err
 	}
 	ids := make([]uint, 0)
 	for _, row := range rows {
-		identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
-		if err != nil {
-			return fmt.Errorf("validate automatic price cleanup identity: %w", app_errors.ErrInternalServer)
-		}
-		if _, referenced := references[identity]; !referenced {
+		identity := pricing.Identity{ChannelID: row.ChannelID, ModelID: row.ModelID}
+		if references[identity].referenceCount == 0 && !row.IsManual {
 			ids = append(ids, row.ID)
 		}
 	}
 	if len(ids) == 0 {
 		return nil
 	}
-	if err := tx.Where("is_manual = ? AND reference_provider_id = ? AND id IN ?", false, "", ids).Delete(&models.ModelPrice{}).Error; err != nil {
-		return fmt.Errorf("remove unreferenced automatic prices: %w", app_errors.ParseDBError(err))
+	// 同批移除来源与下游时先解除待删除记录之间的引用，兼容三库的 RESTRICT 语义。
+	if err := tx.Model(&models.ModelPrice{}).Where("id IN ?", ids).Update("source_price_id", nil).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	if err := tx.Where("id IN ?", ids).Delete(&models.ModelPrice{}).Error; err != nil {
+		return app_errors.ParseDBError(err)
 	}
 	return nil
 }

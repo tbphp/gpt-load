@@ -51,13 +51,8 @@ export interface ModelPrice extends PriceSchedule {
   channel: { id: string; name: string; icon: string; mark: string }
   mode_schedules: Record<string, PriceSchedule>
   status: 'pending' | 'configured'
-  method: 'auto_sync' | 'user_set' | 'user_marked_unpriced' | 'catalog_reference' | null
-  catalogReference: {
-    provider: string
-    model: string
-    name: string
-    available: boolean
-  } | null
+  method: 'auto_sync' | 'user_set' | 'user_marked_unpriced' | 'model_reference' | null
+  sourcePriceID: number | null
   provider: string | null
   canReset: boolean
   updatedAt: number
@@ -121,10 +116,13 @@ export interface ModelSourceDetail {
   groupCount: number
   modelCount: number
 }
+export const modelPricingMethods = ['all', 'automatic', 'manual', 'linked'] as const
+export type ModelPricingMethod = (typeof modelPricingMethods)[number]
 export interface ModelFilters {
   q: string
   groups: 'enabled' | 'all'
   pricing: 'all' | 'pending' | 'configured'
+  method: ModelPricingMethod
   page: number
   pageSize: number
 }
@@ -176,20 +174,10 @@ export function readModelPrice(value: unknown): ModelPrice {
             'auto_sync',
             'user_set',
             'user_marked_unpriced',
-            'catalog_reference',
+            'model_reference',
           ]) as ModelPrice['method']),
     provider: row.matched_provider_id === null ? null : text(row.matched_provider_id),
-    catalogReference: row.catalog_reference
-      ? (() => {
-          const reference = record(row.catalog_reference)
-          return {
-            provider: text(reference.provider_name),
-            model: text(reference.model_id),
-            name: text(reference.model_name),
-            available: boolean(reference.available),
-          }
-        })()
-      : null,
+    sourcePriceID: row.source_price_id == null ? null : integer(row.source_price_id, 1),
     canReset: boolean(row.can_reset),
     updatedAt: integer(row.updated_at_ms),
   }
@@ -334,6 +322,7 @@ export async function getModels(client: ApiClient, filters: ModelFilters, signal
   const params = new URLSearchParams({
     group_status: filters.groups,
     pricing_status: filters.pricing,
+    pricing_method: filters.method,
     page: String(filters.page),
     page_size: String(filters.pageSize),
   })
@@ -366,7 +355,14 @@ export async function getModelContext(
   for (let page = 1; ; page++) {
     const result = await getModels(
       client,
-      { q: Array.from(name).slice(0, 200).join(''), groups, pricing: 'all', page, pageSize: 100 },
+      {
+        q: Array.from(name).slice(0, 200).join(''),
+        groups,
+        pricing: 'all',
+        method: 'all',
+        page,
+        pageSize: 100,
+      },
       signal,
     )
     const model = result.items.find((item) => item.name === name)
@@ -403,50 +399,30 @@ export interface ModelPriceUpdate extends PriceSlots {
   >
   confirm_unpriced: boolean
 }
-export interface ModelPriceSource extends PriceSchedule {
-  key: string
-  kind: 'catalog' | 'local'
-  providerId: string
-  providerName: string
-  model: string
-  name: string
-  mode_schedules: Record<string, PriceSchedule>
+export const priceSourcesKey = [...modelsKey, 'price-sources'] as const
+export interface ModelPriceSource {
+  price: ModelPrice
+  groups: { id: number; name: string; enabled: boolean }[]
+  aliases: string[]
 }
-export async function getPriceSources(
-  client: ApiClient,
-  mode: 'copy' | 'link',
-  q: string,
-  signal: AbortSignal,
-) {
-  const params = new URLSearchParams({ mode, q })
-  const result = record(await client.request(`/api/model-prices/sources?${params}`, { signal }))
-  return {
-    hasMore: boolean(result.has_more),
-    items: list(result.items).map((value): ModelPriceSource => {
-      const row = record(value)
-      return {
-        ...schedule(row),
-        key: text(row.key),
-        kind: oneOf(row.kind, ['catalog', 'local']),
-        providerId: text(row.provider_id),
-        providerName: text(row.provider_name),
-        model: text(row.model_id),
-        name: text(row.name),
-        mode_schedules: Object.fromEntries(
-          Object.entries(record(row.mode_schedules)).map(([mode, value]) => [
-            mode,
-            schedule(value),
-          ]),
-        ),
-      }
-    }),
-  }
+export async function getPriceSources(client: ApiClient, signal: AbortSignal) {
+  const result = record(await client.request('/api/model-prices/sources', { signal }))
+  return list(result.items).map((value): ModelPriceSource => {
+    const row = record(value)
+    return {
+      price: readModelPrice(row.price),
+      groups: list(row.groups).map((value) => {
+        const group = record(value)
+        return { id: integer(group.id, 1), name: text(group.name), enabled: boolean(group.enabled) }
+      }),
+      aliases: list(row.aliases).map(text),
+    }
+  })
 }
 export async function batchModelPrices(
   client: ApiClient,
   request: { ids: number[] } & (
-    | { mode: 'copy'; price: ModelPriceUpdate }
-    | { mode: 'link'; reference: { provider_id: string; model_id: string } }
+    { mode: 'copy'; price: ModelPriceUpdate } | { mode: 'link'; reference: { price_id: number } }
   ),
   signal: AbortSignal,
 ) {
@@ -454,15 +430,6 @@ export async function batchModelPrices(
     await client.request('/api/model-prices/batch', { method: 'POST', json: request, signal }),
   )
   return list(result.items).map(readModelPrice)
-}
-export async function saveModelPrice(
-  client: ApiClient,
-  id: number,
-  patch: ModelPriceUpdate,
-  signal: AbortSignal,
-): Promise<ModelPrice> {
-  const path = `/api/model-prices/${id}` as const
-  return readModelPrice(await client.request(path, { method: 'PUT', json: patch, signal }))
 }
 export async function resetModelPrice(client: ApiClient, id: number, signal: AbortSignal) {
   const path = `/api/model-prices/${id}/reset` as const

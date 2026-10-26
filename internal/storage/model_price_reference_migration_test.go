@@ -24,12 +24,13 @@ func TestExternalModelPriceReferenceMigrationContract(t *testing.T) {
 }
 
 func testModelPriceReferenceMigration(t *testing.T, open func(*testing.T) *gorm.DB) {
-	for _, scenario := range []string{"fresh", "upgrade", "interrupted_column", "interrupted_complete"} {
+	for _, scenario := range []string{"fresh", "upgrade", "interrupted_column", "interrupted_index", "interrupted_complete"} {
 		t.Run(scenario, func(t *testing.T) {
 			if len(migrations) < 31 {
-				t.Fatal("model price directory reference migration is missing")
+				t.Fatal("model price reference migration is missing")
 			}
 			db := open(t)
+			var removed struct{ ID uint }
 			if db.Dialector.Name() == "sqlite" {
 				t.Parallel()
 			}
@@ -43,14 +44,35 @@ func testModelPriceReferenceMigration(t *testing.T, open func(*testing.T) *gorm.
 				}).Error; err != nil {
 					t.Fatal(err)
 				}
+				if err := db.Table("model_prices").Create(map[string]any{
+					"channel_id": "openai", "model_id": "removed-before-migration", "is_manual": true,
+					"created_at_ms": 1, "updated_at_ms": 1,
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Table("model_prices").Where("model_id = ?", "removed-before-migration").Take(&removed).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := db.Exec("DELETE FROM model_prices WHERE id = ?", removed.ID).Error; err != nil {
+					t.Fatal(err)
+				}
 			}
-			if scenario == "interrupted_column" || scenario == "interrupted_complete" {
+			if scenario == "interrupted_column" || scenario == "interrupted_index" || scenario == "interrupted_complete" {
 				entry := migrations[30]
 				up := entry.Up
 				entry.Up = func(tx *gorm.DB) error {
-					if scenario == "interrupted_column" {
-						if err := tx.Exec("ALTER TABLE model_prices ADD COLUMN reference_provider_id VARCHAR(246) NOT NULL DEFAULT ''").Error; err != nil {
+					if scenario == "interrupted_column" || scenario == "interrupted_index" {
+						columnType := "BIGINT"
+						if tx.Dialector.Name() == "mysql" {
+							columnType = "BIGINT UNSIGNED"
+						}
+						if err := tx.Exec("ALTER TABLE model_prices ADD COLUMN source_price_id " + columnType + " NULL").Error; err != nil {
 							return err
+						}
+						if scenario == "interrupted_index" {
+							if err := tx.Exec("CREATE INDEX idx_model_prices_source ON model_prices (source_price_id)").Error; err != nil {
+								return err
+							}
 						}
 					} else if err := up(tx); err != nil {
 						return err
@@ -67,22 +89,46 @@ func testModelPriceReferenceMigration(t *testing.T, open func(*testing.T) *gorm.
 					t.Fatal(err)
 				}
 			}
-			for _, name := range []string{"reference_provider_id", "reference_model_id"} {
-				if !db.Migrator().HasColumn("model_prices", name) {
-					t.Fatalf("model price reference column %s is missing", name)
+			if !db.Migrator().HasColumn("model_prices", "source_price_id") {
+				t.Fatal("model price reference column is missing")
+			}
+			for _, name := range []string{"idx_model_prices_channel_model", "idx_model_prices_source"} {
+				if !db.Migrator().HasIndex("model_prices", name) {
+					t.Fatalf("model price index %s was lost", name)
 				}
+			}
+			var parent struct{ ID uint }
+			if err := db.Table("model_prices").Create(map[string]any{"channel_id": "openai", "model_id": "reference-parent", "is_manual": true, "created_at_ms": 1, "updated_at_ms": 1}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Table("model_prices").Where("model_id = ?", "reference-parent").Take(&parent).Error; err != nil {
+				t.Fatal(err)
+			}
+			if parent.ID <= removed.ID {
+				t.Fatal("migration reused a deleted model price ID")
+			}
+			if err := db.Table("model_prices").Create(map[string]any{"channel_id": "openai", "model_id": "reference-parent", "is_manual": true, "created_at_ms": 1, "updated_at_ms": 1}).Error; err == nil {
+				t.Fatal("migration lost model price identity uniqueness")
+			}
+			if err := db.Table("model_prices").Create(map[string]any{"channel_id": "openai", "model_id": "reference-child", "source_price_id": parent.ID, "is_manual": false, "created_at_ms": 1, "updated_at_ms": 1}).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec("DELETE FROM model_prices WHERE id = ?", parent.ID).Error; err == nil {
+				t.Fatal("source deletion was not restricted")
+			}
+			if err := db.Table("model_prices").Create(map[string]any{"channel_id": "openai", "model_id": "missing-source", "source_price_id": parent.ID + 1000, "is_manual": false, "created_at_ms": 1, "updated_at_ms": 1}).Error; err == nil {
+				t.Fatal("missing source was accepted")
 			}
 			if scenario != "fresh" {
 				var row struct {
-					ReferenceProviderID               string
-					ReferenceModelID                  string
+					SourcePriceID                     *uint
 					IsManual                          bool
 					InputPriceNanoUSDPerMillionTokens int64
 				}
 				if err := db.Table("model_prices").Where("model_id = ?", "existing").Take(&row).Error; err != nil {
 					t.Fatal(err)
 				}
-				if row.ReferenceProviderID != "" || row.ReferenceModelID != "" || !row.IsManual || row.InputPriceNanoUSDPerMillionTokens != 123 {
+				if row.SourcePriceID != nil || !row.IsManual || row.InputPriceNanoUSDPerMillionTokens != 123 {
 					t.Fatalf("migration changed existing price: %#v", row)
 				}
 			}

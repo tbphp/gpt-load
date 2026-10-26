@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { useMobileLayout } from '@modern/app/use-mobile-layout'
 import { SlidersHorizontal } from '@lucide/vue'
-import { Boxes, Coins, ListOrdered, ListX, RefreshCw, Search } from '@lucide/vue'
+import { Boxes, ListOrdered, PencilLine, RefreshCw, Search } from '@lucide/vue'
 import { keepPreviousData, useIsFetching, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   getModels,
   modelContextKey,
+  modelPricingMethods,
   modelsKey,
   syncModelPrices,
   type ModelFilters,
   type RequestModel,
-  type ModelSource,
 } from '@modern/api/models'
 import { useApiClient } from '@shared/http/client-context'
 import { useAuthSession } from '@modern/features/auth/auth-session'
@@ -22,7 +22,6 @@ import { useURLState } from '@modern/app/url-state'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import {
   AppButton,
-  AppCheckbox,
   AppFilterSheet,
   AppIconButton,
   AppCollectionState,
@@ -41,7 +40,9 @@ import ModelPriceSetupDialog from './ModelPriceSetupDialog.vue'
 
 const { t } = useI18n()
 const isMobile = useMobileLayout()
-const mobileFilterCount = computed(() => (state.value.groups === 'all' ? 1 : 0))
+const mobileFilterCount = computed(
+  () => (state.value.groups === 'all' ? 1 : 0) + (state.value.method !== 'all' ? 1 : 0),
+)
 const mobileFilters = ref(false)
 function openCatalog(): void {
   mobileFilters.value = false
@@ -56,6 +57,7 @@ const filters = computed<ModelFilters>(() => ({
   q: state.value.q,
   groups: admin.value ? state.value.groups : 'enabled',
   pricing: admin.value ? state.value.pricing : 'all',
+  method: admin.value ? state.value.method : 'all',
   page: state.value.page,
   pageSize: state.value.pageSize,
 }))
@@ -70,35 +72,16 @@ const query = useQuery(
 const data = computed(() => query.data.value)
 const search = ref(state.value.q)
 const catalogOpen = ref(false)
-const checkedPrices = ref<number[]>([])
 const priceSetupOpen = ref(false)
-const priceSetupTargets = ref<ModelSource[]>([])
-const selectedSources = computed(() => [
-  ...new Map(
-    (data.value?.items.flatMap((model) => model.sources) ?? [])
-      .filter((source) => checkedPrices.value.includes(source.price.id))
-      .map((source) => [source.price.id, source]),
-  ).values(),
-])
-const pagePriceIDs = computed(() =>
-  [
-    ...new Set(
-      data.value?.items.flatMap((model) => model.sources.map((source) => source.price.id)) ?? [],
-    ),
-  ].slice(0, 100),
-)
-function togglePrice(id: number, checked: boolean): void {
-  if (checked && checkedPrices.value.length < 100)
-    checkedPrices.value = [...new Set([...checkedPrices.value, id])]
-  else if (!checked) checkedPrices.value = checkedPrices.value.filter((value) => value !== id)
-}
 function openPriceSetup(): void {
-  priceSetupTargets.value = [...selectedSources.value]
+  mobileFilters.value = false
   priceSetupOpen.value = true
+}
+function inspectPrice(model: string, source: number): void {
+  state.value = { ...state.value, model, source, groups: 'all' }
 }
 async function pricesSaved(): Promise<void> {
   priceSetupOpen.value = false
-  checkedPrices.value = []
   await changed()
 }
 const composing = ref(false)
@@ -114,6 +97,17 @@ const groupOptions = computed(() => [
   { value: 'enabled', label: t('modelManager.enabledGroups') },
   { value: 'all', label: t('modelManager.allGroups') },
 ])
+const pricingMethodOptions = computed(() =>
+  modelPricingMethods.map((value) => ({
+    value,
+    label: t(
+      value === 'all' ? 'modelManager.allPricingMethods' : 'modelManager.priceMethods.' + value,
+    ),
+  })),
+)
+function setPricingMethod(value: string): void {
+  change({ method: modelPricingMethods.find((method) => method === value) ?? 'all' })
+}
 const pricingOptions = computed(() => [
   { value: 'all', label: t('modelManager.allModels') },
   { value: 'pending', label: t('modelManager.pending') },
@@ -123,6 +117,15 @@ const summary = computed(() => [
   ...(state.value.q ? [{ key: 'q', label: t('modelManager.search'), value: state.value.q }] : []),
   ...(admin.value && state.value.groups !== 'enabled'
     ? [{ key: 'groups', label: t('modelManager.groupStatus'), value: t('modelManager.allGroups') }]
+    : []),
+  ...(admin.value && state.value.method !== 'all'
+    ? [
+        {
+          key: 'method',
+          label: t('modelManager.pricingMethod'),
+          value: t('modelManager.priceMethods.' + state.value.method),
+        },
+      ]
     : []),
   ...(admin.value && state.value.pricing !== 'all'
     ? [
@@ -166,11 +169,12 @@ function reset(key?: string): void {
     ...(key === undefined || key === 'q' ? { q: '' } : {}),
     ...(key === undefined || key === 'groups' ? { groups: 'enabled' } : {}),
     ...(key === undefined || key === 'pricing' ? { pricing: 'all' } : {}),
+    ...(key === undefined || key === 'method' ? { method: 'all' } : {}),
   })
 }
 function open(model: RequestModel, source = 0): void {
   if (query.isPlaceholderData.value) return
-  if (filters.value.pricing === 'all')
+  if (filters.value.pricing === 'all' && filters.value.method === 'all')
     cache.setQueryData(modelContextKey(model.name, filters.value.groups), model)
   state.value = { ...state.value, model: model.name, source }
 }
@@ -210,7 +214,6 @@ watch(
 watch(
   () => JSON.stringify(filters.value),
   () => {
-    checkedPrices.value = []
     frame.value?.scrollToTop()
   },
 )
@@ -222,8 +225,13 @@ watch([data, () => query.isPlaceholderData.value], ([result, placeholder]) => {
 watch(
   admin,
   (value) => {
-    if (!value && (state.value.groups !== 'enabled' || state.value.pricing !== 'all'))
-      state.value = { ...state.value, groups: 'enabled', pricing: 'all' }
+    if (
+      !value &&
+      (state.value.groups !== 'enabled' ||
+        state.value.pricing !== 'all' ||
+        state.value.method !== 'all')
+    )
+      state.value = { ...state.value, groups: 'enabled', pricing: 'all', method: 'all' }
   },
   { immediate: true },
 )
@@ -277,7 +285,7 @@ useMessageSource(() =>
         :mobile="isMobile"
         :title="t('ui.mobile.filters')"
         :active-count="mobileFilterCount"
-        @reset="change({ groups: 'enabled' })"
+        @reset="change({ groups: 'enabled', method: 'all' })"
       >
         <AppSelect
           v-if="admin"
@@ -288,11 +296,23 @@ useMessageSource(() =>
           class="modern-models-filter"
           @update:model-value="change({ groups: $event === 'all' ? 'all' : 'enabled' })"
         />
+        <AppSelect
+          v-if="admin"
+          :model-value="state.method"
+          :options="pricingMethodOptions"
+          :label="t('modelManager.pricingMethod')"
+          :label-hidden="!isMobile"
+          class="modern-models-filter"
+          @update:model-value="setPricingMethod"
+        />
         <AppButton v-if="admin" :icon="ListOrdered" @click="openCatalog">{{
           t('modelManager.clientCatalog.title')
         }}</AppButton>
         <AppButton v-if="admin" :icon="RefreshCw" :loading="syncing" @click="sync">{{
           t('modelManager.sync')
+        }}</AppButton>
+        <AppButton v-if="admin" :icon="PencilLine" @click="openPriceSetup">{{
+          t('modelManager.reuse.bulk')
         }}</AppButton>
       </AppFilterSheet>
     </form>
@@ -315,37 +335,6 @@ useMessageSource(() =>
       :label="t('pages.models.title')"
       :loading="Boolean(data) && query.isFetching.value"
     >
-      <template v-if="admin && pagePriceIDs.length" #header>
-        <div class="modern-models-price-selection">
-          <div class="modern-models-selected-actions">
-            <AppCheckbox
-              :label="t('modelManager.reuse.selectPage', { count: pagePriceIDs.length })"
-              :model-value="pagePriceIDs.every((id) => checkedPrices.includes(id))"
-              :indeterminate="
-                checkedPrices.length > 0 && !pagePriceIDs.every((id) => checkedPrices.includes(id))
-              "
-              :disabled="query.isPlaceholderData.value"
-              @update:model-value="checkedPrices = $event ? [...pagePriceIDs] : []"
-            />
-            <template v-if="checkedPrices.length">
-              <span>{{ t('modelManager.reuse.selected', { count: checkedPrices.length }) }}</span>
-              <AppIconButton
-                :icon="Coins"
-                :label="t('modelManager.reuse.title')"
-                size="sm"
-                :disabled="!selectedSources.length || query.isPlaceholderData.value"
-                @click="openPriceSetup"
-              />
-              <AppIconButton
-                :icon="ListX"
-                :label="t('modelManager.reuse.clear')"
-                size="sm"
-                @click="checkedPrices = []"
-              />
-            </template>
-          </div>
-        </div>
-      </template>
       <AppCollectionState
         v-if="!data && query.isPending.value"
         :title="t('modelManager.loading')"
@@ -379,8 +368,6 @@ useMessageSource(() =>
           :admin="admin"
           :selected="model.name === state.model"
           :disabled="query.isPlaceholderData.value"
-          :checked="checkedPrices"
-          @toggle="togglePrice"
           @open="open(model, $event)"
         />
       </div>
@@ -403,14 +390,14 @@ useMessageSource(() =>
       :source="state.source"
       :groups="filters.groups"
       :admin="admin"
+      @inspect="inspectPrice"
       @close="state = { ...state, model: '', source: 0 }"
       @select="state = { ...state, source: $event }"
       @changed="changed"
     />
     <ClientModelCatalogDialog v-if="admin && catalogOpen" @close="catalogOpen = false" />
     <ModelPriceSetupDialog
-      v-if="admin && priceSetupOpen && priceSetupTargets.length"
-      :sources="priceSetupTargets"
+      v-if="admin && priceSetupOpen"
       @close="priceSetupOpen = false"
       @saved="pricesSaved"
     />
@@ -418,27 +405,8 @@ useMessageSource(() =>
 </template>
 
 <style scoped>
-.modern-models-price-selection {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--modern-space-2);
-  min-height: var(--modern-control-nav);
-  padding: 0 var(--modern-space-1) var(--modern-space-2);
-  color: var(--modern-muted);
-  font-size: var(--modern-font-size-small);
-}
-.modern-models-selected-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--modern-space-2);
-}
-.modern-models-selected-actions > :first-child {
-  margin-right: var(--modern-space-1);
-}
 .modern-models-workspace {
+  --modern-list-header-background: var(--modern-canvas);
   container: modern-models-workspace / inline-size;
   display: flex;
   flex: 1;

@@ -238,37 +238,3 @@ export function modelPriceDraftIsAllNull(draft: ModelPriceDraft): boolean {
     Object.keys(draft.modeSchedules).length === 0
   )
 }
-
-function scheduleDraftChanged(
-  original: ModelPriceScheduleDto,
-  draft: ModelPriceScheduleDraft,
-): boolean {
-  if (
-    modelPriceFields.some((field) => draft.base[field] !== (original.prices[field] ?? '')) ||
-    draft.tiers.length !== original.context_tiers.length
-  ) {
-    return true
-  }
-  return draft.tiers.some((tier, index) => {
-    const originalTier = original.context_tiers[index]
-    if (!originalTier) return true
-    return (
-      tier.threshold !== String(originalTier.threshold_tokens) ||
-      modelPriceFields.some((field) => tier.slots[field] !== (originalTier.prices[field] ?? ''))
-    )
-  })
-}
-
-export function modelPriceDraftChanged(row: ModelPriceDto, draft: ModelPriceDraft): boolean {
-  if (scheduleDraftChanged({ prices: row.prices, context_tiers: row.context_tiers }, draft)) {
-    return true
-  }
-  const originalModes = Object.keys(row.mode_schedules).sort()
-  const draftModes = Object.keys(draft.modeSchedules).sort()
-  if (originalModes.join('\0') !== draftModes.join('\0')) return true
-  return originalModes.some((mode) => {
-    const original = row.mode_schedules[mode]
-    const schedule = draft.modeSchedules[mode]
-    return !original || !schedule || scheduleDraftChanged(original, schedule)
-  })
-}

@@ -7,7 +7,7 @@ export function modelGroupCount(model: RequestModel): number {
 export function priceStatus(
   price: ModelPrice,
 ): 'pending' | 'manual' | 'automatic' | 'unpriced' | 'linked' {
-  if (price.method === 'catalog_reference') return 'linked'
+  if (price.method === 'model_reference') return 'linked'
   if (price.method === 'user_marked_unpriced') return 'unpriced'
   if (price.status === 'pending') return 'pending'
   return price.method === 'auto_sync' ? 'automatic' : 'manual'

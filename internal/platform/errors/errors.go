@@ -51,6 +51,8 @@ var (
 	ErrModelPriceUnpricedConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_UNPRICED_CONFIRMATION_REQUIRED", Message: "Marking a model price as unpriced requires explicit confirmation"}
 	ErrModelPriceReferenced                   = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_REFERENCED", Message: "Model price is referenced by Groups"}
 	ErrModelPriceAutomaticDeleteForbidden     = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN", Message: "Automatic model prices cannot be deleted manually"}
+	ErrModelPriceReferenceCycle               = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_REFERENCE_CYCLE", Message: "Model price references must not form a cycle"}
+	ErrModelPriceSourceReferenced             = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_SOURCE_REFERENCED", Message: "A model still follows this price source"}
 	ErrModelPriceSourceUnavailable            = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_PRICE_SOURCE_UNAVAILABLE", Message: "The reference price source is no longer available; select another source"}
 	ErrOAuthFileInvalid                       = &APIError{HTTPStatus: http.StatusBadRequest, Code: "OAUTH_FILE_INVALID", Message: "OAuth credential file is invalid"}
 	ErrOAuthFileTooLarge                      = &APIError{HTTPStatus: http.StatusRequestEntityTooLarge, Code: "OAUTH_FILE_TOO_LARGE", Message: "OAuth credential file is too large"}

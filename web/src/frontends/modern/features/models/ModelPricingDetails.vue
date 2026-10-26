@@ -29,7 +29,7 @@ const rows = computed(() => {
     },
     ...schedule.context_tiers.map((item) => ({
       key: `${schedule.mode}-${item.threshold_tokens}`,
-      label: '> ' + formatCompactNumber(item.threshold_tokens, locale.value),
+      label: '≥ ' + formatCompactNumber(item.threshold_tokens, locale.value),
       prices: item.prices,
       tier: true,
     })),

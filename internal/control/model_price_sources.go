@@ -2,56 +2,41 @@ package control
 
 import (
 	"context"
-	"fmt"
-	"net/url"
+	"slices"
 	"sort"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"gpt-load/internal/catalog"
-	"gpt-load/internal/channel"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
+type ModelPriceSourceGroupDTO struct {
+	ID      uint   `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
 type ModelPriceSourceDTO struct {
-	Key           string                                 `json:"key"`
-	Kind          string                                 `json:"kind"`
-	ProviderID    string                                 `json:"provider_id"`
-	ProviderName  string                                 `json:"provider_name"`
-	ModelID       string                                 `json:"model_id"`
-	Name          string                                 `json:"name"`
-	Prices        PriceSlotsDTO                          `json:"prices"`
-	ContextTiers  []ModelPriceContextTierDTO             `json:"context_tiers"`
-	ModeSchedules map[pricing.Mode]ModelPriceScheduleDTO `json:"mode_schedules"`
+	Price   ModelPriceDTO              `json:"price"`
+	Groups  []ModelPriceSourceGroupDTO `json:"groups"`
+	Aliases []string                   `json:"aliases"`
 }
 
 type ModelPriceSourcesResponse struct {
-	Items   []ModelPriceSourceDTO `json:"items"`
-	HasMore bool                  `json:"has_more"`
+	Items []ModelPriceSourceDTO `json:"items"`
 }
 
 func (s *Server) handleModelPriceSources(c *gin.Context) {
-	query, err := url.ParseQuery(c.Request.URL.RawQuery)
-	if err != nil {
+	if c.Request.URL.RawQuery != "" {
 		writeServiceError(c, "model_price_sources", app_errors.ErrBadRequest)
 		return
 	}
-	for key, values := range query {
-		if (key != "mode" && key != "q") || len(values) != 1 {
-			writeServiceError(c, "model_price_sources", app_errors.ErrBadRequest)
-			return
-		}
-	}
-	mode := query.Get("mode")
-	if mode == "" {
-		mode = "copy"
-	}
-	result, err := s.service.ModelPriceSources(c.Request.Context(), mode, strings.TrimSpace(query.Get("q")))
+	result, err := s.service.ModelPriceSources(c.Request.Context())
 	if err != nil {
 		writeServiceError(c, "model_price_sources", err)
 		return
@@ -59,11 +44,9 @@ func (s *Server) handleModelPriceSources(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Service) ModelPriceSources(ctx context.Context, mode, search string) (ModelPriceSourcesResponse, error) {
+// ModelPriceSources 一次返回分组中使用的价格，供目标选择、参考预览与本地搜索共用。
+func (s *Service) ModelPriceSources(ctx context.Context) (ModelPriceSourcesResponse, error) {
 	result := ModelPriceSourcesResponse{Items: []ModelPriceSourceDTO{}}
-	if (mode != "copy" && mode != "link") || !utf8.ValidString(search) || utf8.RuneCountInString(search) > maxModelPriceSearchRunes {
-		return result, app_errors.ErrValidation
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -73,90 +56,61 @@ func (s *Service) ModelPriceSources(ctx context.Context, mode, search string) (M
 	if s.catalogRuntime != nil {
 		snapshot = s.catalogRuntime.Load()
 	}
-	search = strings.ToLower(search)
-	matches := func(values ...string) bool {
-		return search == "" || strings.Contains(strings.ToLower(strings.Join(values, " ")), search)
-	}
-	if snapshot != nil {
-		for providerID, provider := range snapshot.Providers {
-			if err := ctx.Err(); err != nil {
-				return result, err
-			}
-			for modelID, model := range provider.Models {
-				if !matches(providerID, provider.Name, modelID, model.Name) {
-					continue
-				}
-				if _, available := lookupCatalogPrice(snapshot, providerID, modelID); !available {
-					continue
-				}
-				modes := make(map[pricing.Mode]ModelPriceScheduleDTO, len(model.Cost.ModePrices))
-				for mode, prices := range model.Cost.ModePrices {
-					modes[mode] = ModelPriceScheduleDTO{Prices: projectPriceSlots(prices), ContextTiers: []ModelPriceContextTierDTO{}}
-				}
-				result.Items = append(result.Items, ModelPriceSourceDTO{
-					Key: "catalog:" + providerID + ":" + modelID, Kind: "catalog", ProviderID: providerID,
-					ProviderName: pricingSourceName(snapshot, providerID, providerID), ModelID: modelID, Name: model.Name,
-					Prices: projectPriceSlots(model.Cost.Prices), ContextTiers: projectContextPriceTiers(model.Cost.ContextTiers), ModeSchedules: modes,
-				})
-			}
+	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
+		var groups []models.Group
+		if err := tx.Order("id ASC").Find(&groups).Error; err != nil {
+			return app_errors.ParseDBError(err)
 		}
-	}
-	if mode == "copy" {
+		references, err := buildPriceReferenceSnapshot(groups)
+		if err != nil {
+			return err
+		}
 		var rows []models.ModelPrice
-		if err := s.db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
-			return result, app_errors.ParseDBError(err)
+		if err := tx.Order("channel_id ASC, model_id ASC").Find(&rows).Error; err != nil {
+			return app_errors.ParseDBError(err)
 		}
+		byIdentity := make(map[pricing.Identity]int, len(rows))
 		for _, row := range rows {
-			if !modelPriceHasConfiguredValue(row) {
+			identity := pricing.Identity{ChannelID: row.ChannelID, ModelID: row.ModelID}
+			if references.references[identity].referenceCount == 0 {
 				continue
 			}
-			identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
+			record, err := projectModelPriceRow(row, references, snapshot)
 			if err != nil {
-				return result, app_errors.ErrInternalServer
+				return err
 			}
-			descriptor, _ := modelPriceChannelRegistry.Get(channel.ID(identity.ChannelID))
-			if !matches(row.ChannelID, descriptor.Name, row.ModelID) {
-				continue
+			byIdentity[identity] = len(result.Items)
+			result.Items = append(result.Items, ModelPriceSourceDTO{Price: record.dto, Groups: []ModelPriceSourceGroupDTO{}, Aliases: []string{}})
+		}
+		for _, group := range groups {
+			var entries []GroupModel
+			if err := decodeGroupDiscoveryJSON(group.Models, &entries); err != nil {
+				return err
 			}
-			rule, err := persistedPriceRule(row)
-			if err != nil {
-				return result, app_errors.ErrInternalServer
+			seen := make(map[int]bool)
+			for _, entry := range entries {
+				index, exists := byIdentity[pricing.Identity{ChannelID: group.ChannelID, ModelID: entry.ID}]
+				if !exists {
+					continue
+				}
+				item := &result.Items[index]
+				if !seen[index] {
+					item.Groups = append(item.Groups, ModelPriceSourceGroupDTO{ID: group.ID, Name: group.Name, Enabled: group.Enabled})
+					seen[index] = true
+				}
+				if entry.Alias != "" {
+					item.Aliases = append(item.Aliases, entry.Alias)
+				}
 			}
-			result.Items = append(result.Items, ModelPriceSourceDTO{
-				Key: fmt.Sprintf("local:%d", row.ID), Kind: "local", ProviderID: row.ChannelID, ProviderName: descriptor.Name,
-				ModelID: row.ModelID, Name: row.ModelID, Prices: projectPriceSlots(rule.Prices),
-				ContextTiers: projectContextPriceTiers(rule.ContextTiers), ModeSchedules: projectModeSchedules(rule.ModeSchedules),
-			})
 		}
-	}
-	providerRanks := make(map[string]int)
-	for rank, providerID := range catalog.AutomaticPriceProviderPriority() {
-		providerRanks[providerID] = rank
-	}
-	sourceRank := func(source ModelPriceSourceDTO) int {
-		if source.Kind == "local" {
-			return len(providerRanks)
-		}
-		if rank, exists := providerRanks[source.ProviderID]; exists {
-			return rank
-		}
-		return len(providerRanks) + 1
-	}
-	sort.Slice(result.Items, func(i, j int) bool {
-		left, right := result.Items[i], result.Items[j]
-		leftExact, rightExact := strings.EqualFold(left.ModelID, search), strings.EqualFold(right.ModelID, search)
-		if leftExact != rightExact {
-			return leftExact
-		}
-		if leftRank, rightRank := sourceRank(left), sourceRank(right); leftRank != rightRank {
-			return leftRank < rightRank
-		}
-		return left.Key < right.Key
+		return nil
 	})
-	const limit = 50
-	if len(result.Items) > limit {
-		result.HasMore = true
-		result.Items = result.Items[:limit]
+	if err != nil {
+		return ModelPriceSourcesResponse{}, err
+	}
+	for index := range result.Items {
+		sort.Strings(result.Items[index].Aliases)
+		result.Items[index].Aliases = slices.Compact(result.Items[index].Aliases)
 	}
 	return result, nil
 }

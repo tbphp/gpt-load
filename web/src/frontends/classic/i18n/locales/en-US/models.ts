@@ -37,6 +37,13 @@ export default {
       searchPlaceholder: 'Client model, upstream model, or Group',
       clearSearch: 'Clear search',
       groupStatusLabel: 'Group status',
+      pricingMethodLabel: 'Pricing method',
+      pricingMethod: {
+        all: 'All pricing methods',
+        automatic: 'Automatic matching',
+        manual: 'Manual configuration',
+        linked: 'Follow model',
+      },
       pricingStatusLabel: 'Pricing status',
       reset: 'Reset filters',
       groupStatus: {

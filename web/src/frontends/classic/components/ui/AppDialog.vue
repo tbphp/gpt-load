@@ -13,6 +13,7 @@ import {
 
 const props = withDefaults(
   defineProps<{
+    size?: 'default' | 'wide'
     open: boolean
     title: string
     description?: string
@@ -24,6 +25,7 @@ const props = withDefaults(
     descriptionTone?: 'default' | 'warning'
   }>(),
   {
+    size: 'default',
     description: '',
     dismissible: true,
     appearance: 'default',
@@ -54,7 +56,11 @@ function guardDismiss(event: Event): void {
       <DialogContent
         v-bind="description ? {} : { 'aria-describedby': undefined }"
         class="app-dialog__content"
-        :class="[`app-dialog__content--${appearance}`, `app-dialog__content--${tone}`]"
+        :class="[
+          `app-dialog__content--${appearance}`,
+          `app-dialog__content--${size}`,
+          `app-dialog__content--${tone}`,
+        ]"
         @close-auto-focus="preventCloseAutoFocus && $event.preventDefault()"
         @open-auto-focus="emit('open-auto-focus', $event)"
         @escape-key-down="guardDismiss"
@@ -107,6 +113,15 @@ function guardDismiss(event: Event): void {
   box-shadow: var(--shadow-overlay);
   color: var(--color-text);
   padding: 0;
+}
+.app-dialog__content--wide {
+  width: min(calc(100vw - 32px), 1100px);
+  height: min(760px, calc(100dvh - 32px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.app-dialog__content--wide .app-dialog__body {
+  padding: 0;
+  overflow: hidden;
 }
 .app-dialog__header {
   display: flex;
@@ -208,5 +223,18 @@ function guardDismiss(event: Event): void {
   min-height: 0;
   border-top: 0;
   padding: var(--space-5) 0 0;
+}
+@media (max-width: 680px) {
+  .app-dialog__content--wide {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    transform: none;
+    border: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 </style>

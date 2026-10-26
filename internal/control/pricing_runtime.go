@@ -44,6 +44,14 @@ func loadPriceTable(
 	if err := tx.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("load persisted model prices: %w", app_errors.ParseDBError(err))
 	}
+	if err := resolveModelPriceReferences(append([]models.ModelPrice(nil), rows...)); err != nil {
+		return nil, err
+	}
+	return compilePriceTable(rows)
+}
+
+// 调用方先校验或展开关联，再用同一批行构建不可变价格表。
+func compilePriceTable(rows []models.ModelPrice) (*pricing.Table, error) {
 	rules := make([]pricing.Rule, 0, len(rows))
 	for _, row := range rows {
 		rule, err := persistedPriceRule(row)
@@ -62,9 +70,8 @@ func loadPriceTable(
 func persistedPriceRule(
 	row models.ModelPrice,
 ) (pricing.Rule, error) {
-	if (row.ReferenceProviderID == "") != (row.ReferenceModelID == "") ||
-		(row.ReferenceProviderID != "" && row.IsManual) {
-		return pricing.Rule{}, fmt.Errorf("invalid model price directory reference")
+	if row.SourcePriceID != nil && (*row.SourcePriceID == 0 || *row.SourcePriceID == row.ID || row.IsManual) {
+		return pricing.Rule{}, fmt.Errorf("invalid model price reference")
 	}
 	identity, err := PriceIdentityForChannelModel(row.ChannelID, row.ModelID)
 	if err != nil {

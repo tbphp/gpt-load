@@ -29,7 +29,8 @@ let nextTier = 0
 export function newPriceTier(): PriceDraftTier {
   return { key: String(++nextTier), threshold: '', prices: draftSlots() }
 }
-export function priceDraft(price: ModelPrice): PriceDraftSchedule[] {
+export function priceDraft(price?: ModelPrice): PriceDraftSchedule[] {
+  if (!price) return [{ mode: 'standard', prices: draftSlots(), tiers: [] }]
   const read = (mode: string, schedule: PriceSchedule): PriceDraftSchedule => ({
     mode,
     prices: draftSlots(schedule.prices),

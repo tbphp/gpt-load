@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { Plus, X } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -17,20 +16,22 @@ import {
   type ModelPriceScheduleDraft,
 } from './model-price-form'
 
-const props = defineProps<{
-  modelId: string
-  errors: ModelPriceScheduleErrors
-  pending: boolean
-  failure: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    tiersOnly?: boolean
+    errors: ModelPriceScheduleErrors
+    pending: boolean
+    failure: string
+  }>(),
+  { tiersOnly: false },
+)
 const emit = defineEmits<{
   'add-tier': []
   'remove-tier': [key: string]
-  'confirm-unpriced': []
 }>()
 const draft = defineModel<ModelPriceScheduleDraft>('draft', { required: true })
-const unpricedConfirmOpen = defineModel<boolean>('unpricedConfirmOpen', { required: true })
 const { locale, t } = useI18n()
+const instanceId = useId()
 
 const tiered = computed(() => draft.value.tiers.length > 0)
 
@@ -104,7 +105,11 @@ const tierRules = computed<TierRule[]>(() => {
   <div class="model-price-matrix">
     <InlineFeedback v-if="failure" appearance="ledger" tone="danger">{{ failure }}</InlineFeedback>
 
-    <div class="model-price-matrix__grid" :class="{ 'model-price-matrix__grid--tiered': tiered }">
+    <div
+      v-if="!tiersOnly || tiered"
+      class="model-price-matrix__grid"
+      :class="{ 'model-price-matrix__grid--tiered': tiered }"
+    >
       <!-- 纯视觉列标签；每个输入的可访问名称由 AppTextInput 自带的 sr-only label 承担。 -->
       <div class="model-price-matrix__row model-price-matrix__row--header" aria-hidden="true">
         <span v-if="tiered">{{ t('modelPrices.matrix.thresholdColumn') }}</span>
@@ -116,10 +121,10 @@ const tierRules = computed<TierRule[]>(() => {
         <span v-if="tiered"></span>
       </div>
 
-      <div class="model-price-matrix__row">
+      <div v-if="!tiersOnly" class="model-price-matrix__row">
         <div v-if="tiered" class="model-price-group model-price-group--threshold">
           <AppTextInput
-            id="model-price-default"
+            :id="`${instanceId}-default`"
             :model-value="t('modelPrices.matrix.baseRow')"
             :label="t('modelPrices.matrix.baseRow')"
             appearance="surface"
@@ -129,19 +134,22 @@ const tierRules = computed<TierRule[]>(() => {
         </div>
         <!-- 一横排为一个输入框组：共享外框，内部竖线分隔，无间隙。 -->
         <div class="model-price-group" role="group" :aria-label="t('modelPrices.matrix.baseRow')">
-          <AppTextInput
-            v-for="field in modelPriceFields"
-            :id="`model-price-base-${field}`"
-            :key="field"
-            v-model="draft.base[field]"
-            :label="t(`modelPrices.fields.${field}`)"
-            appearance="surface"
-            size="compact"
-            monospace
-            inputmode="decimal"
-            :disabled="pending"
-            :invalid="Boolean(baseFieldError(field))"
-          />
+          <div v-for="field in modelPriceFields" :key="field" class="model-price-cell">
+            <span class="model-price-mobile-label" aria-hidden="true">{{
+              t(`modelPrices.fields.${field}`)
+            }}</span>
+            <AppTextInput
+              :id="`${instanceId}-base-${field}`"
+              v-model="draft.base[field]"
+              :label="t(`modelPrices.fields.${field}`)"
+              appearance="surface"
+              size="compact"
+              monospace
+              inputmode="decimal"
+              :disabled="pending"
+              :invalid="Boolean(baseFieldError(field))"
+            />
+          </div>
         </div>
         <!-- 增删都落在同一列：无档位时基础行就是最后一行，由它承载加号。 -->
         <div class="model-price-matrix__actions">
@@ -158,15 +166,18 @@ const tierRules = computed<TierRule[]>(() => {
           </IconButton>
         </div>
       </div>
-      <p v-if="baseErrors.length > 0" class="model-price-matrix__error" role="alert">
+      <p v-if="!tiersOnly && baseErrors.length > 0" class="model-price-matrix__error" role="alert">
         {{ baseErrors.join(' · ') }}
       </p>
 
       <template v-for="(tier, index) in draft.tiers" :key="tier.key">
         <div class="model-price-matrix__row">
           <div class="model-price-group model-price-group--threshold">
+            <span class="model-price-mobile-label" aria-hidden="true">{{
+              t('modelPrices.matrix.thresholdColumn')
+            }}</span>
             <AppTextInput
-              :id="`model-price-tier-${tier.key}-threshold`"
+              :id="`${instanceId}-tier-${tier.key}-threshold`"
               v-model="tier.threshold"
               :label="t('modelPrices.matrix.thresholdColumn')"
               appearance="surface"
@@ -183,19 +194,22 @@ const tierRules = computed<TierRule[]>(() => {
             role="group"
             :aria-label="tier.threshold.trim() || t('modelPrices.matrix.thresholdColumn')"
           >
-            <AppTextInput
-              v-for="field in modelPriceFields"
-              :id="`model-price-tier-${tier.key}-${field}`"
-              :key="field"
-              v-model="tier.slots[field]"
-              :label="t(`modelPrices.fields.${field}`)"
-              appearance="surface"
-              size="compact"
-              monospace
-              inputmode="decimal"
-              :disabled="pending"
-              :invalid="Boolean(tierSlotError(tier.key, field))"
-            />
+            <div v-for="field in modelPriceFields" :key="field" class="model-price-cell">
+              <span class="model-price-mobile-label" aria-hidden="true">{{
+                t(`modelPrices.fields.${field}`)
+              }}</span>
+              <AppTextInput
+                :id="`${instanceId}-tier-${tier.key}-${field}`"
+                v-model="tier.slots[field]"
+                :label="t(`modelPrices.fields.${field}`)"
+                appearance="surface"
+                size="compact"
+                monospace
+                inputmode="decimal"
+                :disabled="pending"
+                :invalid="Boolean(tierSlotError(tier.key, field))"
+              />
+            </div>
           </div>
           <div class="model-price-matrix__actions">
             <IconButton
@@ -209,7 +223,7 @@ const tierRules = computed<TierRule[]>(() => {
               <X :size="14" aria-hidden="true" />
             </IconButton>
             <IconButton
-              v-if="index === draft.tiers.length - 1"
+              v-if="!tiersOnly && index === draft.tiers.length - 1"
               class="model-price-matrix__add"
               variant="ghost"
               size="xs"
@@ -228,30 +242,14 @@ const tierRules = computed<TierRule[]>(() => {
     </div>
 
     <div class="model-price-matrix__rules">
-      <p class="model-price-matrix__cache-rule">{{ t('modelPrices.matrix.oneHourRule') }}</p>
+      <p v-if="!tiersOnly" class="model-price-matrix__cache-rule">
+        {{ t('modelPrices.matrix.oneHourRule') }}
+      </p>
       <ul v-if="tierRules.length > 0" class="model-price-matrix__tier-rules">
         <li v-for="rule in tierRules" :key="rule.key">{{ rule.description }}</li>
       </ul>
     </div>
   </div>
-
-  <AppConfirmDialog
-    appearance="ledger"
-    tone="danger"
-    :open="unpricedConfirmOpen"
-    :title="t('modelPrices.matrix.unpricedConfirm.title')"
-    :description="t('modelPrices.matrix.unpricedConfirm.description', { model: modelId })"
-    :close-label="t('modelPrices.matrix.unpricedConfirm.close')"
-    :cancel-label="t('common.cancel')"
-    :confirm-label="t('modelPrices.matrix.unpricedConfirm.confirm')"
-    :pending="pending"
-    @update:open="unpricedConfirmOpen = $event"
-    @confirm="emit('confirm-unpriced')"
-  >
-    <InlineFeedback appearance="ledger" tone="warning">
-      {{ t('modelPrices.matrix.unpricedConfirm.warning') }}
-    </InlineFeedback>
-  </AppConfirmDialog>
 </template>
 
 <style scoped>
@@ -325,18 +323,25 @@ const tierRules = computed<TierRule[]>(() => {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* 组内单元格去掉自身边框，仅保留竖线分隔，形成一体化输入框组。 */
+/* 窄屏显示逐项标签，避免四种单价失去上下文。 */
+.model-price-mobile-label {
+  display: none;
+}
+.model-price-cell {
+  min-width: 0;
+  border-left: 1px solid var(--color-border-subtle);
+}
+.model-price-cell:first-child {
+  border-left: 0;
+}
+
+/* 单元格承载分隔线，输入控件不重复画边框。 */
 .model-price-group :deep(.app-text-input) {
   border: 0;
-  border-left: 1px solid var(--color-border-subtle);
   border-radius: 0;
   background: none;
   /* 抽屉只有 480px，四格并排时收紧内边距换取数字可见宽度。 */
   padding-left: var(--space-2);
-}
-
-.model-price-group :deep(.app-text-input:first-child) {
-  border-left: 0;
 }
 
 /* 组合控件统一由外框表达焦点，子输入仅保留单元格分隔线。 */
@@ -406,6 +411,20 @@ const tierRules = computed<TierRule[]>(() => {
 
   .model-price-group {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .model-price-mobile-label {
+    display: block;
+    padding: var(--space-2) var(--space-2) 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-label-xs);
+  }
+
+  .model-price-cell:nth-child(odd) {
+    border-left: 0;
+  }
+  .model-price-cell:nth-child(n + 3) {
+    border-top: 1px solid var(--color-border-subtle);
   }
 
   .model-price-group--threshold {
