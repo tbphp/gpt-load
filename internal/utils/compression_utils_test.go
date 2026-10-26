@@ -56,6 +56,27 @@ func zstdBytes(t *testing.T, data []byte) []byte {
 	return buf.Bytes()
 }
 
+// zstdStreamingBytes encodes like a streaming writer: flush before close, which
+// makes the frame declare the encoder's full window regardless of payload size.
+func zstdStreamingBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := zstd.NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("zstd writer: %v", err)
+	}
+	if _, err := w.Write(data); err != nil {
+		t.Fatalf("zstd write: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("zstd flush: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("zstd close: %v", err)
+	}
+	return buf.Bytes()
+}
+
 func zlibBytes(t *testing.T, data []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -178,6 +199,22 @@ func TestDecompressResponseErrors(t *testing.T) {
 
 	if got, err := DecompressResponse("gzip", nil); err != nil || len(got) != 0 {
 		t.Fatalf("DecompressResponse with empty body = (%q, %v), want (empty, nil)", got, err)
+	}
+}
+
+// TestDecompressResponseZstdStreamingWindow covers encoders that write, flush and
+// close: such frames declare the full 8 MiB streaming window even for a payload of
+// a few dozen bytes, which must not be mistaken for an oversized body.
+func TestDecompressResponseZstdStreamingWindow(t *testing.T) {
+	payload := []byte(samplePayload)
+	encoded := zstdStreamingBytes(t, payload)
+
+	got, err := DecompressResponseLimited("zstd", encoded, int64(len(payload)))
+	if err != nil {
+		t.Fatalf("streaming zstd window rejected: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("decoded body = %q, want %q", got, payload)
 	}
 }
 

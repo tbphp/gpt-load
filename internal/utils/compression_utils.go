@@ -193,8 +193,9 @@ func (z *ZstdDecompressor) Decompress(data []byte, limit int64) ([]byte, error) 
 	var options []zstd.DOption
 	if limit > 0 {
 		// A frame may declare a window far larger than its payload, and the decoder
-		// reserves it before reading any output, so the window has to be capped.
-		options = append(options, zstd.WithDecoderMaxWindow(1<<20))
+		// reserves it before reading any output. 8 MiB is the window that streaming
+		// encoders declare, so the cap must not be tied to the decoded size limit.
+		options = append(options, zstd.WithDecoderMaxWindow(8<<20))
 	}
 
 	reader, err := zstd.NewReader(bytes.NewReader(data), options...)

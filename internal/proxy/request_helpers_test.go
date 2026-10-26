@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	app_errors "gpt-load/internal/errors"
+
 	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 )
 
 func newResponseWithEncoding(encoding string) *http.Response {
@@ -27,6 +30,27 @@ func brotliBytes(t *testing.T, data []byte) []byte {
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("brotli close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// zstdStreamingBytes encodes like a streaming writer: flush before close, which
+// makes the frame declare the encoder's full 8 MiB window.
+func zstdStreamingBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := zstd.NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("zstd writer: %v", err)
+	}
+	if _, err := w.Write(data); err != nil {
+		t.Fatalf("zstd write: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("zstd flush: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("zstd close: %v", err)
 	}
 	return buf.Bytes()
 }
@@ -67,6 +91,21 @@ func TestDecodeUpstreamErrorBody(t *testing.T) {
 				t.Fatalf("decodeUpstreamErrorBody(%q) = %q, want %q", tc.encoding, got, payload)
 			}
 		})
+	}
+}
+
+// TestDecodeUpstreamErrorBodyZstdStreaming covers a streamed zstd error body: the
+// frame declares its full 8 MiB window even for a few bytes, and losing the text
+// would make an otherwise uncounted failure count against the key.
+func TestDecodeUpstreamErrorBodyZstdStreaming(t *testing.T) {
+	payload := []byte(`{"error":"resource has been exhausted"}`)
+
+	got := decodeUpstreamErrorBody(newResponseWithEncoding("zstd"), zstdStreamingBytes(t, payload))
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("decodeUpstreamErrorBody = %q, want %q", got, payload)
+	}
+	if !app_errors.IsUnCounted(string(got)) {
+		t.Fatalf("decoded body %q is not recognised as an uncounted error", got)
 	}
 }
 
