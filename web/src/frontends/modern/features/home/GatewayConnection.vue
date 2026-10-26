@@ -156,7 +156,7 @@ const blocks = computed(() =>
 async function loadModels(q: string, signal: AbortSignal) {
   const result = await getModels(
     client,
-    { q, groups: 'enabled', pricing: 'all', page: 1, pageSize: 100 },
+    { q, groups: 'enabled', pricing: 'all', method: 'all', page: 1, pageSize: 100 },
     signal,
   )
   return result.items.map((row) => ({ value: row.name, label: row.name }))

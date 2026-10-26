@@ -19,7 +19,9 @@ const props = defineProps<{
   items: ClientModelDto[]
   readOnly?: boolean
 }>()
-const emit = defineEmits<{ open: [upstream: ModelUpstreamDto] }>()
+const emit = defineEmits<{
+  open: [upstream: ModelUpstreamDto]
+}>()
 
 // 一行里的分组必定同渠道，两枚足够点出归属，其余在抽屉里看。
 const visibleRouteGroupCount = 2

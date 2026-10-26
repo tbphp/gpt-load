@@ -37,6 +37,13 @@ export default {
       searchPlaceholder: 'クライアントモデル、上流モデル、グループ',
       clearSearch: '検索をクリア',
       groupStatusLabel: 'グループの状態',
+      pricingMethodLabel: '価格設定方式',
+      pricingMethod: {
+        all: 'すべての価格設定方式',
+        automatic: '自動マッチ',
+        manual: '手動設定',
+        linked: 'モデルに追従',
+      },
       pricingStatusLabel: '価格状態',
       reset: '条件をリセット',
       groupStatus: {
@@ -98,6 +105,8 @@ export default {
       prices: '料金',
       fastPrices: 'Fast モード料金',
       ultrafastPrices: 'Ultrafast モード料金',
+      addFastPrice: 'Fast 価格を追加',
+      removeFastPrice: 'Fast 価格を削除',
       addUltrafastPrice: '料金を追加',
       removeUltrafastPrice: '料金を削除',
       ultrafastFallback:

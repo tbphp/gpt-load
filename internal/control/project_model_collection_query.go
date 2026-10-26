@@ -30,9 +30,19 @@ const (
 	ProjectModelPricingStatusAll        ProjectModelPricingStatus = "all"
 )
 
+type ProjectModelPricingMethod string
+
+const (
+	ProjectModelPricingMethodAll       ProjectModelPricingMethod = "all"
+	ProjectModelPricingMethodAutomatic ProjectModelPricingMethod = "automatic"
+	ProjectModelPricingMethodManual    ProjectModelPricingMethod = "manual"
+	ProjectModelPricingMethodLinked    ProjectModelPricingMethod = "linked"
+)
+
 type ProjectModelListQuery struct {
 	GroupStatus   ProjectModelGroupStatus
 	PricingStatus ProjectModelPricingStatus
+	PricingMethod ProjectModelPricingMethod
 	Search        string
 	Page          int64
 	PageSize      int64
@@ -43,6 +53,7 @@ func parseProjectModelListQuery(rawQuery string, forceQuery bool) (ProjectModelL
 	query := ProjectModelListQuery{
 		GroupStatus:   ProjectModelGroupStatusEnabled,
 		PricingStatus: ProjectModelPricingStatusAll,
+		PricingMethod: ProjectModelPricingMethodAll,
 		Page:          defaultProjectModelPage,
 		PageSize:      defaultProjectModelPageSize,
 	}
@@ -55,7 +66,7 @@ func parseProjectModelListQuery(rawQuery string, forceQuery bool) (ProjectModelL
 	}
 	for key, entries := range values {
 		switch key {
-		case "group_status", "pricing_status", "q", "page", "page_size":
+		case "group_status", "pricing_status", "pricing_method", "q", "page", "page_size":
 		default:
 			return ProjectModelListQuery{}, errors.ErrBadRequest
 		}
@@ -76,6 +87,14 @@ func parseProjectModelListQuery(rawQuery string, forceQuery bool) (ProjectModelL
 	}
 	switch query.PricingStatus {
 	case ProjectModelPricingStatusPending, ProjectModelPricingStatusConfigured, ProjectModelPricingStatusAll:
+	default:
+		return ProjectModelListQuery{}, errors.ErrBadRequest
+	}
+	if entries, ok := values["pricing_method"]; ok {
+		query.PricingMethod = ProjectModelPricingMethod(entries[0])
+	}
+	switch query.PricingMethod {
+	case ProjectModelPricingMethodAll, ProjectModelPricingMethodAutomatic, ProjectModelPricingMethodManual, ProjectModelPricingMethodLinked:
 	default:
 		return ProjectModelListQuery{}, errors.ErrBadRequest
 	}
@@ -110,6 +129,11 @@ func validateProjectModelListQuery(query ProjectModelListQuery) error {
 	}
 	switch query.PricingStatus {
 	case ProjectModelPricingStatusPending, ProjectModelPricingStatusConfigured, ProjectModelPricingStatusAll:
+	default:
+		return errors.ErrValidation
+	}
+	switch query.PricingMethod {
+	case "", ProjectModelPricingMethodAll, ProjectModelPricingMethodAutomatic, ProjectModelPricingMethodManual, ProjectModelPricingMethodLinked:
 	default:
 		return errors.ErrValidation
 	}

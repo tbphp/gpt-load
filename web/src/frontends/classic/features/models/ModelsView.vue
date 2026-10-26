@@ -9,6 +9,7 @@ import { useApiClient } from '@shared/http/client-context'
 import { useCollectionLoading } from '@/app/loading-state'
 import {
   modelCollectionQueryOptions,
+  modelCollectionPricingMethods,
   type ModelCollectionGroupStatus,
   type ModelCollectionPricingStatus,
   type ModelUpstreamDto,
@@ -38,6 +39,7 @@ import { useAuthSession } from '@/features/auth/auth-session'
 import ClientModelCatalogDrawer from './ClientModelCatalogDrawer.vue'
 import ModelTree from './ModelTree.vue'
 import ModelUpstreamDrawer from './ModelUpstreamDrawer.vue'
+import ModelPriceSetupDrawer from '@/features/model-prices/ModelPriceSetupDrawer.vue'
 import {
   isCanonicalModelsRouteQuery,
   parseModelsRouteQuery,
@@ -69,6 +71,10 @@ const drawer = ref<InstanceType<typeof ModelUpstreamDrawer>>()
 
 const modelsQuery = useQuery(modelCollectionQueryOptions(client, filters, isAccessKey))
 const data = computed(() => modelsQuery.data.value)
+const priceSetupOpen = ref(false)
+function pricesSaved(): void {
+  priceSetupOpen.value = false
+}
 const collectionBusy = computed(() => data.value !== undefined && modelsQuery.isFetching.value)
 const {
   initial: initialLoading,
@@ -90,12 +96,19 @@ const hasConditions = computed(
   () =>
     filters.value.q !== undefined ||
     filters.value.group_status !== 'enabled' ||
-    filters.value.pricing_status !== 'all',
+    filters.value.pricing_status !== 'all' ||
+    filters.value.pricing_method !== 'all',
 )
 const groupStatusOptions = computed(() =>
   (['enabled', 'all'] as const).map((value) => ({
     value,
     label: t(`models.filters.groupStatus.${value}`),
+  })),
+)
+const pricingMethodOptions = computed(() =>
+  modelCollectionPricingMethods.map((value) => ({
+    value,
+    label: t(`models.filters.pricingMethod.${value}`),
   })),
 )
 const pricingStatusOptions = computed(() =>
@@ -148,7 +161,7 @@ watch(
 function scopeModelsState(state: ModelsRouteState): ModelsRouteState {
   if (!isAccessKey.value) return state
   return {
-    filters: { ...state.filters, group_status: 'enabled' },
+    filters: { ...state.filters, group_status: 'enabled', pricing_method: 'all' },
     selectedPriceID: undefined,
   }
 }
@@ -203,6 +216,15 @@ async function setGroupStatus(value: string): Promise<void> {
   })
 }
 
+async function setPricingMethod(value: string): Promise<void> {
+  const method = modelCollectionPricingMethods.find((method) => method === value)
+  if (!method || method === filters.value.pricing_method || !(await confirmDiscard())) return
+  navigate({
+    filters: { ...filters.value, pricing_method: method, page: 1 },
+    selectedPriceID: undefined,
+  })
+}
+
 async function setPricingStatus(value: string): Promise<void> {
   if (value === filters.value.pricing_status || !(await confirmDiscard())) return
   navigate({
@@ -220,7 +242,13 @@ async function resetConditions(): Promise<void> {
   searchDebounce.cancel()
   searchDraft.value = ''
   navigate({
-    filters: { group_status: 'enabled', pricing_status: 'all', page: 1, page_size: 10 },
+    filters: {
+      group_status: 'enabled',
+      pricing_status: 'all',
+      pricing_method: 'all',
+      page: 1,
+      page_size: 10,
+    },
     selectedPriceID: undefined,
   })
 }
@@ -274,6 +302,9 @@ function goToGroups(): void {
           <AppButton v-if="!isAccessKey" size="compact" :busy="syncPending" @click="runSync">
             <RefreshCw :size="15" aria-hidden="true" />{{ t('models.actions.sync') }}
           </AppButton>
+          <AppButton v-if="!isAccessKey" size="compact" @click="priceSetupOpen = true">{{
+            t('modelPrices.reuse.bulk')
+          }}</AppButton>
         </template>
       </PageHeader>
 
@@ -376,6 +407,18 @@ function goToGroups(): void {
               @update:model-value="setGroupStatus"
             />
           </label>
+          <label v-if="!isAccessKey" class="collection-filter-field">
+            <span class="collection-filter-label">{{
+              t('models.filters.pricingMethodLabel')
+            }}</span>
+            <AppSelect
+              size="compact"
+              :label="t('models.filters.pricingMethodLabel')"
+              :model-value="filters.pricing_method"
+              :options="pricingMethodOptions"
+              @update:model-value="setPricingMethod"
+            />
+          </label>
           <label class="collection-filter-field">
             <span class="collection-filter-label">
               {{ t('models.filters.pricingStatusLabel') }}
@@ -459,10 +502,16 @@ function goToGroups(): void {
         ref="drawer"
         :open="drawerOpen"
         :price-id="activePriceID"
+        @inspect="navigate({ selectedPriceID: $event })"
         @close="closeDrawer"
       />
     </LedgerSheet>
     <ClientModelCatalogDrawer v-if="catalogOpen && !isAccessKey" @close="catalogOpen = false" />
+    <ModelPriceSetupDrawer
+      v-if="priceSetupOpen && !isAccessKey"
+      @close="priceSetupOpen = false"
+      @saved="pricesSaved"
+    />
   </PageFrame>
 </template>
 
@@ -493,7 +542,7 @@ function goToGroups(): void {
 }
 
 .models-page :deep(.models-page__filters.collection-filter-bar) {
-  grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(142px, 0.42fr));
+  grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(142px, 0.42fr));
   padding-top: var(--space-1);
 }
 

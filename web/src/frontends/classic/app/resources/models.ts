@@ -21,11 +21,14 @@ import {
 
 export type ModelCollectionGroupStatus = 'enabled' | 'all'
 export type ModelCollectionPricingStatus = 'pending' | 'configured' | 'all'
+export const modelCollectionPricingMethods = ['all', 'automatic', 'manual', 'linked'] as const
+export type ModelCollectionPricingMethod = (typeof modelCollectionPricingMethods)[number]
 export type ModelCollectionPageSize = 10
 
 export interface ModelCollectionFilters {
   group_status: ModelCollectionGroupStatus
   pricing_status: ModelCollectionPricingStatus
+  pricing_method: ModelCollectionPricingMethod
   q?: string
   page: number
   page_size: ModelCollectionPageSize
@@ -510,6 +513,7 @@ export function normalizeModelCollectionFilters(
   const normalized: ModelCollectionFilters = {
     group_status: filters.group_status,
     pricing_status: filters.pricing_status,
+    pricing_method: filters.pricing_method ?? 'all',
     page: filters.page,
     page_size: filters.page_size,
   }
@@ -528,6 +532,7 @@ export async function listModels(
   const params = new URLSearchParams({
     group_status: normalized.group_status,
     pricing_status: normalized.pricing_status,
+    pricing_method: normalized.pricing_method,
     page: String(normalized.page),
     page_size: String(normalized.page_size),
   })

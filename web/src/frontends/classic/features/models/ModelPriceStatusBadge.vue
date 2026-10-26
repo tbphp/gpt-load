@@ -8,13 +8,18 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { StatusIcon, StatusTone } from '@/components/ui/status-presenter'
 
 const props = defineProps<{
-  price: Pick<ModelPriceDto, 'method' | 'pricing_status' | 'matched_provider_id' | 'match_source'>
+  price: Pick<
+    ModelPriceDto,
+    'method' | 'pricing_status' | 'matched_provider_id' | 'match_source' | 'source_price_id'
+  >
   providerName?: string
 }>()
 const { t } = useI18n()
 
 const presentation = computed<{ icon: StatusIcon; label: string; tone: StatusTone }>(() => {
   switch (props.price.method) {
+    case 'model_reference':
+      return { icon: 'info', label: t('modelPrices.reuse.linked'), tone: 'info' }
     case 'auto_sync':
       return props.price.match_source === 'provider_priority_fallback'
         ? { icon: 'info', label: t('modelPrices.method.reference_price'), tone: 'info' }

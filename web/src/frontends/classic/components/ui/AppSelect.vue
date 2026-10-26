@@ -15,6 +15,7 @@ import {
 import OverflowTooltip from './OverflowTooltip.vue'
 
 interface SelectOption {
+  disabled?: boolean
   value: string
   label: string
 }
@@ -91,12 +92,15 @@ const selectedLabel = computed(
           :key="`${props.options[index]?.value ?? option.value}:${index}`"
           class="app-select__item"
           :value="option.value"
+          :disabled="option.disabled"
           :data-value="props.options[index]?.value ?? option.value"
         >
           <SelectItemIndicator class="app-select__indicator">
             <Check :size="15" aria-hidden="true" />
           </SelectItemIndicator>
-          <SelectItemText>{{ option.label }}</SelectItemText>
+          <SelectItemText
+            ><slot name="option" :option="option">{{ option.label }}</slot></SelectItemText
+          >
         </SelectItem>
       </SelectContent>
     </SelectPortal>

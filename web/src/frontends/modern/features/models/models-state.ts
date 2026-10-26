@@ -1,11 +1,12 @@
 import type { LocationQuery } from 'vue-router'
 import { positivePage } from '@modern/app/url-state'
-import type { ModelFilters } from '@modern/api/models'
+import { modelPricingMethods, type ModelFilters, type ModelPricingMethod } from '@modern/api/models'
 
 export const modelStateKeys = [
   'q',
   'group_status',
   'pricing_status',
+  'pricing_method',
   'page',
   'page_size',
   'model',
@@ -23,6 +24,9 @@ export function parseModelsState(query: LocationQuery): ModelsState {
       query.pricing_status === 'pending' || query.pricing_status === 'configured'
         ? query.pricing_status
         : 'all',
+    method: modelPricingMethods.includes(query.pricing_method as ModelPricingMethod)
+      ? (query.pricing_method as ModelPricingMethod)
+      : 'all',
     page: positivePage(query.page),
     pageSize: [20, 50, 100].includes(Number(query.page_size)) ? Number(query.page_size) : 20,
     model: typeof query.model === 'string' ? query.model : '',
@@ -34,6 +38,7 @@ export function serializeModelsState(state: ModelsState) {
     ...(state.q ? { q: state.q } : {}),
     ...(state.groups !== 'enabled' ? { group_status: state.groups } : {}),
     ...(state.pricing !== 'all' ? { pricing_status: state.pricing } : {}),
+    ...(state.method !== 'all' ? { pricing_method: state.method } : {}),
     ...(state.page > 1 ? { page: String(state.page) } : {}),
     ...(state.pageSize !== 20 ? { page_size: String(state.pageSize) } : {}),
     ...(state.model ? { model: state.model } : {}),

@@ -47,6 +47,9 @@ func resolveCandidatePricing(
 		if row.ChannelID != identity.ChannelID || row.ModelID != identity.ModelID {
 			return status, nil
 		}
+		if row.SourcePriceID != nil {
+			return status, nil
+		}
 		if match, ok := resolveAutomaticPriceForIdentity(snapshot, identity); ok {
 			source := pricingSourceName(snapshot, match.providerID, match.providerID)
 			return status, &source

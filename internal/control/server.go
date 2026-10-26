@@ -1180,6 +1180,12 @@ func writeServiceErrorResponse(
 		if apiErr.HTTPStatus >= http.StatusInternalServerError {
 			logServiceError(operation, err, apiErr.Code)
 		}
+		if apiErr.Code == app_errors.ErrModelPriceSourceReferenced.Code {
+			if data, ok := apiErr.Data.(map[string]any); ok {
+				response.ErrorI18nFromAPIError(c, apiErr, "model_price.source_referenced", data)
+				return
+			}
+		}
 		response.ErrorI18nFromAPIError(
 			c,
 			apiErr,
@@ -1231,13 +1237,19 @@ func serviceErrorMessageID(
 		return "model_price.referenced"
 	case app_errors.ErrModelPriceAutomaticDeleteForbidden.Code:
 		return "model_price.automatic_delete_forbidden"
+	case app_errors.ErrModelPriceReferenceCycle.Code:
+		return "model_price.reference_cycle"
+	case app_errors.ErrModelPriceSourceReferenced.Code:
+		return "model_price.source_referenced"
+	case app_errors.ErrModelPriceSourceUnavailable.Code:
+		return "model_price.source_unavailable"
 	case app_errors.ErrRequestTooLarge.Code:
 		return "request_too_large"
 	case app_errors.ErrBadRequest.Code, app_errors.ErrInvalidJSON.Code, app_errors.ErrValidation.Code:
 		return "bad_request"
 	case app_errors.ErrResourceNotFound.Code:
 		switch operation {
-		case "update_model_price", "reset_model_price", "delete_model_price":
+		case "update_model_price", "reset_model_price", "delete_model_price", "batch_model_prices":
 			return "model_price.not_found"
 		}
 		var resourceErr *controlResourceNotFoundError

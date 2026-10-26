@@ -1078,13 +1078,13 @@ func TestCatalogSyncReconcilesSlotsLKGManualCleanupAndStableTimestamps(t *testin
 		}
 	})
 	assertCatalogPriceRow(t, fixture, "missing-model", func(row models.ModelPrice) {
-		if priceTestRowHasValue(row) {
-			t.Fatalf("missing model retained automatic catalog values: %#v", row)
+		if !catalogPriceValuesEqual(row, rows[1]) || row.UpdatedAtMS != 112 {
+			t.Fatalf("missing model lost last valid prices: %#v", row)
 		}
 	})
 	assertCatalogPriceRow(t, fixture, "missing-provider-model", func(row models.ModelPrice) {
-		if priceTestRowHasValue(row) {
-			t.Fatalf("missing provider retained automatic catalog values: %#v", row)
+		if !catalogPriceValuesEqual(row, rows[2]) || row.UpdatedAtMS != 113 {
+			t.Fatalf("missing provider lost last valid prices: %#v", row)
 		}
 	})
 	assertCatalogPriceRow(t, fixture, "manual", func(row models.ModelPrice) {

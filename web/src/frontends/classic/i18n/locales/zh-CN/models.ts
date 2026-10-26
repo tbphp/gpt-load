@@ -36,6 +36,13 @@ export default {
       searchPlaceholder: '客户端模型、上游模型或分组',
       clearSearch: '清除搜索',
       groupStatusLabel: '分组状态',
+      pricingMethodLabel: '计价方式',
+      pricingMethod: {
+        all: '全部计价方式',
+        automatic: '自动匹配',
+        manual: '手动配置',
+        linked: '跟随模型',
+      },
       pricingStatusLabel: '价格状态',
       reset: '重置条件',
       groupStatus: {
@@ -96,6 +103,8 @@ export default {
       prices: '价格',
       fastPrices: 'Fast 模式价格',
       ultrafastPrices: 'Ultrafast 模式价格',
+      addFastPrice: '添加 Fast 价格',
+      removeFastPrice: '移除 Fast 价格',
       addUltrafastPrice: '添加价格',
       removeUltrafastPrice: '移除价格',
       ultrafastFallback: '未设置 Ultrafast 单价时，沿用标准价格及长上下文档位。',

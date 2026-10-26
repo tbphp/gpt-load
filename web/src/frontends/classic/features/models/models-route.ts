@@ -1,9 +1,11 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 
-import type {
-  ModelCollectionFilters,
-  ModelCollectionGroupStatus,
-  ModelCollectionPricingStatus,
+import {
+  modelCollectionPricingMethods,
+  type ModelCollectionFilters,
+  type ModelCollectionGroupStatus,
+  type ModelCollectionPricingStatus,
+  type ModelCollectionPricingMethod,
 } from '@/app/resources/models'
 import {
   isCanonicalRouteQuery,
@@ -20,6 +22,7 @@ export interface ModelsRouteState {
 const defaultFilters: ModelCollectionFilters = {
   group_status: 'enabled',
   pricing_status: 'all',
+  pricing_method: 'all',
   page: 1,
   page_size: 10,
 }
@@ -30,6 +33,7 @@ export function parseModelsRouteQuery(query: LocationQuery): ModelsRouteState {
   const q = normalizeCollectionSearch(scalarRouteQuery(query.q))
   const rawGroupStatus = scalarRouteQuery(query.group_status)
   const rawPricingStatus = scalarRouteQuery(query.pricing_status)
+  const rawPricingMethod = scalarRouteQuery(query.pricing_method)
   const filters: ModelCollectionFilters = {
     ...defaultFilters,
     ...(q === undefined ? {} : { q }),
@@ -43,6 +47,11 @@ export function parseModelsRouteQuery(query: LocationQuery): ModelsRouteState {
       pricingStatuses.has(rawPricingStatus as ModelCollectionPricingStatus)
         ? (rawPricingStatus as ModelCollectionPricingStatus)
         : defaultFilters.pricing_status,
+    pricing_method: modelCollectionPricingMethods.includes(
+      rawPricingMethod as ModelCollectionPricingMethod,
+    )
+      ? (rawPricingMethod as ModelCollectionPricingMethod)
+      : defaultFilters.pricing_method,
     page: parsePositiveRouteInteger(query.page) ?? defaultFilters.page,
   }
   return {
@@ -60,6 +69,9 @@ export function serializeModelsRouteQuery(state: ModelsRouteState): LocationQuer
   }
   if (state.filters.pricing_status !== defaultFilters.pricing_status) {
     query.pricing_status = state.filters.pricing_status
+  }
+  if (state.filters.pricing_method !== defaultFilters.pricing_method) {
+    query.pricing_method = state.filters.pricing_method
   }
   if (state.filters.page !== defaultFilters.page) query.page = String(state.filters.page)
   if (state.selectedPriceID !== undefined) {

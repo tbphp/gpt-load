@@ -4,7 +4,10 @@ import { numberFormatter } from '@modern/components/ui/intl-formatters'
 export function modelGroupCount(model: RequestModel): number {
   return new Set(model.sources.flatMap((source) => source.groups.map((group) => group.id))).size
 }
-export function priceStatus(price: ModelPrice): 'pending' | 'manual' | 'automatic' | 'unpriced' {
+export function priceStatus(
+  price: ModelPrice,
+): 'pending' | 'manual' | 'automatic' | 'unpriced' | 'linked' {
+  if (price.method === 'model_reference') return 'linked'
   if (price.method === 'user_marked_unpriced') return 'unpriced'
   if (price.status === 'pending') return 'pending'
   return price.method === 'auto_sync' ? 'automatic' : 'manual'

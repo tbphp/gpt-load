@@ -50,23 +50,28 @@ type modePriceScheduleJSON struct {
 
 // ModelPrice stores one catalog or manual price for an exact channel/model pair.
 type ModelPrice struct {
-	ID                                     uint   `gorm:"primaryKey;autoIncrement"`
-	ChannelID                              string `gorm:"type:varchar(64);not null;uniqueIndex:idx_model_prices_channel_model,priority:1"`
-	ModelID                                string `gorm:"type:varchar(255);not null;uniqueIndex:idx_model_prices_channel_model,priority:2"`
-	InputPriceNanoUSDPerMillionTokens      *int64 `gorm:"column:input_price_nano_usd_per_million_tokens;check:chk_model_price_input_nano,input_price_nano_usd_per_million_tokens IS NULL OR input_price_nano_usd_per_million_tokens >= 0"`
-	OutputPriceNanoUSDPerMillionTokens     *int64 `gorm:"column:output_price_nano_usd_per_million_tokens;check:chk_model_price_output_nano,output_price_nano_usd_per_million_tokens IS NULL OR output_price_nano_usd_per_million_tokens >= 0"`
-	CacheReadPriceNanoUSDPerMillionTokens  *int64 `gorm:"column:cache_read_price_nano_usd_per_million_tokens;check:chk_model_price_cache_read_nano,cache_read_price_nano_usd_per_million_tokens IS NULL OR cache_read_price_nano_usd_per_million_tokens >= 0"`
-	CacheWritePriceNanoUSDPerMillionTokens *int64 `gorm:"column:cache_write_price_nano_usd_per_million_tokens;check:chk_model_price_cache_write_nano,cache_write_price_nano_usd_per_million_tokens IS NULL OR cache_write_price_nano_usd_per_million_tokens >= 0"`
-	ContextPriceTiers                      JSON   `gorm:"type:json"`
-	ModePriceSchedules                     JSON   `gorm:"column:mode_price_schedules;type:json"`
-	IsManual                               bool   `gorm:"not null;default:false"`
-	CreatedAtMS                            int64  `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_model_price_created_at,created_at_ms >= 0"`
-	UpdatedAtMS                            int64  `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_model_price_updated_at,updated_at_ms >= 0"`
+	ID                                     uint        `gorm:"primaryKey;autoIncrement"`
+	ChannelID                              string      `gorm:"type:varchar(64);not null;uniqueIndex:idx_model_prices_channel_model,priority:1"`
+	ModelID                                string      `gorm:"type:varchar(255);not null;uniqueIndex:idx_model_prices_channel_model,priority:2"`
+	SourcePriceID                          *uint       `gorm:"index:idx_model_prices_source"`
+	SourcePrice                            *ModelPrice `gorm:"foreignKey:SourcePriceID;references:ID;constraint:OnDelete:RESTRICT"`
+	InputPriceNanoUSDPerMillionTokens      *int64      `gorm:"column:input_price_nano_usd_per_million_tokens;check:chk_model_price_input_nano,input_price_nano_usd_per_million_tokens IS NULL OR input_price_nano_usd_per_million_tokens >= 0"`
+	OutputPriceNanoUSDPerMillionTokens     *int64      `gorm:"column:output_price_nano_usd_per_million_tokens;check:chk_model_price_output_nano,output_price_nano_usd_per_million_tokens IS NULL OR output_price_nano_usd_per_million_tokens >= 0"`
+	CacheReadPriceNanoUSDPerMillionTokens  *int64      `gorm:"column:cache_read_price_nano_usd_per_million_tokens;check:chk_model_price_cache_read_nano,cache_read_price_nano_usd_per_million_tokens IS NULL OR cache_read_price_nano_usd_per_million_tokens >= 0"`
+	CacheWritePriceNanoUSDPerMillionTokens *int64      `gorm:"column:cache_write_price_nano_usd_per_million_tokens;check:chk_model_price_cache_write_nano,cache_write_price_nano_usd_per_million_tokens IS NULL OR cache_write_price_nano_usd_per_million_tokens >= 0"`
+	ContextPriceTiers                      JSON        `gorm:"type:json"`
+	ModePriceSchedules                     JSON        `gorm:"column:mode_price_schedules;type:json"`
+	IsManual                               bool        `gorm:"not null;default:false"`
+	CreatedAtMS                            int64       `gorm:"column:created_at_ms;not null;autoCreateTime:milli;check:chk_model_price_created_at,created_at_ms >= 0"`
+	UpdatedAtMS                            int64       `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli;check:chk_model_price_updated_at,updated_at_ms >= 0"`
 }
 
 // BeforeSave rejects malformed pricing schedules and normalizes empty JSON
 // values to SQL NULL before an insert or update reaches the database.
 func (price *ModelPrice) BeforeSave(_ *gorm.DB) error {
+	if price.SourcePriceID != nil && (*price.SourcePriceID == 0 || *price.SourcePriceID == price.ID || price.IsManual) {
+		return fmt.Errorf("invalid model price reference")
+	}
 	normalized, err := NormalizeContextPriceTiers(price.ContextPriceTiers)
 	if err != nil {
 		return err

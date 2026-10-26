@@ -281,7 +281,7 @@ func TestModelPriceHTTPUpdateEditsPersistedModeScheduleAsManualRuntimeFact(t *te
 	}
 }
 
-func TestModelPriceHTTPUpdateRejectsModeScheduleKeyChanges(t *testing.T) {
+func TestModelPriceHTTPUpdateAllowsFastScheduleChanges(t *testing.T) {
 	t.Parallel()
 	t.Run("add unsynchronized Fast schedule", func(t *testing.T) {
 		fixture, engine, row := newModelPriceHTTPFixture(t, true)
@@ -291,14 +291,16 @@ func TestModelPriceHTTPUpdateRejectsModeScheduleKeyChanges(t *testing.T) {
 		response := serveModelPriceHTTPRequest(
 			engine, http.MethodPut, fmt.Sprintf("/api/model-prices/%d", row.ID), body, authTestKey,
 		)
-		assertModelPriceHTTPError(t, response, http.StatusBadRequest, "VALIDATION_FAILED", nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("add Fast status = %d: %s", response.Code, response.Body.String())
+		}
 
 		var persisted models.ModelPrice
 		if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
 			t.Fatal(err)
 		}
-		if persisted.IsManual || len(persisted.ModePriceSchedules) != 0 {
-			t.Fatalf("rejected addition mutated model price = %#v", persisted)
+		if !persisted.IsManual || len(persisted.ModePriceSchedules) == 0 {
+			t.Fatalf("Fast addition was not saved as manual: %#v", persisted)
 		}
 	})
 
@@ -316,22 +318,16 @@ func TestModelPriceHTTPUpdateRejectsModeScheduleKeyChanges(t *testing.T) {
 			modelPriceHTTPUpdateBody(`"2"`, "false"),
 			authTestKey,
 		)
-		assertModelPriceHTTPError(t, response, http.StatusBadRequest, "VALIDATION_FAILED", nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("remove Fast status = %d: %s", response.Code, response.Body.String())
+		}
 
 		var persisted models.ModelPrice
 		if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
 			t.Fatal(err)
 		}
-		want, err := models.NormalizeModePriceSchedules(original)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := models.NormalizeModePriceSchedules(persisted.ModePriceSchedules)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if persisted.IsManual || !bytes.Equal(got, want) {
-			t.Fatalf("rejected removal mutated model price = %#v", persisted)
+		if !persisted.IsManual || len(persisted.ModePriceSchedules) != 0 {
+			t.Fatalf("Fast removal was not saved as manual: %#v", persisted)
 		}
 	})
 }

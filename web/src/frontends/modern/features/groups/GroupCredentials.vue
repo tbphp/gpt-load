@@ -1383,6 +1383,7 @@ defineExpose({ refresh })
 
 <style scoped>
 .modern-credentials {
+  --modern-list-header-background: var(--modern-canvas);
   container: modern-credentials / inline-size;
   display: flex;
   flex: 1;
