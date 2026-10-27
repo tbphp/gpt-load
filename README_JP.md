@@ -144,10 +144,13 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 | OpenAI Images           | `POST /v1/images/...`                                              |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
-| Mistral ネイティブ      | `/v1/ocr`、`/v1/audio/...` |
+| Audio Speech            | `POST /v1/audio/speech`                                            |
+| Mistral ネイティブ      | `/v1/ocr`、`/v1/audio/transcriptions` |
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
+
+Audio Speech は各チャネルのネイティブ形式をそのまま転送します。OpenRouter は `voice` を受け取り音声データを直接返し、Mistral は `voice_id` を受け取り JSON を返します。同じクライアントモデル名を両方のチャネルのグループに割り当てないでください。フェイルオーバー時に形式が合わなくなります。
 
 ### 組み込みチャネル
 

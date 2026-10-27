@@ -144,10 +144,13 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | OpenAI Images           | `POST /v1/images/...`                                              |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
-| Mistral 原生            | `/v1/ocr`、`/v1/audio/...` |
+| Audio Speech            | `POST /v1/audio/speech`                                            |
+| Mistral 原生            | `/v1/ocr`、`/v1/audio/transcriptions` |
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
+
+Audio Speech 按渠道原生格式透传：OpenRouter 使用 `voice` 并直接返回音频，Mistral 使用 `voice_id` 并返回 JSON。同一个客户端模型名不要同时映射到这两个渠道的分组，故障切换时格式会对不上。
 
 ### 内置渠道
 

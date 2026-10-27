@@ -30,7 +30,6 @@ func TestMistralInspectsDocumentedModelPaths(t *testing.T) {
 		{name: "ocr", method: http.MethodPost, path: "/v1/ocr", body: `{"model":"mistral-ocr-latest","document":{"type":"document_url"}}`, operation: execution.OperationMistralOCR, model: "mistral-ocr-latest"},
 		{name: "fim", method: http.MethodPost, path: "/v1/fim/completions", body: `{"model":"codestral-latest","prompt":"fn "}`, operation: execution.OperationMistralFIM, model: "codestral-latest"},
 		{name: "transcription", method: http.MethodPost, path: "/v1/audio/transcriptions", body: `{"model":"voxtral"}`, operation: execution.OperationMistralAudioTranscription, model: "voxtral"},
-		{name: "speech", method: http.MethodPost, path: "/v1/audio/speech", body: `{"model":"voxtral-tts","input":"hello"}`, operation: execution.OperationMistralAudioSpeech, model: "voxtral-tts"},
 		{name: "realtime", method: http.MethodGet, path: "/v1/audio/transcriptions/realtime", rawQuery: "model=voxtral-mini-transcribe-realtime-2602", operation: execution.OperationMistralRealtimeTranscription, model: "voxtral-mini-transcribe-realtime-2602"},
 		{name: "voices", method: http.MethodGet, path: "/mistral/v1/audio/voices", operation: execution.OperationMistralVoices},
 		{name: "voice", method: http.MethodGet, path: "/mistral/v1/audio/voices/530e2e20-58e2-45d8-b0a5-4594f4915944", operation: execution.OperationMistralVoices},
@@ -76,7 +75,7 @@ func TestMistralRejectsIncompleteOrUnsafePaths(t *testing.T) {
 		{Method: http.MethodPost, Path: "/v1/ocr", Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"ocr","stream":true}`)},
 		{Method: http.MethodGet, Path: "/mistral/v1/audio/voices/../secret"},
 		{Method: http.MethodPost, Path: "/v1/chat/completions", Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"m"}`)},
-		{Method: http.MethodPost, Path: "/v1/audio/speech", Header: http.Header{"Content-Type": {"text/plain"}}, Body: []byte("hello")},
+		{Method: http.MethodPost, Path: "/v1/audio/speech", Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"model":"voxtral-tts","input":"hello"}`)},
 	}
 	for _, request := range requests {
 		if _, err := dialect.InspectRequest(request); err == nil {

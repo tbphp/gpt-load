@@ -71,6 +71,8 @@ func modelRewriter(clientProtocol protocol.Protocol) (dialect.ModelRewriter, err
 		return dialect.NewDecisions(), nil
 	case protocol.OpenAIEmbeddings:
 		return dialect.NewOpenAIEmbeddings(), nil
+	case protocol.AudioSpeech:
+		return dialect.NewAudioSpeech(), nil
 	case protocol.Mistral:
 		return dialect.NewMistral(), nil
 	case protocol.Anthropic:

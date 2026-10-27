@@ -10,6 +10,7 @@ export const protocolOrder = [
   'codex-live',
   'rerank',
   'decisions',
+  'audio-speech',
   'mistral',
 ] as const
 export const protocolMessages = Object.fromEntries(

@@ -123,6 +123,9 @@ func nativeRouteImplemented(
 		if clientProtocol == protocol.Mistral {
 			return mistralNativeOperation(operation)
 		}
+		if clientProtocol == protocol.AudioSpeech {
+			return operation == execution.OperationAudioSpeech
+		}
 		if clientProtocol == protocol.OpenAIEmbeddings {
 			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
 		}
@@ -140,6 +143,9 @@ func nativeRouteImplemented(
 			return false
 		}
 	case channel.ProviderOpenRouter:
+		if clientProtocol == protocol.AudioSpeech {
+			return operation == execution.OperationAudioSpeech
+		}
 		if clientProtocol == protocol.OpenAIEmbeddings {
 			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
 		}
@@ -161,7 +167,6 @@ func mistralNativeOperation(operation execution.Operation) bool {
 	case execution.OperationMistralOCR,
 		execution.OperationMistralFIM,
 		execution.OperationMistralAudioTranscription,
-		execution.OperationMistralAudioSpeech,
 		execution.OperationMistralModeration,
 		execution.OperationMistralChatModeration,
 		execution.OperationMistralClassification,

@@ -5,8 +5,8 @@ func (o Operation) UsesModelCooldown() bool {
 	switch o {
 	case OperationChatCompletion, OperationResponsesCreate, OperationResponsesCompact,
 		OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank,
-		OperationDecisionsCreate, OperationMistralOCR, OperationMistralFIM,
-		OperationMistralAudioTranscription, OperationMistralAudioSpeech,
+		OperationDecisionsCreate, OperationAudioSpeech, OperationMistralOCR, OperationMistralFIM,
+		OperationMistralAudioTranscription,
 		OperationMistralModeration, OperationMistralChatModeration, OperationMistralClassification,
 		OperationMistralRealtimeTranscription:
 		return true
