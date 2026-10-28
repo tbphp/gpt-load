@@ -2294,6 +2294,18 @@ func TestReleaseImageDigestFailsClosedOnOperationalInspectionErrors(t *testing.T
 	}
 }
 
+func TestLocalReleaseCLIHelp(t *testing.T) {
+	command := exec.Command("python3", "-m", "scripts.release", "--help")
+	command.Dir = filepath.Join("..", "..")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("load local release CLI: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "--simulate") {
+		t.Fatalf("local release CLI did not show its help: %s", output)
+	}
+}
+
 func TestReleaseSemverComparatorOrdersChannelCandidates(t *testing.T) {
 	script := filepath.Join("..", "..", ".github", "scripts", "release-compare-semver.py")
 	for _, test := range []struct {
