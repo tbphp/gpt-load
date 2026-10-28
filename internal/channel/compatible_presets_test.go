@@ -65,6 +65,7 @@ func TestCompatiblePresetsReuseExistingRoutesAndCredentials(t *testing.T) {
 				}
 				if test.id == Mistral {
 					allowed[protocol.Mistral] = true
+					allowed[protocol.AudioSpeech] = true
 				}
 			}
 			if len(descriptor.ClientProtocols) != len(allowed) {

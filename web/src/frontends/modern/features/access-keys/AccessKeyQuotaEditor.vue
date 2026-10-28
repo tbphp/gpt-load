@@ -38,7 +38,7 @@ function add(kind: 'total' | 'periodic'): void {
 }
 </script>
 <template>
-  <AppFormSection :title="t('accessKeys.limits')" compact>
+  <AppFormSection :title="t('accessKeys.limits')" :hint="t('accessKeys.limitsHint')" compact>
     <template #actions
       ><AppButton
         v-if="runtime?.rules.length"

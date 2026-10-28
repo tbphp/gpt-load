@@ -47,10 +47,10 @@ const (
 	OperationLiveCall                     Operation = "live_call"
 	OperationRerank                       Operation = "rerank"
 	OperationDecisionsCreate              Operation = "decisions_create"
+	OperationAudioSpeech                  Operation = "audio_speech"
 	OperationMistralOCR                   Operation = "mistral_ocr"
 	OperationMistralFIM                   Operation = "mistral_fim"
 	OperationMistralAudioTranscription    Operation = "mistral_audio_transcription"
-	OperationMistralAudioSpeech           Operation = "mistral_audio_speech"
 	OperationMistralModeration            Operation = "mistral_moderation"
 	OperationMistralChatModeration        Operation = "mistral_chat_moderation"
 	OperationMistralClassification        Operation = "mistral_classification"
@@ -80,10 +80,10 @@ func (o Operation) Valid() bool {
 		OperationLiveCall,
 		OperationRerank,
 		OperationDecisionsCreate,
+		OperationAudioSpeech,
 		OperationMistralOCR,
 		OperationMistralFIM,
 		OperationMistralAudioTranscription,
-		OperationMistralAudioSpeech,
 		OperationMistralModeration,
 		OperationMistralChatModeration,
 		OperationMistralClassification,
@@ -115,7 +115,7 @@ const (
 func (o Operation) ReplayPolicy() ReplayPolicy {
 	switch o {
 	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall,
-		OperationMistralOCR, OperationMistralFIM, OperationMistralAudioTranscription, OperationMistralAudioSpeech,
+		OperationAudioSpeech, OperationMistralOCR, OperationMistralFIM, OperationMistralAudioTranscription,
 		OperationMistralModeration, OperationMistralChatModeration, OperationMistralClassification,
 		OperationMistralRealtimeTranscription:
 		return ReplayPolicyRequireRejectedBeforeProcessing

@@ -75,8 +75,6 @@ func mistralRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/fim/completions"
 	case execution.OperationMistralAudioTranscription:
 		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/audio/transcriptions"
-	case execution.OperationMistralAudioSpeech:
-		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/audio/speech"
 	case execution.OperationMistralModeration:
 		return !stream && spec.Method == http.MethodPost && spec.Path == "/v1/moderations"
 	case execution.OperationMistralChatModeration:

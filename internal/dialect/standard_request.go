@@ -48,6 +48,10 @@ func standardRequest(
 		selected = NewRerank()
 		request.Path = rerankPath
 		body = map[string]any{"model": model, "query": "ping", "documents": []string{"ping"}, "top_n": 1}
+	case protocol.AudioSpeech:
+		selected = NewAudioSpeech()
+		request.Path = audioSpeechPath
+		body = map[string]any{"model": model, "input": ""}
 	case protocol.Mistral:
 		selected = NewMistral()
 		request.Path = "/v1/ocr"

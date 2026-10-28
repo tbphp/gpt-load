@@ -735,8 +735,8 @@ onScopeDispose(() => {
   align-items: center;
   flex-wrap: wrap;
   flex: none;
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-5) 0 var(--modern-space-3);
+  gap: var(--modern-page-toolbar-gap);
+  padding: var(--modern-page-toolbar-top) 0 var(--modern-page-toolbar-bottom);
 }
 .modern-access-search {
   flex: 2 1 240px;
@@ -759,8 +759,8 @@ onScopeDispose(() => {
   flex-wrap: wrap;
   flex: none;
   justify-content: space-between;
-  gap: var(--modern-space-2);
-  padding-bottom: var(--modern-space-4);
+  gap: var(--modern-page-statusbar-gap);
+  padding-bottom: var(--modern-page-statusbar-bottom);
 }
 .modern-access-row {
   display: grid;
@@ -827,8 +827,6 @@ onScopeDispose(() => {
   .modern-access-toolbar {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--modern-space-2);
-    padding-top: var(--modern-space-3);
   }
   .modern-access-search {
     flex-basis: 100%;
@@ -883,7 +881,6 @@ onScopeDispose(() => {
   .modern-access-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: var(--modern-space-2);
   }
   .modern-access-toolbar-actions {
     display: contents;

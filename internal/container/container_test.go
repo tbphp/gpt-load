@@ -524,6 +524,7 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 		anthropic *dialect.Anthropic,
 		gemini *dialect.Gemini,
 		geminiEmbeddings *dialect.GeminiEmbeddings,
+		audioSpeech *dialect.AudioSpeech,
 		mistral *dialect.Mistral,
 		values dialect.Set,
 		db *gorm.DB,
@@ -543,7 +544,8 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 			values[protocol.Anthropic] != anthropic ||
 			values[protocol.Gemini] != gemini ||
 			values[protocol.GeminiEmbeddings] != geminiEmbeddings ||
-			values[protocol.Mistral] != mistral || len(values) != 10 {
+			values[protocol.AudioSpeech] != audioSpeech ||
+			values[protocol.Mistral] != mistral || len(values) != 11 {
 			t.Fatalf("dialect Set = %#v", values)
 		}
 	})

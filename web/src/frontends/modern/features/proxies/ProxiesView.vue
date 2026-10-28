@@ -983,8 +983,8 @@ onScopeDispose(() => {
 .modern-proxy-toolbar {
   flex: none;
   flex-wrap: wrap;
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-5) 0 var(--modern-space-3);
+  gap: var(--modern-page-toolbar-gap);
+  padding: var(--modern-page-toolbar-top) 0 var(--modern-page-toolbar-bottom);
 }
 .modern-proxy-search {
   flex: 2 1 260px;
@@ -1037,7 +1037,8 @@ onScopeDispose(() => {
   flex: none;
   flex-wrap: wrap;
   justify-content: space-between;
-  padding-bottom: var(--modern-space-4);
+  gap: var(--modern-page-statusbar-gap);
+  padding-bottom: var(--modern-page-statusbar-bottom);
 }
 .modern-proxy-notices {
   display: grid;
@@ -1200,10 +1201,6 @@ onScopeDispose(() => {
   .modern-proxies {
     flex: none;
   }
-  .modern-proxy-toolbar {
-    gap: var(--modern-space-2);
-    padding-top: var(--modern-space-3);
-  }
   .modern-proxy-filter {
     flex-basis: 120px;
   }
@@ -1271,7 +1268,6 @@ onScopeDispose(() => {
   .modern-proxy-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: var(--modern-space-2);
   }
   .modern-proxy-search {
     grid-column: auto;

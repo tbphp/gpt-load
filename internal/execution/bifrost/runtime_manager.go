@@ -112,7 +112,10 @@ func buildEffectiveProviderConfigForAttempt(
 	if err != nil {
 		return base, err
 	}
-	if spec.ClientProtocol == protocol.Decisions && resolved.ProviderKind == channel.ProviderOpenRouter {
+	// Bifrost's OpenRouter provider has no passthrough, so these native routes
+	// call the same base URL through the OpenAI provider.
+	if (spec.ClientProtocol == protocol.Decisions || spec.ClientProtocol == protocol.AudioSpeech) &&
+		resolved.ProviderKind == channel.ProviderOpenRouter {
 		baseURL := base.targetBaseURL
 		provider := customProviderKey(schemas.OpenAI, baseURL)
 		config := buildProviderConfig(provider, baseURL, true, schemas.OpenAI, allowPrivateNetwork)

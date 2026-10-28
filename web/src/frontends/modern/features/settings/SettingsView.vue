@@ -1052,9 +1052,10 @@ onScopeDispose(() => {
   min-width: 0;
   min-height: 0;
 }
+/* 设置页没有结果切换栏，搜索栏直接接内容，底部沿用状态栏到内容的间距。 */
 .modern-settings-search {
   flex: none;
-  padding: var(--modern-space-5) 0 var(--modern-space-4);
+  padding: var(--modern-page-toolbar-top) 0 var(--modern-page-statusbar-bottom);
 }
 .modern-settings-layout {
   display: grid;
@@ -1187,9 +1188,6 @@ onScopeDispose(() => {
   }
 }
 @media (max-width: 760px) {
-  .modern-settings-search {
-    padding-block: var(--modern-space-3) var(--modern-space-2);
-  }
   .modern-settings-layout {
     display: flex;
     flex-direction: column;

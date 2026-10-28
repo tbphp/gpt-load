@@ -67,10 +67,10 @@ export type RouteInspectOperation =
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
+  | 'audio_speech'
   | 'mistral_ocr'
   | 'mistral_fim'
   | 'mistral_audio_transcription'
-  | 'mistral_audio_speech'
   | 'mistral_moderation'
   | 'mistral_chat_moderation'
   | 'mistral_classification'
@@ -140,10 +140,10 @@ export const routeInspectOperations = [
   'embeddings_create',
   'rerank',
   'decisions_create',
+  'audio_speech',
   'mistral_ocr',
   'mistral_fim',
   'mistral_audio_transcription',
-  'mistral_audio_speech',
   'mistral_moderation',
   'mistral_chat_moderation',
   'mistral_classification',

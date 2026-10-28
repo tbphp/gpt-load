@@ -93,6 +93,7 @@
   --modern-protocol-embeddings: light-dark(#177985, #80cdd7);
   --modern-protocol-live: light-dark(#75529a, #cbb1e9);
   --modern-protocol-rerank: light-dark(#a34c70, #eda7c2);
+  --modern-protocol-speech: light-dark(#8f6a10, #e6c56b);
   --modern-protocol-anthropic: light-dark(#aa6132, #eeb38b);
   --modern-protocol-gemini: light-dark(#6154ad, #b9aff2);
   --modern-protocol-gemini-embeddings: light-dark(#6a7518, #c9d37c);
@@ -222,6 +223,12 @@
   --modern-content-bottom: 36px;
   --modern-panel-inset: 24px;
   --modern-page-gap: 24px;
+  /* 页面顶部的筛选工具栏与结果/状态切换栏全站共用这组间距，页面不单独调整。 */
+  --modern-page-toolbar-top: var(--modern-space-5);
+  --modern-page-toolbar-bottom: var(--modern-space-3);
+  --modern-page-toolbar-gap: var(--modern-space-3);
+  --modern-page-statusbar-bottom: var(--modern-space-4);
+  --modern-page-statusbar-gap: var(--modern-space-2);
   --modern-context-sidebar: 280px;
   --modern-home-side: clamp(304px, 28%, 432px);
   --modern-key-card-min: 240px;
@@ -300,6 +307,8 @@
     --modern-content-inset: 16px;
     --modern-content-bottom: 28px;
     --modern-panel-inset: 16px;
+    --modern-page-toolbar-top: var(--modern-space-3);
+    --modern-page-toolbar-gap: var(--modern-space-2);
     --modern-logo-width: 176px;
   }
 }

@@ -371,6 +371,8 @@ func supports(clientProtocol protocol.Protocol, operation execution.Operation) b
 		return operation == execution.OperationRerank
 	case protocol.Decisions:
 		return operation == execution.OperationDecisionsCreate
+	case protocol.AudioSpeech:
+		return operation == execution.OperationAudioSpeech
 	case protocol.OpenAIEmbeddings, protocol.GeminiEmbeddings:
 		return operation == execution.OperationEmbeddingsCreate
 	default:

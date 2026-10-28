@@ -28,6 +28,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'audio-speech',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'anthropic',
     supportsProtocolOnlyRouting: false,
   },
