@@ -402,7 +402,8 @@ complete:
 	if spec.ClientProtocol != protocol.OpenAIImages {
 		bodyBytes = bytes.Clone(bodyBytes)
 	}
-	if headers.Get("Content-Encoding") == "" && looksLikeEncodedResponse(bodyBytes) {
+	if headers.Get("Content-Encoding") == "" && looksLikeEncodedResponse(bodyBytes) &&
+		(!audioSpeechAudio(spec, headers) || encodedAudio(bodyBytes, r.unaryResponseBodyLimit(spec))) {
 		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
 	}
 	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)

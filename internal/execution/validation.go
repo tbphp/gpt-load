@@ -328,10 +328,10 @@ func operationRequiresModel(operation Operation) bool {
 		operation == OperationLiveCall ||
 		operation == OperationRerank ||
 		operation == OperationDecisionsCreate ||
+		operation == OperationAudioSpeech ||
 		operation == OperationMistralOCR ||
 		operation == OperationMistralFIM ||
 		operation == OperationMistralAudioTranscription ||
-		operation == OperationMistralAudioSpeech ||
 		operation == OperationMistralModeration ||
 		operation == OperationMistralChatModeration ||
 		operation == OperationMistralClassification ||

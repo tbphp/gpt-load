@@ -1588,11 +1588,14 @@ func nullableRequestLogID(value uint, field string) (*uint, error) {
 	return &value, nil
 }
 
+// legacyMistralAudioSpeechOperation 是语音合成并入 audio-speech 协议前写入日志的操作名，只用于读取历史记录。
+const legacyMistralAudioSpeechOperation execution.Operation = "mistral_audio_speech"
+
 func nullableRequestLogOperation(value execution.Operation) (*execution.Operation, error) {
 	if value == "" {
 		return nil, nil
 	}
-	if !value.Valid() {
+	if !value.Valid() && value != legacyMistralAudioSpeechOperation {
 		return nil, fmt.Errorf("invalid operation")
 	}
 	return &value, nil

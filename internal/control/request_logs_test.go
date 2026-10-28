@@ -930,6 +930,44 @@ func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *te
 	}
 }
 
+func TestRequestLogResponseReadsLegacyMistralSpeechOperation(t *testing.T) {
+	t.Parallel()
+	legacy := execution.Operation("mistral_audio_speech")
+	record := requestlog.Record{
+		RequestID:           "00000000-0000-4000-8000-000000000831",
+		Protocol:            protocol.Mistral,
+		Operation:           legacy,
+		ModelConsistency:    telemetry.ModelConsistencyNotApplicable,
+		Status:              telemetry.RequestStatusSuccess,
+		UsageState:          usage.StateNotApplicable,
+		CostState:           pricing.CostStateNotApplicable,
+		PricingCompleteness: pricing.CompletenessNotApplicable,
+		Attempts: []requestlog.Attempt{{
+			Sequence:        1,
+			GroupID:         1,
+			GroupName:       "mistral",
+			Operation:       legacy,
+			FailureCategory: telemetry.FailureCategoryClientError,
+			Action:          telemetry.ActionTerminate,
+		}},
+	}
+	list, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}, nil)
+	if err != nil || len(list.Items) != 1 || list.Items[0].Operation == nil || *list.Items[0].Operation != legacy {
+		t.Fatalf("list = %#v, err = %v", list.Items, err)
+	}
+	detail, err := mapRequestLogDetailResponse(record, nil)
+	if err != nil {
+		t.Fatalf("mapRequestLogDetailResponse() error = %v", err)
+	}
+	raw, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	if strings.Count(string(raw), `"operation":"mistral_audio_speech"`) != 2 {
+		t.Fatalf("response = %s, want legacy operation on the request and attempt", raw)
+	}
+}
+
 func TestRequestLogDetailProjectsEmptyAttemptReasoningAsNull(t *testing.T) {
 	t.Parallel()
 	result, err := mapRequestLogDetailResponse(requestlog.Record{

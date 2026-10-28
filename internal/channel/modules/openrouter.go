@@ -48,6 +48,7 @@ func OpenRouter() spec.Module {
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationListModels, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.AudioSpeech, execution.OperationAudioSpeech, execution.RouteNative),
 			},
 		},
 	}

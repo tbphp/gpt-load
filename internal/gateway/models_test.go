@@ -358,6 +358,11 @@ func TestVisibleOpenAIModelIDsIncludesUtilityRoutes(t *testing.T) {
 				"shared":        {{GroupID: 3}},
 			},
 		},
+		protocol.AudioSpeech: {
+			execution.OperationAudioSpeech: {
+				"speech-only": {{GroupID: 4}},
+			},
+		},
 	}}
 
 	tests := []struct {
@@ -367,7 +372,14 @@ func TestVisibleOpenAIModelIDsIncludesUtilityRoutes(t *testing.T) {
 	}{
 		{
 			name: "unrestricted union",
-			want: []string{"chat-only", "decision-only", "rerank-only", "shared"},
+			want: []string{"chat-only", "decision-only", "rerank-only", "shared", "speech-only"},
+		},
+		{
+			name: "audio speech protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{
+				protocol.AudioSpeech: {},
+			}}},
+			want: []string{"speech-only"},
 		},
 		{
 			name: "decisions protocol filter",

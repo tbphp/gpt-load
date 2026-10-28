@@ -125,8 +125,6 @@ func classifyMistralRequest(method, path string) (execution.Operation, error) {
 		return execution.OperationMistralAudioTranscription, nil
 	case method == http.MethodGet && path == "/v1/audio/transcriptions/realtime":
 		return execution.OperationMistralRealtimeTranscription, nil
-	case method == http.MethodPost && path == "/v1/audio/speech":
-		return execution.OperationMistralAudioSpeech, nil
 	case method == http.MethodPost && path == "/v1/moderations":
 		return execution.OperationMistralModeration, nil
 	case method == http.MethodPost && path == "/v1/chat/moderations":
@@ -146,7 +144,6 @@ func mistralModelRequired(operation execution.Operation) bool {
 	case execution.OperationMistralOCR,
 		execution.OperationMistralFIM,
 		execution.OperationMistralAudioTranscription,
-		execution.OperationMistralAudioSpeech,
 		execution.OperationMistralModeration,
 		execution.OperationMistralChatModeration,
 		execution.OperationMistralClassification,

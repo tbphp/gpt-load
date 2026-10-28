@@ -63,6 +63,9 @@ const label = computed(() => protocolLabel(value.value, t))
 .modern-protocol-tag[data-protocol='rerank'] {
   --modern-protocol-color: var(--modern-protocol-rerank);
 }
+.modern-protocol-tag[data-protocol='audio-speech'] {
+  --modern-protocol-color: var(--modern-protocol-speech);
+}
 .modern-protocol-tag[data-protocol='anthropic'] {
   --modern-protocol-color: var(--modern-protocol-anthropic);
 }

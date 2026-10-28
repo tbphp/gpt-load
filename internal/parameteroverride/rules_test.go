@@ -246,6 +246,7 @@ func TestRulesUseFixedOperationAllowlist(t *testing.T) {
 		{protocol.OpenAIImages, execution.OperationImagesGenerate, true},
 		{protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate, true},
 		{protocol.Decisions, execution.OperationDecisionsCreate, true},
+		{protocol.AudioSpeech, execution.OperationAudioSpeech, true},
 		{protocol.Anthropic, execution.OperationChatCompletion, true},
 		{protocol.Gemini, execution.OperationChatCompletion, true},
 		{protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, true},
