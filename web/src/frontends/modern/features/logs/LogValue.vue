@@ -281,6 +281,7 @@ const quiet = computed(() => {
   font-size: var(--modern-font-size-caption);
   font-weight: var(--modern-weight-medium);
   padding-inline: var(--modern-space-1-5);
+  white-space: nowrap;
 }
 .modern-log-boolean {
   color: var(--modern-muted);
