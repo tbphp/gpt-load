@@ -39,6 +39,12 @@ func TestAudioSpeechKeepsEachChannelNativeFormat(t *testing.T) {
 			model: "openai/gpt-4o-mini-tts", wantFields: []string{`"model":"openai/gpt-4o-mini-tts"`, `"voice":"alloy"`, `"response_format":"mp3"`},
 			contentType: "audio/mpeg", response: []byte("ID3\x04\x00\x00binary-audio"),
 		},
+		{
+			name: "openrouter pcm with compression magic", channelID: channel.OpenRouter, basePath: "/proxy/api", wantPath: "/proxy/api/v1/audio/speech",
+			body:  `{"model":"public","input":"hello","voice":"alloy","response_format":"pcm"}`,
+			model: "openai/gpt-4o-mini-tts", wantFields: []string{`"response_format":"pcm"`},
+			contentType: "audio/pcm", response: []byte("\x1f\x8b\x00\x00\x28\xb5\x2f\xfdpcm-samples"),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

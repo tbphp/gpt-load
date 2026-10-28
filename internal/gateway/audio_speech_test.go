@@ -45,6 +45,13 @@ func TestAudioSpeechGatewayKeepsEachChannelNativeFormat(t *testing.T) {
 			want: []string{"ID3\x04\x00\x00binary-audio"}, filters: speechOnly, status: http.StatusOK, calls: 1,
 		},
 		{
+			name: "openrouter pcm with compression magic", channelID: channel.OpenRouter, basePath: "/api", upstreamPath: "/api/v1/audio/speech",
+			body:          `{"model":"public","input":"hello","voice":"alloy","response_format":"pcm"}`,
+			upstreamModel: "openai/gpt-4o-mini-tts", upstreamField: `"response_format":"pcm"`,
+			contentType: "audio/pcm", upstream: []byte("\x1f\x8b\x00\x00pcm-samples"),
+			want: []string{"\x1f\x8b\x00\x00pcm-samples"}, status: http.StatusOK, calls: 1,
+		},
+		{
 			name: "mistral json", channelID: channel.Mistral, basePath: "/v1", upstreamPath: "/v1/audio/speech",
 			body:          `{"model":"public","input":"hello","voice_id":"gb_jane_neutral"}`,
 			upstreamModel: "voxtral-mini-tts-2603", upstreamField: `"voice_id":"gb_jane_neutral"`,

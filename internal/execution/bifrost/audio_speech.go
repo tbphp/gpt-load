@@ -3,7 +3,9 @@ package bifrost
 import (
 	"bytes"
 	"fmt"
+	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/maximhq/bifrost/core/schemas"
 
@@ -73,6 +75,16 @@ func audioSpeechTarget(resolved channel.ResolvedTarget, clientPath string) (stri
 		return "", "", err
 	}
 	return baseURL, path, nil
+}
+
+// audioSpeechAudio reports whether a speech response carries raw audio. Its
+// leading bytes are samples, so the gzip/zstd magic check does not apply.
+func audioSpeechAudio(spec execution.AttemptSpec, headers http.Header) bool {
+	if spec.ClientProtocol != protocol.AudioSpeech {
+		return false
+	}
+	mediaType, _, err := mime.ParseMediaType(headers.Get("Content-Type"))
+	return err == nil && strings.HasPrefix(mediaType, "audio/")
 }
 
 // audioSpeechRequestShape reports whether the attempt is a unary native
