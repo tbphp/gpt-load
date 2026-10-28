@@ -159,7 +159,7 @@ const autoDecisionTooltip = computed(() => {
     decision.confidence === null
       ? ''
       : `${t('autoModel.confidenceValue')} ${n(decision.confidence, { style: 'percent', maximumFractionDigits: 1 })}`
-  const duration = decision.called ? `${t('autoModel.duration')} ${n(decision.duration_ms)} ms` : ''
+  const duration = decision.called ? `${t('autoModel.duration')} ${n(decision.duration_ms)}ms` : ''
   return [strategy, reason, confidence, duration].filter(Boolean).join(' · ')
 })
 const autoDecisionTone = computed(() => {

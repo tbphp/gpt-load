@@ -449,7 +449,7 @@ function decisionRuleLabel(ruleID: string): string {
               </div>
               <div v-if="log.auto_decision.called">
                 <dt>{{ t('autoModel.duration') }}</dt>
-                <dd>{{ log.auto_decision.duration_ms }} ms</dd>
+                <dd>{{ log.auto_decision.duration_ms }}ms</dd>
               </div>
               <div v-if="log.auto_decision.confidence !== null">
                 <dt>{{ t('autoModel.confidenceValue') }}</dt>
