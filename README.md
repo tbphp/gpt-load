@@ -73,6 +73,14 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 - **Scheduling and failure isolation built in** — Multi-credential scheduling, configurable weights, retries, cooldown, blacklisting, and session affinity reduce the impact of overloaded or failing credentials.
 - **Observable, self-hosted, and simple to deploy** — Inspect health, routes, logs, usage, and cost estimates in an embedded UI backed by SQLite, MySQL, or PostgreSQL with local credential encryption.
 
+## Online demo
+
+[Open the shared demo](https://gpt-load-rui2.onrender.com) · Login key: `gpt-load-demo`
+
+Try creating, editing, and deleting configuration. All visitors share the same data, which resets every 30 minutes and whenever the service restarts. Groups, credentials, request logs, and usage are synthetic. External requests, OAuth authorization, and network probes are disabled. Do not enter real credentials or personal data. The free Render instance may take about a minute to wake up after being idle.
+
+To host a demo, run `./gpt-load demo`, or append `demo` to the official Docker image command. On Render, set **Docker Command** to `demo` and leave `DATABASE_DSN` empty. The demo creates its own temporary SQLite database and ignores `DATA_DIR`, `AUTH_KEY`, `ENCRYPTION_KEY`, and `.env`. Starting `gpt-load` without `demo` retains normal behavior.
+
 ## Quick start
 
 > [!WARNING]

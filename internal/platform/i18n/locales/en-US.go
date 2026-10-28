@@ -2,6 +2,7 @@ package locales
 
 // MessagesEnUS contains English (US) control-plane translations.
 var MessagesEnUS = map[string]string{
+	"demo.restricted":                            "This action is unavailable in the demo. Upstream requests, authorization, and network probes are disabled.",
 	"access_key.custom_invalid":                  "Use up to 256 visible ASCII characters without spaces or control characters.",
 	"access_key.admin_conflict":                  "The administrator key cannot be used as an access key.",
 	"access_key.exists":                          "This access key already exists. Use a different key.",

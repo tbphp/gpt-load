@@ -1,3 +1,4 @@
+import { receiveDemoStatus } from '@shared/frontend/demo'
 import {
   ApiError,
   InvalidRequestPathError,
@@ -265,6 +266,7 @@ export function createApiClient(deps: ApiClientDependencies): ApiClientWithRespo
       throw new NetworkError()
     }
 
+    receiveDemoStatus(result.headers)
     let envelope: Envelope
     try {
       envelope = await parseEnvelope(result)

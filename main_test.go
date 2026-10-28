@@ -31,7 +31,7 @@ func TestDispatchCommandPrintsVersion(t *testing.T) {
 }
 
 func TestDispatchCommandRejectsArgumentsForVersionAndUpdate(t *testing.T) {
-	for _, args := range [][]string{{"version", "extra"}, {"update", "--yes"}} {
+	for _, args := range [][]string{{"version", "extra"}, {"update", "--yes"}, {"demo", "--yes"}} {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 
@@ -48,7 +48,7 @@ func TestPrintHelpDocumentsVersionAndUpdate(t *testing.T) {
 	printHelp(&output)
 
 	help := output.String()
-	for _, required := range []string{"gpt-load version", "gpt-load update"} {
+	for _, required := range []string{"gpt-load version", "gpt-load update", "gpt-load demo"} {
 		if !strings.Contains(help, required) {
 			t.Fatalf("help does not document %q:\n%s", required, help)
 		}
