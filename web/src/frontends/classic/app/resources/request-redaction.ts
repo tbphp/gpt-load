@@ -1,34 +1,14 @@
 import type { ApiClient } from '@shared/http/client'
 import { InvalidResponseError } from '@shared/http/errors'
 
-export interface RedactionRule {
-  pattern: string
-  replacement: string
-  mode?: 'replace' | 'encrypt'
-}
+import type { RedactionRule } from '@shared/request-redaction'
+export type { RedactionRule } from '@shared/request-redaction'
 export interface RedactionIssue {
   index: number
   error?: string
   warning?: string
 }
-export const redactionPresets = [
-  {
-    key: 'email',
-    pattern: String.raw`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`,
-    replacement: '[EMAIL]',
-  },
-  { key: 'phone', pattern: String.raw`\b1[3-9][0-9]{9}\b`, replacement: '[PHONE]' },
-  {
-    key: 'apiKey',
-    pattern: String.raw`\b(?:sk-(?:proj-|ant-)?|gh[pousr]_)[A-Za-z0-9_-]{16,}\b`,
-    replacement: '[API_KEY]',
-  },
-  {
-    key: 'privateKey',
-    pattern: String.raw`-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----`,
-    replacement: '[PRIVATE_KEY]',
-  },
-] as const
+export { redactionPresets } from '@shared/request-redaction'
 
 export function readRedactionRules(value: unknown): RedactionRule[] {
   if (!Array.isArray(value)) throw new InvalidResponseError()

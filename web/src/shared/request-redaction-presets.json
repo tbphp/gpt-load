@@ -1,0 +1,42 @@
+[
+  {
+    "key": "email",
+    "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+    "replacement": "[EMAIL]"
+  },
+  {
+    "key": "phone",
+    "pattern": "\\b1[3-9][0-9]{9}\\b",
+    "replacement": "[PHONE]"
+  },
+  {
+    "key": "apiKey",
+    "pattern": "\\b(?:sk-(?:proj-|ant-)?|gh[pousr]_)[A-Za-z0-9_-]{16,}\\b",
+    "replacement": "[API_KEY]"
+  },
+  {
+    "key": "privateKey",
+    "pattern": "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\\s\\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+    "replacement": "[PRIVATE_KEY]"
+  },
+  {
+    "key": "jwt",
+    "pattern": "\\beyJ[A-Za-z0-9_-]{8,}\\.eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}",
+    "replacement": "[JWT]"
+  },
+  {
+    "key": "awsAccessKey",
+    "pattern": "\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b",
+    "replacement": "[AWS_ACCESS_KEY_ID]"
+  },
+  {
+    "key": "googleApiKey",
+    "pattern": "\\bAIza[A-Za-z0-9_-]{35}",
+    "replacement": "[GOOGLE_API_KEY]"
+  },
+  {
+    "key": "databaseURL",
+    "pattern": "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\\+srv)?|mssql|sqlserver)://[^\\s:@/\"'<>]*:[^\\s@/\"'<>]+@[^\\s\"'<>()\\[\\]{}，。;]+",
+    "replacement": "[DATABASE_URL]"
+  }
+]

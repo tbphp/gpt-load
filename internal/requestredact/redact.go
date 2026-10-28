@@ -247,22 +247,34 @@ type textMatch struct {
 	plaintext        string
 }
 
-func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, error) {
+func (c *Compiled) textMatches(value string) ([]textMatch, error) {
 	spans := []textMatch{}
 	for i, p := range c.patterns {
 		matches := p.FindAllStringIndex(value, 65537)
 		if len(matches) > 65536 {
-			return "", ErrContent
+			return nil, ErrContent
 		}
 		for _, span := range matches {
 			if span[0] == span[1] {
 				continue
 			}
-			if c.rules[i].Mode == ModeEncrypt && cipher == nil {
-				return "", ErrContent
-			}
 			spans = append(spans, textMatch{start: span[0], end: span[1], rule: i})
 			if len(spans) > 65536 {
+				return nil, ErrContent
+			}
+		}
+	}
+	return spans, nil
+}
+
+func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tokenSpan, jsonText bool) (string, error) {
+	spans, err := c.textMatches(value)
+	if err != nil {
+		return "", err
+	}
+	if cipher == nil {
+		for _, span := range spans {
+			if c.rules[span.rule].Mode == ModeEncrypt {
 				return "", ErrContent
 			}
 		}
@@ -289,23 +301,7 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	if len(spans) == 0 {
 		return value, nil
 	}
-	sort.Slice(spans, func(i, j int) bool {
-		if spans[i].start == spans[j].start {
-			return spans[i].rule < spans[j].rule
-		}
-		return spans[i].start < spans[j].start
-	})
-	merged := spans[:0]
-	for i := 0; i < len(spans); {
-		span := spans[i]
-		i++
-		for i < len(spans) && spans[i].start < span.end {
-			span.end = max(span.end, spans[i].end)
-			span.rule = min(span.rule, spans[i].rule)
-			i++
-		}
-		merged = append(merged, span)
-	}
+	merged := mergeTextMatches(spans)
 	for i := range merged {
 		merged[i].plaintext = value[merged[i].start:merged[i].end]
 	}
@@ -349,6 +345,28 @@ func (c *Compiled) rewriteText(value string, cipher TokenCipher, protected []tok
 	}
 	out.WriteString(value[pos:])
 	return out.String(), nil
+}
+
+// mergeTextMatches 保留现有的重叠合并与规则顺序，预览和生产改写共用。
+func mergeTextMatches(spans []textMatch) []textMatch {
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].start == spans[j].start {
+			return spans[i].rule < spans[j].rule
+		}
+		return spans[i].start < spans[j].start
+	})
+	merged := spans[:0]
+	for i := 0; i < len(spans); {
+		span := spans[i]
+		i++
+		for i < len(spans) && spans[i].start < span.end {
+			span.end = max(span.end, spans[i].end)
+			span.rule = min(span.rule, spans[i].rule)
+			i++
+		}
+		merged = append(merged, span)
+	}
+	return merged
 }
 
 // ProtocolField 报告字段是否是协议标识或不透明数据。请求加密上游生成的历史内容、
