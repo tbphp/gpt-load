@@ -27,7 +27,6 @@ const props = defineProps<{
   admin: boolean
   groups?: ReadonlyMap<number, GroupRow>
   channels?: ReadonlyMap<string, GroupChannel>
-  showDate?: boolean
 }>()
 const emit = defineEmits<{ open: []; filter: [filters: LogQuery] }>()
 const { t, te, n, locale } = useI18n()
@@ -105,6 +104,10 @@ const date = computed(() =>
   }).format(props.row.completed_at_ms),
 )
 const fullTime = computed(() => logTime(props.row.completed_at_ms, locale.value, true))
+// 今天的记录只显示时分秒，不是今天的才带日期；悬停时间仍可看到完整时间。
+const showDate = computed(
+  () => new Date(props.row.completed_at_ms).toDateString() !== new Date().toDateString(),
+)
 const pricingMode = computed(() =>
   props.row.pricing_mode === 'standard' ? '' : (props.row.pricing_mode ?? ''),
 )
