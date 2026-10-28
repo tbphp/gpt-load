@@ -2,6 +2,7 @@ package bifrost
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/protocol"
 )
 
@@ -77,14 +79,26 @@ func audioSpeechTarget(resolved channel.ResolvedTarget, clientPath string) (stri
 	return baseURL, path, nil
 }
 
-// audioSpeechAudio reports whether a speech response carries raw audio. Its
-// leading bytes are samples, so the gzip/zstd magic check does not apply.
+// audioSpeechAudio reports whether a speech response carries raw audio, whose
+// leading bytes are samples that may match gzip or zstd magic.
 func audioSpeechAudio(spec execution.AttemptSpec, headers http.Header) bool {
 	if spec.ClientProtocol != protocol.AudioSpeech {
 		return false
 	}
 	mediaType, _, err := mime.ParseMediaType(headers.Get("Content-Type"))
 	return err == nil && strings.HasPrefix(mediaType, "audio/")
+}
+
+// encodedAudio reports whether an audio body that starts with gzip or zstd
+// magic really is compressed. The SDK drops Content-Encoding from passthrough
+// headers but keeps the raw body, so only a body that decodes counts.
+func encodedAudio(body []byte, limit int64) bool {
+	encoding := contentcoding.Gzip
+	if body[0] == 0x28 {
+		encoding = contentcoding.Zstd
+	}
+	_, err := contentcoding.DecodeLimited(encoding, body, limit)
+	return err == nil || errors.Is(err, contentcoding.ErrDecodedBodyTooLarge)
 }
 
 // audioSpeechRequestShape reports whether the attempt is a unary native

@@ -2,12 +2,15 @@ package bifrost
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/klauspost/compress/zstd"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -91,6 +94,52 @@ func TestAudioSpeechKeepsEachChannelNativeFormat(t *testing.T) {
 			}
 			if result.UpstreamProtocol != protocol.AudioSpeech || result.UpstreamRequestID != "speech-request" {
 				t.Fatalf("protocol/request id = %s / %s", result.UpstreamProtocol, result.UpstreamRequestID)
+			}
+		})
+	}
+}
+
+func TestAudioSpeechRejectsCompressedAudioWithoutEncoding(t *testing.T) {
+	t.Parallel()
+	audio := []byte("ID3\x04\x00\x00binary-audio")
+	var gzipped bytes.Buffer
+	gzipWriter := gzip.NewWriter(&gzipped)
+	if _, err := gzipWriter.Write(audio); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zstdEncoder, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zstded := zstdEncoder.EncodeAll(audio, nil)
+	if err := zstdEncoder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for encoding, body := range map[string][]byte{"gzip": gzipped.Bytes(), "zstd": zstded} {
+		t.Run(encoding, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				// The SDK drops Content-Encoding from passthrough headers but keeps the raw body.
+				writer.Header().Set("Content-Type", "audio/mpeg")
+				writer.Header().Set("Content-Encoding", encoding)
+				_, _ = writer.Write(body)
+			}))
+			defer server.Close()
+
+			spec := openAIEmbeddingsSpec(channel.OpenRouter, server.URL+"/api", []byte(`{"model":"public","input":"hello","response_format":"mp3"}`))
+			spec.ClientProtocol = protocol.AudioSpeech
+			spec.Operation = execution.OperationAudioSpeech
+			spec.Path = "/v1/audio/speech"
+			spec.ClientModel = "public"
+			spec.UpstreamModel = "openai/gpt-4o-mini-tts"
+			spec = freezeTestAttempt(spec)
+			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
+			result := runtime.Execute(context.Background(), spec)
+			if result.Error == nil || result.Error.Kind != execution.ErrorKindInternal {
+				t.Fatalf("result = %+v error = %+v; want compressed audio rejected", result, result.Error)
 			}
 		})
 	}
