@@ -103,6 +103,11 @@ const date = computed(() =>
     day: '2-digit',
   }).format(props.row.completed_at_ms),
 )
+const fullTime = computed(() => logTime(props.row.completed_at_ms, locale.value, true))
+// 今天的记录只显示时分秒，不是今天的才带日期；悬停时间仍可看到完整时间。
+const showDate = computed(
+  () => new Date(props.row.completed_at_ms).toDateString() !== new Date().toDateString(),
+)
 const pricingMode = computed(() =>
   props.row.pricing_mode === 'standard' ? '' : (props.row.pricing_mode ?? ''),
 )
@@ -157,7 +162,7 @@ const autoDecisionTooltip = computed(() => {
     decision.confidence === null
       ? ''
       : `${t('autoModel.confidenceValue')} ${n(decision.confidence, { style: 'percent', maximumFractionDigits: 1 })}`
-  const duration = decision.called ? `${t('autoModel.duration')} ${n(decision.duration_ms)} ms` : ''
+  const duration = decision.called ? `${t('autoModel.duration')} ${n(decision.duration_ms)}ms` : ''
   return [strategy, reason, confidence, duration].filter(Boolean).join(' · ')
 })
 const autoDecisionTone = computed(() => {
@@ -253,9 +258,13 @@ function fieldFilterValue(field: LogColumnId): string {
 <template>
   <div v-if="fields[0] === 'completed_at_ms'" class="modern-log-cell-stack">
     <AppButton variant="text" selectable class="modern-log-time" @click="$emit('open')">
-      <AppOverflowText :text="clock" :full-text="logTime(row.completed_at_ms, locale, true)" />
+      <AppOverflowText
+        :text="clock"
+        :full-text="fullTime"
+        :hint="showDate ? undefined : fullTime"
+      />
     </AppButton>
-    <div class="modern-log-cell-value is-secondary">
+    <div v-if="showDate" class="modern-log-cell-value is-secondary">
       <span>{{ date }}</span>
     </div>
   </div>
@@ -461,6 +470,7 @@ function fieldFilterValue(field: LogColumnId): string {
   align-items: center;
   justify-content: flex-start;
   max-width: 100%;
+  min-height: var(--modern-badge-xs);
   font-size: inherit;
   line-height: var(--modern-leading-compact);
   font-variant-numeric: tabular-nums;
@@ -531,6 +541,11 @@ function fieldFilterValue(field: LogColumnId): string {
 }
 .modern-log-identity-cell {
   min-width: 0;
+}
+/* 协议标签与其他单元格行等高，转换时两行标签不撑高整行。 */
+.modern-log-identity-values :deep(.modern-tag) {
+  min-height: var(--modern-badge-xs);
+  padding-block: 0;
 }
 .modern-log-model-line {
   display: flex;
@@ -642,9 +657,6 @@ function fieldFilterValue(field: LogColumnId): string {
   flex: none;
   width: var(--modern-control-xxs);
   height: var(--modern-control-xxs);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-surface);
 }
 .modern-log-routing-name {
   font-weight: var(--modern-weight-medium);

@@ -9,6 +9,7 @@ import { useRouter } from 'vue-router'
 import {
   getLogs,
   getLogAccessKeys,
+  logStatuses,
   logsKey,
   type LogFilterName,
   type LogQuery,
@@ -39,7 +40,7 @@ import LogDetailPanel from './LogDetailPanel.vue'
 import LogFilterLink from './LogFilterLink.vue'
 import LogFilters from './LogFilters.vue'
 import LogTableCell from './LogTableCell.vue'
-import { useLogColumns } from './log-columns'
+import { useLogColumns, type LogColumnId } from './log-columns'
 import {
   logFilterOptions,
   logStateKeys,
@@ -62,7 +63,29 @@ const state = useURLState<LogRouteState>(
   (query) => parseLogState(query, admin.value),
   serializeLogState,
 )
-const columns = useLogColumns(admin.value)
+function columnLabel(fields: readonly LogColumnId[]): string {
+  return t(fields.length > 1 ? 'logs.columnGroups.' + fields[0] : 'logs.columns.' + fields[0])
+}
+// 表头和结果徽标的文字随界面语言变长，列宽至少容纳当前语言的文字，避免截断或换行。
+const textContext = document.createElement('canvas').getContext('2d')
+const rootStyle = getComputedStyle(document.documentElement)
+const token = (name: string) => rootStyle.getPropertyValue(name).trim()
+const captionSize = parseFloat(token('--modern-font-size-caption'))
+function captionWidth(text: string, tracking = 0): number {
+  if (!textContext) return 0
+  textContext.font = `${token('--modern-weight-medium')} ${captionSize}px ${token('--modern-font-sans')}`
+  return Math.ceil(textContext.measureText(text).width + tracking * captionSize * text.length)
+}
+function columnMinWidth(fields: readonly LogColumnId[]): number {
+  const header = captionWidth(columnLabel(fields), parseFloat(token('--modern-tracking-label')))
+  if (!fields.includes('status')) return header
+  // 结果徽标在文字外还有圆点、间距和左右内边距，各占一个 space-1-5。
+  const badge =
+    Math.max(...logStatuses.map((status) => captionWidth(t('logs.values.' + status)))) +
+    4 * parseFloat(token('--modern-space-1-5'))
+  return Math.max(header, badge)
+}
+const columns = useLogColumns(admin.value, columnMinWidth)
 const frame = ref<InstanceType<typeof AppListFrame>>()
 const range = ref(resolveTimeRange({ ...state.value.filters, preset: state.value.preset }))
 const displayedFilters = computed(() => ({ ...state.value.filters, ...range.value }))
@@ -339,15 +362,7 @@ useMessageSource(() =>
             class="modern-log-column-heading"
             :class="{ 'is-numeric': cell.numeric }"
           >
-            <AppOverflowText
-              :text="
-                t(
-                  cell.fields.length > 1
-                    ? 'logs.columnGroups.' + cell.fields[0]
-                    : 'logs.columns.' + cell.fields[0],
-                )
-              "
-            />
+            <AppOverflowText :text="columnLabel(cell.fields)" />
           </div>
           <div class="modern-log-row-action" role="columnheader" :aria-label="t('logs.details')">
             <span class="modern-log-action-heading"
@@ -393,14 +408,7 @@ useMessageSource(() =>
               :aria-colspan="cell.span > 1 ? cell.span : undefined"
               class="modern-log-cell"
               :class="{ 'is-numeric': cell.numeric }"
-              :data-label="
-                t(
-                  cell.error
-                    ? 'logs.columns.error_summary'
-                    : (cell.fields.length > 1 ? 'logs.columnGroups.' : 'logs.columns.') +
-                        cell.fields[0],
-                )
-              "
+              :data-label="cell.error ? t('logs.columns.error_summary') : columnLabel(cell.fields)"
               :style="cell.span > 1 ? { '--modern-log-cell-span': cell.span } : undefined"
             >
               <div v-if="cell.error" class="modern-log-error-summary">
@@ -488,8 +496,8 @@ useMessageSource(() =>
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--modern-space-2);
-  padding-bottom: var(--modern-space-4);
+  gap: var(--modern-page-statusbar-gap);
+  padding-bottom: var(--modern-page-statusbar-bottom);
 }
 .modern-log-statusbar > :first-child {
   flex-shrink: 0;
@@ -514,6 +522,12 @@ useMessageSource(() =>
   overflow: hidden;
   background: var(--modern-surface);
 }
+/* 两侧都预留滚动条位置时，Chromium 的横向滚动范围比可视宽度多算一个滚动条宽度，
+   滚到最右会来回修正；宽表只在右侧预留，并关闭横向回弹。 */
+.modern-log-table :deep(.modern-list-scroll) {
+  scrollbar-gutter: stable;
+  overscroll-behavior-x: none;
+}
 .modern-log-row {
   display: grid;
   grid-template-columns: var(--modern-log-columns);
@@ -525,7 +539,7 @@ useMessageSource(() =>
 }
 .modern-log-table-head {
   --modern-log-row-surface: var(--modern-subtle);
-  min-height: var(--modern-control-sm);
+  min-height: var(--modern-control-xs);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-log-row-surface);
   color: var(--modern-control-placeholder);
@@ -537,12 +551,13 @@ useMessageSource(() =>
   display: flex;
   align-items: center;
   min-width: 0;
-  padding-block: var(--modern-space-2);
+  padding-block: var(--modern-space-1-5);
 }
+/* 双行单元格的每行固定为徽标高度，行距只留最小内边距。 */
 .modern-log-record {
   --modern-log-row-surface: var(--modern-surface);
-  min-height: calc(var(--modern-space-12) + var(--modern-space-1));
-  padding-block: var(--modern-space-2);
+  min-height: var(--modern-space-12);
+  padding-block: var(--modern-space-1);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-log-row-surface);
   color: var(--modern-text);
@@ -624,7 +639,7 @@ useMessageSource(() =>
   color: var(--modern-accent);
 }
 .modern-log-table :deep(.modern-pagination) {
-  padding-inline: var(--modern-space-3);
+  padding: var(--modern-space-2) var(--modern-space-3);
 }
 @media (max-width: 760px) {
   .modern-log-table {

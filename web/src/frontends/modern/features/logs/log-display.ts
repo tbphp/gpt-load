@@ -53,20 +53,21 @@ export function exactLogMoney(value: string): string {
   const fraction = padded.slice(-9).replace(/0+$/, '')
   return '$' + padded.slice(0, -9) + (fraction ? '.' + fraction : '')
 }
+// 日志里的数值与单位紧挨着显示，不留空格。
 export function logDuration(ms: number | null, locale: string): string {
   if (ms === null) return '—'
   return (
     numberFormatter(locale, {
       minimumFractionDigits: ms < 1000 ? 0 : 1,
       maximumFractionDigits: ms < 1000 ? 0 : 1,
-    }).format(ms < 1000 ? ms : ms / 1000) + (ms < 1000 ? ' ms' : ' s')
+    }).format(ms < 1000 ? ms : ms / 1000) + (ms < 1000 ? 'ms' : 's')
   )
 }
 export function logOutputRate(row: LogEntry, locale: string): string {
   const rate = outputTokensPerSecond(row)
   return rate === null
     ? '—'
-    : numberFormatter(locale, { maximumFractionDigits: 1 }).format(rate) + ' t/s'
+    : numberFormatter(locale, { maximumFractionDigits: 1 }).format(rate) + 't/s'
 }
 export function logTime(ms: number, locale: string, full = false): string {
   return dateFormatter(locale, {

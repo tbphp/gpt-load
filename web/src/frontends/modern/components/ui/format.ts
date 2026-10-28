@@ -14,7 +14,7 @@ export function formatByteSize(bytes: number, locale: string): string {
     unit += 1
   }
   const formatter = numberFormatter(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 })
-  return `${formatter.format(value)} ${units[unit]}`
+  return `${formatter.format(value)}${units[unit]}`
 }
 
 export function formatRemainingDuration(milliseconds: number, locale: string): string {
