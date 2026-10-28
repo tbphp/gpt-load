@@ -27,6 +27,7 @@ const props = defineProps<{
   admin: boolean
   groups?: ReadonlyMap<number, GroupRow>
   channels?: ReadonlyMap<string, GroupChannel>
+  showDate?: boolean
 }>()
 const emit = defineEmits<{ open: []; filter: [filters: LogQuery] }>()
 const { t, te, n, locale } = useI18n()
@@ -103,6 +104,7 @@ const date = computed(() =>
     day: '2-digit',
   }).format(props.row.completed_at_ms),
 )
+const fullTime = computed(() => logTime(props.row.completed_at_ms, locale.value, true))
 const pricingMode = computed(() =>
   props.row.pricing_mode === 'standard' ? '' : (props.row.pricing_mode ?? ''),
 )
@@ -253,9 +255,13 @@ function fieldFilterValue(field: LogColumnId): string {
 <template>
   <div v-if="fields[0] === 'completed_at_ms'" class="modern-log-cell-stack">
     <AppButton variant="text" selectable class="modern-log-time" @click="$emit('open')">
-      <AppOverflowText :text="clock" :full-text="logTime(row.completed_at_ms, locale, true)" />
+      <AppOverflowText
+        :text="clock"
+        :full-text="fullTime"
+        :hint="showDate ? undefined : fullTime"
+      />
     </AppButton>
-    <div class="modern-log-cell-value is-secondary">
+    <div v-if="showDate" class="modern-log-cell-value is-secondary">
       <span>{{ date }}</span>
     </div>
   </div>
@@ -648,9 +654,6 @@ function fieldFilterValue(field: LogColumnId): string {
   flex: none;
   width: var(--modern-control-xxs);
   height: var(--modern-control-xxs);
-  border: var(--modern-line-width) solid var(--modern-border);
-  border-radius: var(--modern-radius-control);
-  background: var(--modern-surface);
 }
 .modern-log-routing-name {
   font-weight: var(--modern-weight-medium);

@@ -104,6 +104,17 @@ const channelMap = computed(
   () => channels.data.value && new Map(channels.data.value.map((row) => [row.id, row])),
 )
 const rows = computed(() => query.data.value?.items ?? [])
+// 同一天的连续记录只在第一条显示日期，换天时再显示。
+const dateRows = computed(() => {
+  const result = new Set<string>()
+  let previous = ''
+  for (const row of rows.value) {
+    const day = new Date(row.completed_at_ms).toDateString()
+    if (day !== previous) result.add(row.request_id)
+    previous = day
+  }
+  return result
+})
 const models = computed(() => [
   ...new Set([
     ...(groups.data.value?.items.flatMap((row) => row.modelNames) ?? []),
@@ -422,6 +433,7 @@ useMessageSource(() =>
                 :admin="admin"
                 :groups="groupMap"
                 :channels="channelMap"
+                :show-date="dateRows.has(row.request_id)"
                 @open="showDetail(row.request_id)"
                 @filter="filterFromRow"
               />

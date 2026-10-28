@@ -57,9 +57,12 @@ export interface LogColumn {
 }
 // 表格列：计价信息合并进费用；细分缓存写入与完整性状态只在详情面板展示。
 // 协议列在转换时已并列展示上游协议，路由方式默认不再单独占列。
+// 结果紧跟时间，窄屏横向滚动时也能先看到成败。
 const definitions: readonly [LogColumnId, number, LogColumnSection, boolean, boolean?, number?][] =
   [
     ['completed_at_ms', 76, 'request', true],
+    ['status', 68, 'result', true],
+    ['status_code', 64, 'result', true],
     ['group', 120, 'routing', true, true, 1],
     ['channel', 104, 'routing', true, true],
     ['credential_name', 132, 'routing', true, true, 1],
@@ -70,8 +73,6 @@ const definitions: readonly [LogColumnId, number, LogColumnSection, boolean, boo
     ['stream', 48, 'request', true],
     ['duration_ms', 72, 'performance', true],
     ['first_response_ms', 64, 'performance', true],
-    ['status', 68, 'result', true],
-    ['status_code', 64, 'result', true],
     ['attempt_count', 56, 'result', true, true],
     ['affinity_hit', 56, 'routing', true, true],
     ['input_tokens', 56, 'tokens', true],

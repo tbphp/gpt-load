@@ -166,6 +166,14 @@ const hint = computed(() => {
     return t('logs.attemptCount', { count: n(row.attempt_count) })
   return undefined
 })
+// 未发生的重试与缓存读取弱化为占位色，表格里只突出例外。
+const quiet = computed(() => {
+  const row = props.row
+  if (props.column === 'attempt_count') return row.attempt_count <= 1
+  if (props.column === 'cache_read_tokens' || props.column === 'cache_hit_rate')
+    return logHasUsage(row) && BigInt(row.cache_read_tokens) === 0n
+  return false
+})
 </script>
 
 <template>
@@ -250,7 +258,8 @@ const hint = computed(() => {
     :text="display"
     :full-text="hint"
     :class="{
-      'modern-log-empty': table && display === '—',
+      'modern-log-empty': table && (display === '—' || quiet),
+      'modern-log-cache-hit': table && column === 'cache_hit_rate' && !quiet && display !== '—',
       'modern-log-amount':
         table && column === 'estimated_cost_nano_usd' && row.cost_state === 'priced',
       'modern-log-number': table && tokenValue !== undefined,
@@ -291,6 +300,10 @@ const hint = computed(() => {
 .modern-log-empty,
 .modern-log-http.is-empty {
   color: var(--modern-control-placeholder);
+}
+/* 命中率沿用用量统计的缓存系列色。 */
+.modern-log-cache-hit {
+  color: var(--modern-chart-cache);
 }
 .modern-log-retry {
   display: inline-flex;
