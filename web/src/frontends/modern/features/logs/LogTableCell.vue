@@ -461,6 +461,7 @@ function fieldFilterValue(field: LogColumnId): string {
   align-items: center;
   justify-content: flex-start;
   max-width: 100%;
+  min-height: var(--modern-badge-xs);
   font-size: inherit;
   line-height: var(--modern-leading-compact);
   font-variant-numeric: tabular-nums;
@@ -531,6 +532,11 @@ function fieldFilterValue(field: LogColumnId): string {
 }
 .modern-log-identity-cell {
   min-width: 0;
+}
+/* 协议标签与其他单元格行等高，转换时两行标签不撑高整行。 */
+.modern-log-identity-values :deep(.modern-tag) {
+  min-height: var(--modern-badge-xs);
+  padding-block: 0;
 }
 .modern-log-model-line {
   display: flex;

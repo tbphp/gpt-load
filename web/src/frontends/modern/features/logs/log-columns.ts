@@ -56,33 +56,34 @@ export interface LogColumn {
   grow: number
 }
 // 表格列：计价信息合并进费用；细分缓存写入与完整性状态只在详情面板展示。
+// 协议列在转换时已并列展示上游协议，路由方式默认不再单独占列。
 const definitions: readonly [LogColumnId, number, LogColumnSection, boolean, boolean?, number?][] =
   [
-    ['completed_at_ms', 80, 'request', true],
+    ['completed_at_ms', 76, 'request', true],
     ['group', 120, 'routing', true, true, 1],
     ['channel', 104, 'routing', true, true],
     ['credential_name', 132, 'routing', true, true, 1],
     ['access_key', 108, 'routing', true, true, 1],
     ['client_model', 152, 'models', true, false, 2],
-    ['protocol', 152, 'request', true],
+    ['protocol', 136, 'request', true],
     ['reasoning_mode', 120, 'models', true],
     ['stream', 48, 'request', true],
-    ['route_mode', 64, 'routing', true, true],
-    ['affinity_hit', 56, 'routing', true, true],
     ['duration_ms', 72, 'performance', true],
     ['first_response_ms', 64, 'performance', true],
     ['status', 68, 'result', true],
     ['status_code', 64, 'result', true],
     ['attempt_count', 56, 'result', true, true],
+    ['affinity_hit', 56, 'routing', true, true],
     ['input_tokens', 56, 'tokens', true],
     ['output_tokens', 56, 'tokens', true],
     ['cache_read_tokens', 60, 'tokens', true],
     ['cache_hit_rate', 56, 'tokens', true],
-    ['estimated_cost_nano_usd', 132, 'billing', true],
+    ['estimated_cost_nano_usd', 112, 'billing', true],
     // 用户额外选择的字段统一追加，不打断默认列和错误摘要区域。
     ['request_id', 180, 'request', false],
     ['client_ip', 160, 'request', false],
     ['operation', 88, 'request', false],
+    ['route_mode', 64, 'routing', false, true],
     ['upstream_reported_model', 152, 'models', false, true],
     ['error_code', 132, 'result', false],
     ['error_summary', 200, 'result', false, false, 2],
@@ -90,23 +91,49 @@ const definitions: readonly [LogColumnId, number, LogColumnSection, boolean, boo
     ['total_tokens', 56, 'tokens', false],
   ]
 
-const previousDefaultColumns: readonly LogColumnId[] = [
-  'completed_at_ms',
-  'client_model',
-  'protocol',
-  'group',
-  'channel',
-  'credential_name',
-  'access_key',
-  'status',
-  'status_code',
-  'stream',
-  'attempt_count',
-  'duration_ms',
-  'first_response_ms',
-  'input_tokens',
-  'output_tokens',
-  'estimated_cost_nano_usd',
+// 保存的列恰好等于某一版旧默认列时视为未自定义，随当前默认列更新。
+const previousDefaultColumns: readonly (readonly LogColumnId[])[] = [
+  [
+    'completed_at_ms',
+    'client_model',
+    'protocol',
+    'group',
+    'channel',
+    'credential_name',
+    'access_key',
+    'status',
+    'status_code',
+    'stream',
+    'attempt_count',
+    'duration_ms',
+    'first_response_ms',
+    'input_tokens',
+    'output_tokens',
+    'estimated_cost_nano_usd',
+  ],
+  [
+    'completed_at_ms',
+    'group',
+    'channel',
+    'credential_name',
+    'access_key',
+    'client_model',
+    'protocol',
+    'reasoning_mode',
+    'stream',
+    'route_mode',
+    'affinity_hit',
+    'duration_ms',
+    'first_response_ms',
+    'status',
+    'status_code',
+    'attempt_count',
+    'input_tokens',
+    'output_tokens',
+    'cache_read_tokens',
+    'cache_hit_rate',
+    'estimated_cost_nano_usd',
+  ],
 ]
 // 右对齐并使用等宽数字的字段，便于按位比较。
 export const numericColumns: ReadonlySet<LogColumnId> = new Set([
@@ -154,10 +181,13 @@ export function useLogColumns(admin: boolean) {
         .filter(
           (id): id is LogColumnId => typeof id === 'string' && availableIDs.has(id as LogColumnId),
         )
-      const previousDefaults = previousDefaultColumns.filter((id) => availableIDs.has(id))
-      const savedPreviousDefaults =
-        new Set(saved).size === previousDefaults.length &&
-        previousDefaults.every((id) => saved.includes(id))
+      const savedPreviousDefaults = previousDefaultColumns.some((columns) => {
+        const previousDefaults = columns.filter((id) => availableIDs.has(id))
+        return (
+          new Set(saved).size === previousDefaults.length &&
+          previousDefaults.every((id) => saved.includes(id))
+        )
+      })
       if (saved.length && !savedPreviousDefaults)
         initial = available.filter((column) => saved.includes(column.id)).map((column) => column.id)
     }
@@ -188,16 +218,15 @@ export function useLogColumns(admin: boolean) {
     'input_tokens-output_tokens',
     'cache_read_tokens-cache_hit_rate',
     'cache_write_tokens-total_tokens',
-    'route_mode-affinity_hit',
   ])
   const pairs: readonly (readonly [LogColumnId, LogColumnId, number])[] = [
-    ['reasoning_mode', 'stream', 88],
-    ['group', 'channel', 148],
-    ['access_key', 'credential_name', 156],
-    ['route_mode', 'affinity_hit', 62],
-    ['status', 'status_code', 76],
+    ['reasoning_mode', 'stream', 72],
+    ['group', 'channel', 136],
+    ['access_key', 'credential_name', 140],
+    ['attempt_count', 'affinity_hit', 60],
+    ['status', 'status_code', 72],
     ['error_code', 'error_summary', 200],
-    ['duration_ms', 'first_response_ms', 132],
+    ['duration_ms', 'first_response_ms', 116],
     ['input_tokens', 'output_tokens', 68],
     ['cache_read_tokens', 'cache_hit_rate', 68],
     ['cache_write_tokens', 'total_tokens', 68],

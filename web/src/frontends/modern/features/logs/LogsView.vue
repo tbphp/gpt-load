@@ -525,7 +525,7 @@ useMessageSource(() =>
 }
 .modern-log-table-head {
   --modern-log-row-surface: var(--modern-subtle);
-  min-height: var(--modern-control-sm);
+  min-height: var(--modern-control-xs);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-log-row-surface);
   color: var(--modern-control-placeholder);
@@ -537,12 +537,13 @@ useMessageSource(() =>
   display: flex;
   align-items: center;
   min-width: 0;
-  padding-block: var(--modern-space-2);
+  padding-block: var(--modern-space-1-5);
 }
+/* 双行单元格的每行固定为徽标高度，行距只留最小内边距。 */
 .modern-log-record {
   --modern-log-row-surface: var(--modern-surface);
-  min-height: calc(var(--modern-space-12) + var(--modern-space-1));
-  padding-block: var(--modern-space-2);
+  min-height: var(--modern-space-12);
+  padding-block: var(--modern-space-1);
   border-bottom: var(--modern-line-width) solid var(--modern-border);
   background: var(--modern-log-row-surface);
   color: var(--modern-text);
@@ -624,7 +625,7 @@ useMessageSource(() =>
   color: var(--modern-accent);
 }
 .modern-log-table :deep(.modern-pagination) {
-  padding-inline: var(--modern-space-3);
+  padding: var(--modern-space-2) var(--modern-space-3);
 }
 @media (max-width: 760px) {
   .modern-log-table {
