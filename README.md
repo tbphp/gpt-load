@@ -150,8 +150,6 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
 
-Audio Speech passes each channel's native format through: OpenRouter takes `voice` and returns audio bytes, while Mistral takes `voice_id` and returns JSON. Do not map one client model to groups of both channels, because failover between them would send the wrong format.
-
 ### Built-in channels
 
 - **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
