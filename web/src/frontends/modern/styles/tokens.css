@@ -223,6 +223,12 @@
   --modern-content-bottom: 36px;
   --modern-panel-inset: 24px;
   --modern-page-gap: 24px;
+  /* 页面顶部的筛选工具栏与结果/状态切换栏全站共用这组间距，页面不单独调整。 */
+  --modern-page-toolbar-top: var(--modern-space-5);
+  --modern-page-toolbar-bottom: var(--modern-space-3);
+  --modern-page-toolbar-gap: var(--modern-space-3);
+  --modern-page-statusbar-bottom: var(--modern-space-4);
+  --modern-page-statusbar-gap: var(--modern-space-2);
   --modern-context-sidebar: 280px;
   --modern-home-side: clamp(304px, 28%, 432px);
   --modern-key-card-min: 240px;
@@ -301,6 +307,8 @@
     --modern-content-inset: 16px;
     --modern-content-bottom: 28px;
     --modern-panel-inset: 16px;
+    --modern-page-toolbar-top: var(--modern-space-3);
+    --modern-page-toolbar-gap: var(--modern-space-2);
     --modern-logo-width: 176px;
   }
 }

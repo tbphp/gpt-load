@@ -419,8 +419,8 @@ useMessageSource(() =>
   flex: none;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--modern-space-3);
-  padding: var(--modern-space-5) 0 var(--modern-space-3);
+  gap: var(--modern-page-toolbar-gap);
+  padding: var(--modern-page-toolbar-top) 0 var(--modern-page-toolbar-bottom);
 }
 .modern-models-search {
   flex: 2 1 280px;
@@ -436,8 +436,8 @@ useMessageSource(() =>
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: var(--modern-space-2);
-  padding-bottom: var(--modern-space-4);
+  gap: var(--modern-page-statusbar-gap);
+  padding-bottom: var(--modern-page-statusbar-bottom);
   color: var(--modern-muted);
   font-size: var(--modern-font-size-secondary);
 }
@@ -470,10 +470,6 @@ useMessageSource(() =>
   .modern-models-workspace {
     flex: none;
   }
-  .modern-models-toolbar {
-    gap: var(--modern-space-2);
-    padding-top: var(--modern-space-3);
-  }
   .modern-models-search {
     flex-basis: 100%;
   }
@@ -485,7 +481,6 @@ useMessageSource(() =>
   .modern-models-toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--modern-space-2);
   }
   .modern-models-grid,
   .modern-models-grid.is-read-only {
