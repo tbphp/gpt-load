@@ -514,6 +514,12 @@ useMessageSource(() =>
   overflow: hidden;
   background: var(--modern-surface);
 }
+/* 两侧都预留滚动条位置时，Chromium 的横向滚动范围比可视宽度多算一个滚动条宽度，
+   滚到最右会来回修正；宽表只在右侧预留，并关闭横向回弹。 */
+.modern-log-table :deep(.modern-list-scroll) {
+  scrollbar-gutter: stable;
+  overscroll-behavior-x: none;
+}
 .modern-log-row {
   display: grid;
   grid-template-columns: var(--modern-log-columns);
