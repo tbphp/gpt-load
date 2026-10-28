@@ -206,10 +206,10 @@ const {
   rows: skeletonRows,
 } = useCollectionLoading(
   {
-    pending: () => logsQuery.isPending.value,
+    pending: () => logsQuery.isPending.value && !logsPage.value,
     placeholder: () => logsQuery.isPlaceholderData.value && !silentRefresh.value,
-    fetching: () => logsQuery.isFetching.value,
-    hasData: () => logsQuery.data.value !== undefined,
+    fetching: () => logsQuery.isFetching.value && !silentRefresh.value,
+    hasData: () => logsPage.value !== undefined,
     itemCount: () => logs.value.length,
   },
   { fallbackRows: 20 },
@@ -798,7 +798,7 @@ function costLabel(log: RequestLogItemDto): string {
     <AsyncRefreshIndicator :active="logsRefreshing" :label="t('monitor.logs.loading')" />
 
     <SkeletonSurface
-      v-if="logsQuery.isPending.value || initialLoading"
+      v-if="(logsQuery.isPending.value && !logsPage) || initialLoading"
       variant="collection"
       :rows="appliedFilters.limit ?? 20"
       :columns="(isAccessKey ? 7 : 9) + (showClientIP ? 1 : 0)"

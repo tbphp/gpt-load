@@ -283,6 +283,7 @@ async function save(confirmed = false): Promise<void> {
     unpricedConfirm.value = true
     return
   }
+  unpricedConfirm.value = false
   pending.value = true
   failure.value = ''
   try {

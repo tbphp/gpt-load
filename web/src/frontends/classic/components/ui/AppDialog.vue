@@ -51,7 +51,8 @@ function guardDismiss(event: Event): void {
 <template>
   <DialogRoot :open="open" @update:open="setOpen">
     <DialogTrigger v-if="$slots.trigger" as-child><slot name="trigger" /></DialogTrigger>
-    <DialogPortal>
+    <!-- 打开时再挂载 Portal，让后开的确认框排在已有弹窗之后。 -->
+    <DialogPortal v-if="open">
       <DialogOverlay class="app-dialog__overlay" />
       <DialogContent
         v-bind="description ? {} : { 'aria-describedby': undefined }"
@@ -92,7 +93,8 @@ function guardDismiss(event: Event): void {
 <style>
 .app-dialog__overlay {
   position: fixed;
-  z-index: var(--z-dialog-overlay);
+  /* 遮罩与内容同层，按 Portal 的打开顺序覆盖前一个弹窗。 */
+  z-index: var(--z-dialog);
   inset: 0;
   background: var(--color-overlay);
 }

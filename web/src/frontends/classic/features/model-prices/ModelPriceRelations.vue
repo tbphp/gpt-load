@@ -73,6 +73,7 @@ const cached = computed(() => {
     </InlineFeedback>
     <AppButton
       v-if="source"
+      class="price-relations-source"
       variant="link"
       size="compact"
       @click="emit('inspect', source.price.id)"
@@ -113,7 +114,15 @@ const cached = computed(() => {
 <style scoped>
 .price-relations {
   display: grid;
+  min-width: 0;
   gap: var(--space-2);
+}
+.price-relations-source {
+  min-width: 0;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: left;
 }
 .price-relations-loading {
   margin: 0;
@@ -126,9 +135,15 @@ const cached = computed(() => {
 }
 .price-relation {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-2);
   text-align: left;
+}
+.price-relation > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 </style>
