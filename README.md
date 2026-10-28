@@ -75,7 +75,7 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 
 ## Online demo
 
-[Open the shared demo](https://gpt-load-rui2.onrender.com) · Login key: `gpt-load-demo`
+[Open the shared demo](https://demo.gpt-load.com) · Login key: `gpt-load-demo`
 
 Try creating, editing, and deleting configuration. All visitors share the same data, which resets every 30 minutes and whenever the service restarts. Groups, credentials, request logs, and usage are synthetic. External requests, OAuth authorization, and network probes are disabled. Do not enter real credentials or personal data. The free Render instance may take about a minute to wake up after being idle.
 
