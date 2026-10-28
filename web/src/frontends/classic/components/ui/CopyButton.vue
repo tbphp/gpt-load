@@ -10,6 +10,7 @@ const props = defineProps<{
   label: string
   successLabel: string
   failureLabel: string
+  compact?: boolean
 }>()
 const { copy: copyValue, fallbackText, pending, reset } = useClipboardCopy()
 const state = ref<'idle' | 'success' | 'failure'>('idle')
@@ -42,7 +43,7 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
 </script>
 
 <template>
-  <span class="copy-control">
+  <span class="copy-control" :class="{ 'copy-control--compact': compact }">
     <button
       type="button"
       :aria-label="label"
@@ -50,8 +51,8 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
       :disabled="pending"
       @click="copy"
     >
-      <Check v-if="state === 'success'" :size="16" aria-hidden="true" />
-      <Copy v-else :size="16" aria-hidden="true" />
+      <Check v-if="state === 'success'" :size="compact ? 14 : 16" aria-hidden="true" />
+      <Copy v-else :size="compact ? 14 : 16" aria-hidden="true" />
     </button>
     <span
       v-if="state !== 'idle'"
@@ -70,6 +71,8 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
 .copy-control {
   position: relative;
   display: inline-flex;
+  flex: none;
+  vertical-align: middle;
 }
 .copy-control button {
   display: inline-flex;
@@ -82,6 +85,20 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
   background: var(--color-surface);
   color: var(--color-text-muted);
   cursor: pointer;
+}
+.copy-control--compact button {
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
+  background: transparent;
+}
+.copy-control button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+  color: var(--color-action);
+}
+.copy-control button:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 .copy-control__feedback {
   position: absolute;
