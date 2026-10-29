@@ -145,11 +145,10 @@ func newInstance(host string, port int, interval time.Duration) (*instance, erro
 func (current *instance) close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := current.app.Stop(ctx); err != nil {
-		return err
-	}
+	stopErr := current.app.Stop(ctx)
 	// dir 只来自本进程的 MkdirTemp，绝不使用用户传入的目录执行删除。
-	return os.RemoveAll(current.dir)
+	removeErr := os.RemoveAll(current.dir)
+	return errors.Join(stopErr, removeErr)
 }
 
 type idleRuntime struct{}

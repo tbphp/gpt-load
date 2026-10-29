@@ -3,6 +3,7 @@ package demo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/app"
 	"gpt-load/internal/container"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/platform/i18n"
@@ -41,6 +43,30 @@ func TestDemoRejectsExternalDatabaseWithoutTouchingData(t *testing.T) {
 		t.Fatalf("demo touched user data: %q, %v", content, err)
 	}
 }
+
+func TestDemoCloseRemovesTemporaryDirectoryAfterStopError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gpt-load.db"), []byte("demo data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stopErr := errors.New("request log shutdown failed")
+	current := &instance{
+		app: app.NewApp(app.AppParams{RequestLogs: failingStopLogs{err: stopErr}}),
+		dir: dir,
+	}
+	if err := current.close(); !errors.Is(err, stopErr) {
+		t.Fatalf("close lost the shutdown error: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("temporary directory remains after failed shutdown: %v", err)
+	}
+}
+
+type failingStopLogs struct{ err error }
+
+func (failingStopLogs) Start() error { return nil }
+
+func (logs failingStopLogs) Stop(context.Context) error { return logs.err }
 
 func startTestInstance(t *testing.T) *instance {
 	t.Helper()
