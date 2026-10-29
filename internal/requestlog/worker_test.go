@@ -213,7 +213,10 @@ func TestServiceDropsInvalidProjectionWithoutDiscardingValidRows(t *testing.T) {
 	invalid.CompletedAt = time.Unix(-1, 0)
 	service.Emit(invalid)
 	service.Emit(testEvent("valid-completion"))
-	receiveValue(t, timers.created).Fire()
+	timer := receiveValue(t, timers.created)
+	// 两条都进入同一批后再触发；否则计时器与第二条同时就绪时，select 可能只写出无效的那条。
+	waitForQueueDepth(t, service, 0)
+	timer.Fire()
 
 	rows := receiveValue(t, writes)
 	if len(rows) != 1 || rows[0].ID != "valid-completion" {
@@ -1352,4 +1355,16 @@ func waitForPersistedTotal(t *testing.T, service *Service, want uint64) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("PersistedTotal = %d, want at least %d", service.Stats().PersistedTotal, want)
+}
+
+func waitForQueueDepth(t *testing.T, service *Service, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if service.Stats().QueueDepth == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("QueueDepth = %d, want %d", service.Stats().QueueDepth, want)
 }

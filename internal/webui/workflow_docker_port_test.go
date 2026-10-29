@@ -10,6 +10,7 @@ import (
 )
 
 func TestDockerSmokeCancellationCleansOnlyOwnedResources(t *testing.T) {
+	t.Parallel()
 	source := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
 	preflight, _, found := strings.Cut(source, "cat >\"${task_tmp}/fake-response.json\"")
 	if !found {
@@ -59,6 +60,7 @@ func TestDockerSmokeCancellationCleansOnlyOwnedResources(t *testing.T) {
 }
 
 func TestReleaseDockerSmokeSeparatesRerunResources(t *testing.T) {
+	t.Parallel()
 	workflow := readRepositoryFile(t, ".github/workflows/release.yml")
 	for _, job := range []string{"docker-smoke", "prebuilt-image-smoke", "post-publish-image-smoke"} {
 		block := workflowJobBlock(t, workflow, job)
@@ -79,6 +81,7 @@ func TestReleaseDockerSmokeSeparatesRerunResources(t *testing.T) {
 }
 
 func TestDockerSmokeDiscoversLoopbackPortOnEveryContainerStart(t *testing.T) {
+	t.Parallel()
 	source := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
 	start := strings.Index(source, "start_container() {\n")
 	if start < 0 {

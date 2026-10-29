@@ -333,9 +333,10 @@ func TestIteratorUsesKeyWeights(t *testing.T) {
 	}}
 	counts := map[uint]int{}
 	source.progress = state.NewSchedulingState()
+	snapshot := schedulerSnapshot()
 	for range 12000 {
 		iterator := New(
-			schedulerSnapshot(),
+			snapshot,
 			source,
 			Query{ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("gpt-4o")},
 		)

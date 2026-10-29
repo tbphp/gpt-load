@@ -6,6 +6,7 @@ import (
 )
 
 func TestSelfHostedCIKeepsPlatformGatesAndLocalCaches(t *testing.T) {
+	t.Parallel()
 	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
 	for job, runner := range map[string]string{
 		"test":                   "[self-hosted, macOS, ARM64]",
@@ -37,6 +38,7 @@ func TestSelfHostedCIKeepsPlatformGatesAndLocalCaches(t *testing.T) {
 }
 
 func TestReleaseIsolatesDockerCredentials(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	for _, job := range []string{
 		"docker-smoke", "prebuilt-image-smoke", "publication-preflight", "publish-images",
@@ -57,6 +59,7 @@ func TestReleaseIsolatesDockerCredentials(t *testing.T) {
 }
 
 func TestReleaseUsesSelfHostedValidationAndHostedPublicationRunners(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	for job, runner := range map[string]string{
 		"static-checks":     "[self-hosted, macOS, ARM64]",

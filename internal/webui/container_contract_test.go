@@ -82,6 +82,7 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 }
 
 func TestComposeHostBindingsInheritHostAndAllowIndependentOverrides(t *testing.T) {
+	t.Parallel()
 	projectDir := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(projectDir, "docker-compose.yml"),
@@ -185,6 +186,7 @@ func TestComposeHostBindingsInheritHostAndAllowIndependentOverrides(t *testing.T
 }
 
 func TestNetworkConfigurationKeepsExampleSimpleAndDocumentsAdvancedOverrides(t *testing.T) {
+	t.Parallel()
 	environmentExample := readRepositoryFile(t, ".env.example")
 	for _, required := range []string{"HOST=127.0.0.1", "PORT=3001"} {
 		if !strings.Contains(environmentExample, required) {
@@ -206,6 +208,7 @@ func TestNetworkConfigurationKeepsExampleSimpleAndDocumentsAdvancedOverrides(t *
 }
 
 func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, "Dockerfile")
 	// runtime 是唯一的 runtime 定义，源码自包含构建与发布用的 prebuilt 都继承它。
 	// 每个可发布 stage 必须以它为基，否则某条打包路径会绕开下面全部 runtime 断言。
@@ -317,6 +320,7 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 }
 
 func TestDockerfileCopiesLocalCPAEmbeddedModuleBeforeGoModuleDownload(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, "Dockerfile")
 	rootModules := strings.Index(content, "COPY go.mod go.sum ./")
 	bridgeModules := strings.Index(content, "COPY third_party/cpaembedded/go.mod third_party/cpaembedded/go.sum ./third_party/cpaembedded/")
@@ -332,6 +336,7 @@ func TestDockerfileCopiesLocalCPAEmbeddedModuleBeforeGoModuleDownload(t *testing
 }
 
 func TestDockerfileSourceBuildCopiesAllRootGoSources(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, "Dockerfile")
 	if !strings.Contains(content, "COPY *.go ./") {
 		t.Fatal("Dockerfile source build does not copy all root Go sources")
@@ -342,6 +347,7 @@ func TestDockerfileSourceBuildCopiesAllRootGoSources(t *testing.T) {
 }
 
 func TestDockerfileDistributesDeclaredThirdPartyLicenseTexts(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, "Dockerfile")
 	for _, required := range []string{
 		"COPY LICENSES/Apache-2.0.txt /app/licenses/Apache-2.0.txt",

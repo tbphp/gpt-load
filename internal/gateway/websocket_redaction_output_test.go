@@ -206,6 +206,7 @@ func TestWebsocketRedactionKeepsDamagedAndTruncatedTokens(t *testing.T) {
 }
 
 func TestWebsocketRedactionAcceptsExistingMaximumFrameSize(t *testing.T) {
+	t.Parallel()
 	cipher := websocketRedactionTestCipher(t)
 	token, err := cipher.EncryptToken("p")
 	if err != nil {

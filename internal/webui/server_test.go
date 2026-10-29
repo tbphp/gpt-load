@@ -17,6 +17,7 @@ import (
 )
 
 func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
+	t.Parallel()
 	const wantCSP = "default-src 'self'; script-src 'self'; style-src 'self'; " +
 		"style-src-elem 'self' " +
 		"'sha256-60LHlRjW/B3CtzIoE/Lf1/NEDvko9efWMFaGVhHu/cs=' " +
@@ -69,6 +70,7 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 }
 
 func TestServerCSPAllowsDropdownViewportStyles(t *testing.T) {
+	t.Parallel()
 	server := newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>test index</title>")},
 	}, "dist")
@@ -98,6 +100,7 @@ func TestServerCSPAllowsDropdownViewportStyles(t *testing.T) {
 }
 
 func TestServerServesModelsDeepLinkWithoutCatchingUnknownNestedPaths(t *testing.T) {
+	t.Parallel()
 	engine := testEngine(newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>models</title>")},
 	}, "dist"))
@@ -119,6 +122,7 @@ func TestServerServesModelsDeepLinkWithoutCatchingUnknownNestedPaths(t *testing.
 }
 
 func TestServerServesGroupsCollectionWithoutCatchingUnknownNestedPaths(t *testing.T) {
+	t.Parallel()
 	engine := testEngine(newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>groups</title>")},
 	}, "dist"))
@@ -140,6 +144,7 @@ func TestServerServesGroupsCollectionWithoutCatchingUnknownNestedPaths(t *testin
 }
 
 func TestServerFallbackReturnsNotFoundForUnknownRequests(t *testing.T) {
+	t.Parallel()
 	server := newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fallback</title>")},
 	}, "dist")
@@ -203,6 +208,7 @@ func TestServerFallbackReturnsNotFoundForUnknownRequests(t *testing.T) {
 }
 
 func TestServerUsesCompileFallbackWhenIndexIsMissing(t *testing.T) {
+	t.Parallel()
 	server := newServer(fstest.MapFS{
 		"dist/assets/embed-placeholder.txt": &fstest.MapFile{Data: []byte("marker")},
 	}, "dist")
@@ -216,6 +222,7 @@ func TestServerUsesCompileFallbackWhenIndexIsMissing(t *testing.T) {
 }
 
 func TestServerServesAssetsWithImmutableCaching(t *testing.T) {
+	t.Parallel()
 	server := newServer(fstest.MapFS{
 		"dist/assets/app.js":  &fstest.MapFile{Data: []byte("export default true")},
 		"dist/assets/app.css": &fstest.MapFile{Data: []byte("body { color: black; }")},
@@ -265,6 +272,7 @@ func TestServerServesAssetsWithImmutableCaching(t *testing.T) {
 }
 
 func TestServerServesThemeBootstrapAsExplicitRootAsset(t *testing.T) {
+	t.Parallel()
 	server := newServer(fstest.MapFS{
 		"dist/index.html":         &fstest.MapFile{Data: []byte("<!doctype html>")},
 		"dist/theme-bootstrap.js": &fstest.MapFile{Data: []byte("document.documentElement.dataset.theme = 'dark'")},
@@ -298,6 +306,7 @@ func TestServerServesThemeBootstrapAsExplicitRootAsset(t *testing.T) {
 }
 
 func TestServerServesFaviconAsExplicitRootAsset(t *testing.T) {
+	t.Parallel()
 	want := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1z"/></svg>`)
 	server := newServer(fstest.MapFS{
 		"dist/index.html":  &fstest.MapFile{Data: []byte("<!doctype html>")},
@@ -328,6 +337,7 @@ func TestServerServesFaviconAsExplicitRootAsset(t *testing.T) {
 }
 
 func TestServerDoesNotServeLegacyFaviconAlias(t *testing.T) {
+	t.Parallel()
 	legacy := []byte{0x00, 0x00, 0x01, 0x00}
 	server := newServer(fstest.MapFS{
 		"dist/index.html":  &fstest.MapFile{Data: []byte("<!doctype html>")},
@@ -349,6 +359,7 @@ func TestServerDoesNotServeLegacyFaviconAlias(t *testing.T) {
 }
 
 func TestServerDoesNotExposeFilesOutsideAssets(t *testing.T) {
+	t.Parallel()
 	const (
 		indexSecret = "outer-index-secret"
 		fileSecret  = "outer-file-secret"
@@ -382,6 +393,7 @@ func TestServerDoesNotExposeFilesOutsideAssets(t *testing.T) {
 }
 
 func TestServerDoesNotHandleBackendOrUnknownRoutes(t *testing.T) {
+	t.Parallel()
 	engine := testEngine(newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html>")},
 	}, "dist"))
