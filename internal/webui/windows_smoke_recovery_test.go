@@ -8,6 +8,7 @@ import (
 )
 
 func TestWindowsSmokeRecovery(t *testing.T) {
+	t.Parallel()
 	pwsh, err := exec.LookPath("pwsh")
 	if err != nil {
 		t.Skip("PowerShell recovery tests run in the Windows CI job")

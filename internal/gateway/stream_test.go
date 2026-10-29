@@ -164,6 +164,7 @@ func TestBufferFirstSSEEventClassifiesThreeDialectErrorsAndNormalData(t *testing
 }
 
 func TestBufferFirstSSEEventCRLFHardLimitDistinguishesOptionalLineFeed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		eventPrefix  string

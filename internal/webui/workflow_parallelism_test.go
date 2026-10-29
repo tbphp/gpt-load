@@ -6,6 +6,7 @@ import (
 )
 
 func TestReleaseWorkflowParallelizesIndependentBuildStages(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	webJob := workflowJobBlock(t, content, "verify-and-build-web")
 	staticJob := workflowJobBlock(t, content, "static-checks")
@@ -52,6 +53,7 @@ func TestReleaseWorkflowParallelizesIndependentBuildStages(t *testing.T) {
 }
 
 func TestReleaseWorkflowRunsPostPublishGatesInParallel(t *testing.T) {
+	t.Parallel()
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	smokeJob := workflowJobBlock(t, content, "post-publish-image-smoke")
 	for _, required := range []string{
