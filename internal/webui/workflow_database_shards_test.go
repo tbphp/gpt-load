@@ -13,6 +13,7 @@ import (
 )
 
 func TestDatabaseShardsCoverEveryExternalTestExactlyOnce(t *testing.T) {
+	t.Parallel()
 	script := readRepositoryFile(t, ".github/scripts/ci-database-contract.sh")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "contract.sh")
@@ -24,7 +25,7 @@ func TestDatabaseShardsCoverEveryExternalTestExactlyOnce(t *testing.T) {
 	}
 	type selection struct{ run, skip *regexp.Regexp }
 	filters := make(map[string]selection)
-	for _, shard := range []string{"all", "mysql-migrations", "mysql-rest"} {
+	for _, shard := range []string{"all", "first", "second"} {
 		command := exec.Command("bash", path, shard)
 		command.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 		output, err := command.CombinedOutput()
@@ -72,7 +73,7 @@ func TestDatabaseShardsCoverEveryExternalTestExactlyOnce(t *testing.T) {
 	}
 	for _, name := range names {
 		count := 0
-		for _, shard := range []string{"mysql-migrations", "mysql-rest"} {
+		for _, shard := range []string{"first", "second"} {
 			filter := filters[shard]
 			if filter.run.MatchString(name) && !filter.skip.MatchString(name) {
 				count++
@@ -84,22 +85,24 @@ func TestDatabaseShardsCoverEveryExternalTestExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestMySQLShardsRunConcurrentlyAndPropagateFailures(t *testing.T) {
-	for _, fail := range []string{"", "migrations", "rest"} {
-		t.Run("failure="+fail, func(t *testing.T) {
-			dir := t.TempDir()
-			script := filepath.Join(dir, "contract.sh")
-			if err := os.WriteFile(script, []byte(readRepositoryFile(t, ".github/scripts/ci-database-contract.sh")), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			fakeGo := `#!/bin/bash
+func TestDatabaseShardsRunConcurrentlyAndPropagateFailures(t *testing.T) {
+	t.Parallel()
+	for _, driver := range []string{"mysql", "postgres"} {
+		for _, fail := range []string{"", "first", "second"} {
+			t.Run(driver+"/failure="+fail, func(t *testing.T) {
+				dir := t.TempDir()
+				script := filepath.Join(dir, "contract.sh")
+				if err := os.WriteFile(script, []byte(readRepositoryFile(t, ".github/scripts/ci-database-contract.sh")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				fakeGo := `#!/bin/bash
 case "$*" in
-  *"-skip ^TestExternal("*) shard=rest ;;
-  *) shard=migrations ;;
+  *"-skip ^TestExternal["*) shard=second ;;
+  *) shard=first ;;
 esac
 printf '%s' "$GPT_LOAD_DATABASE_TEST_DSN" > "$MARKERS/$shard"
 for ((i=0; i<100; i++)); do
-  if [[ -f "$MARKERS/rest" && -f "$MARKERS/migrations" ]]; then
+  if [[ -f "$MARKERS/first" && -f "$MARKERS/second" ]]; then
     [[ "$FAIL_SHARD" != "$shard" ]]
     exit $?
   fi
@@ -107,37 +110,39 @@ for ((i=0; i<100; i++)); do
 done
 exit 91
 `
-			if err := os.WriteFile(filepath.Join(dir, "go"), []byte(fakeGo), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			command := exec.Command("bash", script, "mysql")
-			command.Env = append(os.Environ(),
-				"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"MARKERS="+dir, "FAIL_SHARD="+fail, "RUNNER_TEMP="+dir,
-				"GPT_LOAD_DATABASE_TEST_DSN=primary", "GPT_LOAD_DATABASE_SECONDARY_DSN=secondary")
-			output, err := command.CombinedOutput()
-			if (err != nil) != (fail != "") {
-				t.Fatalf("mysql result = %v, failing shard = %q: %s", err, fail, output)
-			}
-			for shard, want := range map[string]string{"migrations": "primary", "rest": "secondary"} {
-				got, err := os.ReadFile(filepath.Join(dir, shard))
-				if err != nil || string(got) != want {
-					t.Fatalf("%s did not use its isolated database: %s, %v", shard, got, err)
+				if err := os.WriteFile(filepath.Join(dir, "go"), []byte(fakeGo), 0o700); err != nil {
+					t.Fatal(err)
 				}
-			}
-		})
+				command := exec.Command("bash", script, driver)
+				command.Env = append(os.Environ(),
+					"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+					"MARKERS="+dir, "FAIL_SHARD="+fail, "RUNNER_TEMP="+dir,
+					"GPT_LOAD_DATABASE_TEST_DSN=primary", "GPT_LOAD_DATABASE_SECONDARY_DSN=secondary")
+				output, err := command.CombinedOutput()
+				if (err != nil) != (fail != "") {
+					t.Fatalf("%s result = %v, failing shard = %q: %s", driver, err, fail, output)
+				}
+				for shard, want := range map[string]string{"first": "primary", "second": "secondary"} {
+					got, err := os.ReadFile(filepath.Join(dir, shard))
+					if err != nil || string(got) != want {
+						t.Fatalf("%s did not use its isolated database: %s, %v", shard, got, err)
+					}
+				}
+			})
+		}
 	}
 }
 
 func TestDatabaseMatrixStartsOnlyRequiredServers(t *testing.T) {
+	t.Parallel()
 	for _, workflow := range []string{"ci.yml", "release.yml"} {
 		job := workflowJobBlock(t, readRepositoryFile(t, ".github/workflows/"+workflow), "database-contract")
 		for _, required := range []string{
-			"max-parallel: 2", "secondary-mysql:", "matrix.driver == 'mysql'",
+			"max-parallel: 2", "secondary-database:",
 			"image: ${{ matrix.image }}", ".github/scripts/ci-database-contract.sh", "GPT_LOAD_DATABASE_SECONDARY_DSN",
+			"job.services.secondary-database.ports[format('{0}', matrix.port)]",
 			"data-dir: /var/lib/mysql", "data-dir: /var/lib/postgresql",
 			"--tmpfs ${{ matrix.data-dir }}:rw,nosuid,nodev,size=2g",
-			"--tmpfs /var/lib/mysql:rw,nosuid,nodev,size=2g",
 		} {
 			if !strings.Contains(job, required) {
 				t.Errorf("%s database matrix is missing %s", workflow, required)

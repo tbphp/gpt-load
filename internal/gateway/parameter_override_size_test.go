@@ -14,6 +14,7 @@ import (
 )
 
 func TestHandlerParameterOverrideBodyLimits(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		character string

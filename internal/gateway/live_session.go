@@ -20,12 +20,14 @@ import (
 )
 
 const (
-	liveSessionLifetime     = time.Hour
-	liveReconnectWindow     = 30 * time.Second
-	liveAuthorizationPeriod = 2 * time.Second
-	liveHangupRetryDelay    = 5 * time.Second
-	liveHangupMaxAttempts   = 3
+	liveSessionLifetime   = time.Hour
+	liveReconnectWindow   = 30 * time.Second
+	liveHangupRetryDelay  = 5 * time.Second
+	liveHangupMaxAttempts = 3
 )
+
+// liveAuthorizationPeriod 是通话授权复查周期；测试会缩短它。
+var liveAuthorizationPeriod = 2 * time.Second
 
 type liveCallSession struct {
 	// 注册前由请求负责，注册后仅在会话最终移除时归还。

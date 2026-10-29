@@ -6,6 +6,7 @@ import (
 )
 
 func TestWindowsInstallerKeepsPortableBinaryAndAddsSetupAsset(t *testing.T) {
+	t.Parallel()
 	manifest := readRepositoryFile(t, ".github/release-assets.txt")
 	for _, asset := range []string{
 		"gpt-load-windows-amd64.exe",
@@ -44,6 +45,7 @@ func TestWindowsInstallerKeepsPortableBinaryAndAddsSetupAsset(t *testing.T) {
 }
 
 func TestWindowsInstallerInstallsServiceWithoutAResidentWrapper(t *testing.T) {
+	t.Parallel()
 	installer := readRepositoryFile(t, "packaging/windows/gpt-load.iss")
 	for _, required := range []string{
 		"PrivilegesRequired=admin",
@@ -76,6 +78,7 @@ func TestWindowsInstallerInstallsServiceWithoutAResidentWrapper(t *testing.T) {
 }
 
 func TestWindowsInstallerPinsLanguageAndInstallationDirectory(t *testing.T) {
+	t.Parallel()
 	installer := readRepositoryFile(t, "packaging/windows/gpt-load.iss")
 	for _, required := range []string{
 		`DefaultDirName={autopf}\GPT-Load`,
@@ -105,6 +108,7 @@ func TestWindowsInstallerPinsLanguageAndInstallationDirectory(t *testing.T) {
 }
 
 func TestWindowsInstallerFailsClosedAndRestoresInterruptedUpgrade(t *testing.T) {
+	t.Parallel()
 	installer := readRepositoryFile(t, "packaging/windows/gpt-load.iss")
 	for _, required := range []string{
 		"GetCustomSetupExitCode",
@@ -128,6 +132,7 @@ func TestWindowsInstallerFailsClosedAndRestoresInterruptedUpgrade(t *testing.T) 
 }
 
 func TestWindowsInstallerCleansFreshInstallFailureWithoutDeletingProgramData(t *testing.T) {
+	t.Parallel()
 	installer := readRepositoryFile(t, "packaging/windows/gpt-load.iss")
 	for _, required := range []string{
 		"CleanupFailedFreshInstallation",
@@ -173,6 +178,7 @@ func TestWindowsInstallerCleansFreshInstallFailureWithoutDeletingProgramData(t *
 }
 
 func TestWindowsInstallerSmokeUsesAnAssignedPortForConflictAndHealth(t *testing.T) {
+	t.Parallel()
 	script := readRepositoryFile(t, ".github/scripts/release-windows-installer-smoke.ps1")
 	for _, required := range []string{
 		"[System.Net.IPAddress]::Loopback,\n    0",
@@ -210,6 +216,7 @@ func TestWindowsInstallerSmokeUsesAnAssignedPortForConflictAndHealth(t *testing.
 }
 
 func TestPullRequestWindowsCIBuildsAndSmokesInstaller(t *testing.T) {
+	t.Parallel()
 	workflow := readRepositoryFile(t, ".github/workflows/ci.yml")
 	windowsJob := workflowJobBlock(t, workflow, "windows-encryption-acl")
 	for _, required := range []string{
@@ -225,6 +232,7 @@ func TestPullRequestWindowsCIBuildsAndSmokesInstaller(t *testing.T) {
 }
 
 func TestWindowsInstallerSmokeCoversInstallHealthStopAndUninstall(t *testing.T) {
+	t.Parallel()
 	workflow := readRepositoryFile(t, ".github/workflows/release.yml")
 	job := workflowJobBlock(t, workflow, "windows-installer-smoke")
 	if !strings.Contains(job, ".github/scripts/release-windows-installer-smoke.ps1") {
@@ -269,6 +277,7 @@ func TestWindowsInstallerSmokeCoversInstallHealthStopAndUninstall(t *testing.T) 
 }
 
 func TestWindowsInstallerSmokeWaitsForGUIProcesses(t *testing.T) {
+	t.Parallel()
 	script := readRepositoryFile(t, ".github/scripts/release-windows-installer-smoke.ps1")
 	for _, required := range []string{
 		"Start-Process",
@@ -288,6 +297,7 @@ func TestWindowsInstallerSmokeWaitsForGUIProcesses(t *testing.T) {
 }
 
 func TestWindowsSmokesOwnTheirFixedInstallationDirectory(t *testing.T) {
+	t.Parallel()
 	for _, path := range []string{
 		".github/scripts/ci-windows-service-smoke.ps1",
 		".github/scripts/release-windows-installer-smoke.ps1",

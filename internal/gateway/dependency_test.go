@@ -7,6 +7,7 @@ import (
 )
 
 func TestDataPlaneDependencyGraph(t *testing.T) {
+	t.Parallel()
 	roots := []string{
 		"gpt-load/internal/gateway",
 		"gpt-load/internal/scheduler",
