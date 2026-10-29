@@ -73,6 +73,12 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 - **Scheduling and failure isolation built in** — Multi-credential scheduling, configurable weights, retries, cooldown, blacklisting, and session affinity reduce the impact of overloaded or failing credentials.
 - **Observable, self-hosted, and simple to deploy** — Inspect health, routes, logs, usage, and cost estimates in an embedded UI backed by SQLite, MySQL, or PostgreSQL with local credential encryption.
 
+## Online demo
+
+[https://demo.gpt-load.com](https://demo.gpt-load.com)
+
+Login key: `gpt-load-demo`
+
 ## Quick start
 
 > [!WARNING]

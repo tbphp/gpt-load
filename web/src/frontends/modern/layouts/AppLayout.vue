@@ -20,6 +20,7 @@ import { pagePath } from '@modern/app/navigation'
 import { usePreferences } from '@modern/app/preferences'
 import { providePageRefresh } from '@modern/app/page-refresh'
 import { autoRefreshIntervals } from '@shared/auto-refresh'
+import { useDemoCountdown } from '@shared/frontend/demo'
 import { useMessageSource } from '@modern/app/messages'
 import { usePageTitle } from '@modern/app/use-page-title'
 import {
@@ -59,6 +60,7 @@ const {
   autoRefreshInterval,
   setAutoRefreshInterval,
 } = usePreferences()
+const demoCountdown = useDemoCountdown()
 const accessKeySession = computed(() => session.state.principalType === 'access_key')
 // 常驻提示，不提供关闭入口。
 const requestBodyRecording = computed(() =>
@@ -270,7 +272,10 @@ useMessageSource(() =>
         <AppIcon :icon="sidebarCollapsed ? ChevronRight : ChevronLeft" size="xs" />
       </button>
     </AppTooltip>
-    <div class="modern-main-column" :class="{ 'has-session-notice': requestBodyRecording }">
+    <div
+      class="modern-main-column"
+      :class="{ 'has-session-notice': requestBodyRecording || demoCountdown }"
+    >
       <header
         class="modern-topbar"
         :class="{ 'has-auto-refresh': pageRefresh.autoAvailable.value }"
@@ -379,8 +384,11 @@ useMessageSource(() =>
         </div>
         <AppLoadingIndicator :loading="pageLoading" />
       </header>
-      <div v-if="requestBodyRecording" class="modern-session-notice">
-        <AppNotice tone="warning" bordered>{{
+      <div v-if="demoCountdown || requestBodyRecording" class="modern-session-notice">
+        <AppNotice v-if="demoCountdown" tone="warning" bordered aria-live="off">{{
+          t('auth.demoNotice', { time: demoCountdown })
+        }}</AppNotice>
+        <AppNotice v-if="requestBodyRecording" tone="warning" bordered>{{
           t('auth.requestBodyRecordingNotice', { days: requestBodyRecording.retentionDays })
         }}</AppNotice>
       </div>
@@ -507,6 +515,8 @@ useMessageSource(() =>
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 .modern-session-notice {
+  display: grid;
+  gap: var(--modern-space-3);
   padding: var(--modern-space-3) var(--modern-content-inset) 0;
 }
 /* 顶栏是所有页面共用的固定结构：标题 | 刷新与时间 | 竖线 | 全局控件。 */

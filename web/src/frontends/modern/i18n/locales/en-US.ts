@@ -104,6 +104,8 @@ export default {
     readOnly: 'Access key · Read-only',
     readOnlyDescription:
       'View only this key’s overview, models, usage, and request history. System configuration cannot be changed.',
+    demoNotice:
+      'Shared demo · All data resets in {time}. External requests are disabled. Do not enter real credentials or personal data.',
     requestBodyRecordingNotice:
       'An administrator has enabled request body recording for this access key. Content you send with it is kept for {days} days and can be viewed by administrators and anyone who holds this key. Do not send anything you do not want recorded with this key.',
     help: {

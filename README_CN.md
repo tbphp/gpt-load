@@ -73,6 +73,12 @@
 - **内置调度与故障隔离** — 多凭据调度、可配置权重、重试、冷却、黑名单与会话亲和，降低单个凭据过载或失效的影响。
 - **可观测、易部署、数据自持** — 提供健康、路由、日志、用量与成本估算；单个 Go 二进制内嵌管理界面，支持 SQLite、MySQL、PostgreSQL 和本地凭据加密。
 
+## 在线演示
+
+[https://demo.gpt-load.com](https://demo.gpt-load.com)
+
+登录密钥：`gpt-load-demo`
+
 ## 快速开始
 
 > [!WARNING]

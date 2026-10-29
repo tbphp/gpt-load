@@ -218,6 +218,7 @@ export default {
     preferences: '偏好设置',
     accessKeyReadOnly: '访问密钥 · 只读',
     accessKeyReadOnlyDescription: '当前使用访问密钥登录；页面和数据仅限此密钥，不能修改系统配置。',
+    demoNotice: '共享演示 · {time} 后重置所有数据。外部调用已关闭，请勿输入真实密钥或个人信息。',
     requestBodyRecordingNotice:
       '管理员已为这个访问密钥开启请求内容记录。你通过它发送的内容会保存 {days} 天，管理员和持有这个密钥的人都可以查看。不希望被记录的内容，请不要通过这个密钥发送。',
     language: '语言',

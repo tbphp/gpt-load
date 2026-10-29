@@ -47,7 +47,7 @@ import (
 )
 
 // BuildContainer creates the 2.0 runtime foundation dependency graph.
-func BuildContainer() (*dig.Container, error) {
+func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, error) {
 	dependencyContainer := dig.New()
 
 	providers := []any{
@@ -254,6 +254,12 @@ func BuildContainer() (*dig.Container, error) {
 
 	for _, provider := range providers {
 		if err := dependencyContainer.Provide(provider); err != nil {
+			return nil, err
+		}
+	}
+	// Demo 在解析依赖前替换配置和后台任务；普通启动不传入任何覆盖。
+	for _, setup := range configure {
+		if err := setup(dependencyContainer); err != nil {
 			return nil, err
 		}
 	}
