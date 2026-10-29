@@ -149,6 +149,7 @@ func TestRequestRedactionPreviewBoundaries(t *testing.T) {
 		{"unknown field", `{"rules":[],"text":"sample","access_key_id":1}`, http.StatusBadRequest},
 		{"unknown rule field", `{"rules":[{"pattern":"x","replacement":"","capture_group":1}],"text":"x"}`, http.StatusBadRequest},
 		{"text at limit", `{"rules":[],"text":"` + strings.Repeat("a", 64<<10) + `"}`, http.StatusOK},
+		{"escaped text at limit", `{"rules":[],"text":"` + strings.Repeat(`\u0061`, 64<<10) + `"}`, http.StatusOK},
 		{"text over limit", `{"rules":[],"text":"` + strings.Repeat("界", (64<<10)/3+1) + `"}`, http.StatusBadRequest},
 		{"matches at limit", `{"rules":[{"pattern":"x","mode":"encrypt"}],"text":"` + strings.Repeat("x ", 200) + `"}`, http.StatusOK},
 		{"matches over limit", `{"rules":[{"pattern":"x","mode":"encrypt"}],"text":"` + strings.Repeat("x ", 201) + `"}`, http.StatusBadRequest},
@@ -170,5 +171,66 @@ func TestRequestRedactionPreviewBoundaries(t *testing.T) {
 	engine.ServeHTTP(res, request)
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated preview = %d", res.Code)
+	}
+}
+
+type previewCountingReader struct {
+	reader *strings.Reader
+	read   int64
+}
+
+func (r *previewCountingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.read += int64(n)
+	return n, err
+}
+
+func TestRequestRedactionPreviewBodyLimit(t *testing.T) {
+	initControlI18n(t)
+	f := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, f.service).RegisterRoutes(engine)
+	const limit int64 = 1 << 20
+	const prefix = `{"rules":[],"text":"sample"}`
+	for _, test := range []struct {
+		name          string
+		size          int64
+		contentLength int64
+		wantStatus    int
+		maxRead       int64
+	}{
+		{"known length at limit", limit, limit, http.StatusOK, limit},
+		{"unknown length at limit", limit, -1, http.StatusOK, limit},
+		{"known length over limit", limit + 1, limit + 1, http.StatusRequestEntityTooLarge, 0},
+		{"unknown length over limit", 2 * limit, -1, http.StatusRequestEntityTooLarge, limit + 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := prefix + strings.Repeat(" ", int(test.size)-len(prefix))
+			reader := &previewCountingReader{reader: strings.NewReader(body)}
+			request := httptest.NewRequest(http.MethodPost, "/api/settings/request-redaction/preview", reader)
+			request.ContentLength = test.contentLength
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Content-Type", "application/json")
+			res := httptest.NewRecorder()
+			engine.ServeHTTP(res, request)
+			if res.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", res.Code, test.wantStatus)
+			}
+			if reader.read > test.maxRead {
+				t.Errorf("read %d bytes, want at most %d", reader.read, test.maxRead)
+			}
+			if res.Header().Get("Cache-Control") != "no-store" {
+				t.Error("preview response must not be cached")
+			}
+			if test.wantStatus == http.StatusRequestEntityTooLarge {
+				var envelope struct{ Code string }
+				if err := json.Unmarshal(res.Body.Bytes(), &envelope); err != nil {
+					t.Fatal(err)
+				}
+				if envelope.Code != "REQUEST_TOO_LARGE" {
+					t.Errorf("code = %q, want REQUEST_TOO_LARGE", envelope.Code)
+				}
+			}
+		})
 	}
 }

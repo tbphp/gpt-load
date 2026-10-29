@@ -42,6 +42,7 @@ export const zhCN = {
     rule: '第 {rule} 条规则 · {mode}',
     stale: '文本或规则已改变，请重新预览。',
     errors: {
+      invalid_unicode: '示例文本含有无效 Unicode 字符，请修正后重试。',
       invalid_text: '示例文本最多 64 KiB，请缩短后重试。',
       too_many_matches: '匹配数量超出预览限制，请缩短样例或收紧规则。',
       invalid_rules: '请先修正脱敏规则。',
@@ -105,6 +106,7 @@ export const enUS = {
     rule: 'Rule {rule} · {mode}',
     stale: 'The text or rules changed. Run the preview again.',
     errors: {
+      invalid_unicode: 'Sample text contains invalid Unicode characters. Correct it and try again.',
       invalid_text: 'Sample text is limited to 64 KiB. Shorten it and try again.',
       too_many_matches:
         'The preview match limit was exceeded. Shorten the sample or narrow the rules.',
@@ -171,6 +173,8 @@ export const jaJP = {
     rule: 'ルール {rule} · {mode}',
     stale: 'テキストまたはルールが変更されました。再度プレビューしてください。',
     errors: {
+      invalid_unicode:
+        'サンプルに不正な Unicode 文字が含まれています。修正して再試行してください。',
       invalid_text: 'サンプルは最大 64 KiB です。短くして再試行してください。',
       too_many_matches:
         'プレビューの一致数の上限を超えました。サンプルを短くするか、ルールを絞り込んでください。',

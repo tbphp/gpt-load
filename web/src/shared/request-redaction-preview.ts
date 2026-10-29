@@ -79,6 +79,11 @@ export function useRedactionPreview(rules: () => readonly RedactionRule[]) {
 
   async function preview() {
     invalidate()
+    // Unicode 模式按码点匹配，只拒绝未配对代理字符，保留合法的 emoji。
+    if (/[\uD800-\uDFFF]/u.test(text.value)) {
+      error.value = 'invalid_unicode'
+      return
+    }
     if (new TextEncoder().encode(text.value).length > 64 * 1024) {
       error.value = 'invalid_text'
       return

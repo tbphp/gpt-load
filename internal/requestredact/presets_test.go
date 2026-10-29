@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/tidwall/gjson"
 )
 
 // 直接读取两套前端共用的数据，使用真实 Go 引擎验证预设，避免维护另一份表达式。
@@ -126,5 +128,74 @@ func TestRedactionNewPresets(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRedactionDatabasePresetBoundaries(t *testing.T) {
+	rule := redactionPresetsForTest(t)["databaseURL"]
+	cipher := syntheticRedactionCipher(t)
+	values := []string{
+		"postgresql://demo:synthetic-value@db.example:5432/app.v1?options=a,b!c&mode=read:write&empty=",
+		"mongodb://demo:synthetic-value@db1.example:27017,db2.example:27017/app",
+		"redis://:synthetic-value@a",
+	}
+	for _, mode := range []string{ModeReplace, ModeEncrypt} {
+		rule.Mode = mode
+		compiled, err := Compile([]Rule{rule})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, value := range values {
+			masked := rule.Replacement
+			if mode == ModeEncrypt {
+				masked, err = cipher.EncryptToken(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, suffix := range []string{"", ".", ",", "!", "?", ":", "...", ",!?"} {
+				input := "Connect " + value + suffix + " next"
+				got, err := compiled.TextWithCipher(input, cipher)
+				if err != nil || got != "Connect "+masked+suffix+" next" {
+					t.Errorf("value %d suffix %q mode %s changed the URI boundary: %v", i, suffix, mode, err)
+				}
+			}
+		}
+	}
+}
+
+func TestRedactionDatabasePresetPreservesToolJSONEscapes(t *testing.T) {
+	rule := redactionPresetsForTest(t)["databaseURL"]
+	cipher := syntheticRedactionCipher(t)
+	value := "postgresql://demo:synthetic-value@localhost:5432/app"
+	for _, mode := range []string{ModeReplace, ModeEncrypt} {
+		rule.Mode = mode
+		compiled, err := Compile([]Rule{rule})
+		if err != nil {
+			t.Fatal(err)
+		}
+		masked := rule.Replacement
+		if mode == ModeEncrypt {
+			masked, err = cipher.EncryptToken(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, suffix := range []string{`\nKEEP`, `\rKEEP`, `\tKEEP`, `\u0020KEEP`, `\u000aKEEP`, `\"KEEP`, `\\KEEP`} {
+			inner := `{"value":"` + value + suffix + `","count":42}`
+			body, err := json.Marshal(map[string]any{"input": []any{map[string]any{"type": "function_call_output", "output": inner}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := compiled.ApplyWithCipher(body, cipher)
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := gjson.GetBytes(got, "input.0.output").Str
+			decodedSuffix := strings.TrimPrefix(gjson.Get(inner, "value").Str, value)
+			if !json.Valid([]byte(output)) || gjson.Get(output, "value").Str != masked+decodedSuffix || gjson.Get(output, "count").Int() != 42 {
+				t.Errorf("mode %s suffix %q changed content after the URI", mode, suffix)
+			}
+		}
 	}
 }
