@@ -258,6 +258,7 @@ func TestRequestAuditOpaqueOnlyContentDoesNotCallJev(t *testing.T) {
 }
 
 func TestRequestAuditUnavailableJevAllowsBusinessRequest(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []struct {
 		reason string
 		result UpstreamResult

@@ -504,6 +504,7 @@ func TestRedactionRestoreSSEPreservesUnfinishedHeaderWithoutBodySeparator(t *tes
 }
 
 func TestRedactionRestoreSSEAcceptsManyEventsInOneLargeChunk(t *testing.T) {
+	t.Parallel()
 	stream := newRedactionRestoreSSE(protocol.OpenAICompletions, streamTestRestore, false)
 	input := []byte(strings.Repeat("data: {}\n\n", (maxSSEEventBytes/len("data: {}\n\n"))+1))
 	got, err := stream.Push(input)

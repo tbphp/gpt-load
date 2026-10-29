@@ -29,17 +29,26 @@ build: _web-build ## Build the Web UI and application binary
 test: ## Run Go unit tests
 	$(GO) test -count=1 . ./internal/...
 
+# Go 与前端检查并行；vite build 会清空 internal/webui/dist，必须等 Go 编译结束后再执行。
 .PHONY: check
 check: _web-deps ## Run source checks and build
+	@$(MAKE) --no-print-directory -j2 _check-go _check-web
+	$(PNPM) --dir $(WEB_DIR) exec vite build
+	$(GO) build -o $(APP) .
+	git --no-pager diff --check
+
+.PHONY: _check-go
+_check-go:
 	@go_root="$$($(GO) env GOROOT)"; formatted_files="$$("$${go_root}/bin/gofmt" -l .)"; test -z "$${formatted_files}"
 	$(GO) mod tidy -diff
 	$(GO) vet ./...
+	$(GO) test -count=1 . ./internal/...
+
+.PHONY: _check-web
+_check-web:
 	$(PNPM) --dir $(WEB_DIR) run lint
 	$(PNPM) --dir $(WEB_DIR) run format
-	$(PNPM) --dir $(WEB_DIR) run build
-	$(GO) build -o $(APP) .
-	$(GO) test -count=1 . ./internal/...
-	git --no-pager diff --check
+	$(PNPM) --dir $(WEB_DIR) run type-check
 
 .PHONY: release
 release: ## Validate latest main and ask before pushing one release tag

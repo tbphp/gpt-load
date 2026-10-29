@@ -616,6 +616,7 @@ func TestAutoModelResponsesFullHistoryToolContinuationReclassifiesDifferentTask(
 }
 
 func TestAutoModelArrayOverrideUsesTransportLimit(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name      string
 		websocket bool

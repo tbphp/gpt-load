@@ -209,8 +209,11 @@ func newLiveMediaSession(ctx context.Context, clientOffer string, settings confi
 	return session, nil
 }
 
+// liveMediaLoopbackOnly 只由测试打开，让客户端侧媒体也只用回环网卡。
+var liveMediaLoopbackOnly bool
+
 func liveMediaAPI(settings config.CodexLiveConfig) (*webrtc.API, error) {
-	return liveMediaAPIWithNetwork(settings, false)
+	return liveMediaAPIWithNetwork(settings, liveMediaLoopbackOnly)
 }
 
 func liveMediaAPIWithNetwork(settings config.CodexLiveConfig, loopbackOnly bool) (*webrtc.API, error) {

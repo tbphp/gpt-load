@@ -223,8 +223,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # 第三方纯 Go SQLite（modernc.org）不做 race 插桩：它的 checkptr 检查与分配锁争用占 race CPU 大头；项目代码仍全部检测。
       - name: Run race-enabled tests
-        run: go test -race -vet=off -count=1 -timeout=15m . ./internal/...
+        run: go test -race -vet=off -count=1 -timeout=15m -gcflags='modernc.org/...=-race=false' . ./internal/...
 
   race-cpa:
     needs: validate-tag
@@ -287,17 +288,19 @@ jobs:
           --health-interval=5s
           --health-timeout=10s
           --health-retries=20
-      # MySQL 两组使用独立实例，避免不同测试数据库争用同名 GET_LOCK。
-      secondary-mysql:
-        image: ${{ matrix.driver == 'mysql' && 'mysql:8.4' || '' }}
+      # 两组分别使用独立实例，避免争用 MySQL 同名 GET_LOCK 或 PostgreSQL advisory lock。
+      secondary-database:
+        image: ${{ matrix.image }}
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: gpt_load
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gpt_load
         ports:
-          - 3306
+          - ${{ matrix.port }}
         options: >-
-          --tmpfs /var/lib/mysql:rw,nosuid,nodev,size=2g
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --tmpfs ${{ matrix.data-dir }}:rw,nosuid,nodev,size=2g
+          --health-cmd="${{ matrix.health }}"
           --health-interval=5s
           --health-timeout=10s
           --health-retries=20
@@ -316,7 +319,7 @@ jobs:
       - name: Run external database contract
         env:
           GPT_LOAD_DATABASE_TEST_DSN: ${{ format(matrix.dsn, job.services.database.ports[format('{0}', matrix.port)]) }}
-          GPT_LOAD_DATABASE_SECONDARY_DSN: ${{ matrix.driver == 'mysql' && format(matrix.dsn, job.services.secondary-mysql.ports['3306']) || '' }}
+          GPT_LOAD_DATABASE_SECONDARY_DSN: ${{ format(matrix.dsn, job.services.secondary-database.ports[format('{0}', matrix.port)]) }}
         run: .github/scripts/ci-database-contract.sh "${{ matrix.driver }}"
 
   build-binaries:
