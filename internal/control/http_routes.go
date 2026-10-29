@@ -194,6 +194,7 @@ func (s *Server) HTTPModule() httproute.Module {
 			controlRoute("control.route.inspect", http.MethodPost, "/route/inspect", s.handleRouteInspect),
 			controlRoute("control.settings.get", http.MethodGet, "/settings", s.handleGetSettings),
 			controlRoute("control.settings.request-redaction.validate", http.MethodPost, "/settings/request-redaction/validate", s.handleValidateRequestRedaction),
+			controlRoute("control.settings.request-redaction.preview", http.MethodPost, "/settings/request-redaction/preview", s.handlePreviewRequestRedaction),
 			controlRoute(
 				"control.settings.update",
 				http.MethodPut,
