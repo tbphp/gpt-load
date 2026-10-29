@@ -78,8 +78,15 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # 临时对照实验（定稿前删除）：先只编译，再在同一台机器上依次跑默认并行度与 -parallel 4。
+      - name: Compile race-enabled tests
+        run: go test -race -vet=off -count=1 -run '^$' . ./internal/...
+
       - name: Run race-enabled tests
         run: go test -race -vet=off -count=1 -timeout=15m . ./internal/...
+
+      - name: Run race-enabled tests with -parallel 4
+        run: go test -race -vet=off -count=1 -timeout=15m -parallel 4 . ./internal/...
 
   race-cpa:
     runs-on: [self-hosted, Linux, ARM64]
