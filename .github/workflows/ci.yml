@@ -65,7 +65,7 @@ jobs:
 
   race-tests:
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,57 +78,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # 第三方纯 Go SQLite（modernc.org）不做 race 插桩：它的 checkptr 检查与分配锁争用占 race CPU 大头；项目代码仍全部检测。
       - name: Run race-enabled tests
-        run: go test -race -vet=off -count=1 -timeout=15m . ./internal/...
-
-      - name: Diagnose race cost per package
-        # 临时诊断（定稿前删除）：逐包单独跑 race 记录耗时与 CPU；storage、control 额外采剖析并对照关闭 modernc 插桩。
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          sysctl -n machdep.cpu.brand_string hw.ncpu hw.perflevel0.physicalcpu hw.perflevel1.physicalcpu
-          TIMEFORMAT='%R real %U user %S sys'
-          for pkg in storage control gateway requestlog app storage/migrations container state/loader execution/bifrost subscription requestredact; do
-            echo "== ${pkg}"
-            time go test -race -vet=off -count=1 "./internal/${pkg}" | tail -1
-          done
-          go test -race -vet=off -count=1 -run '^$' -gcflags='modernc.org/...=-race=false' ./internal/storage ./internal/control > /dev/null
-          for pkg in storage control; do
-            echo "== ${pkg} cpu profile"
-            go test -race -vet=off -count=1 -cpuprofile "${RUNNER_TEMP}/${pkg}.cpu" -o "${RUNNER_TEMP}/${pkg}.test" "./internal/${pkg}" | tail -1
-            go tool pprof -top -nodecount=25 "${RUNNER_TEMP}/${pkg}.test" "${RUNNER_TEMP}/${pkg}.cpu"
-            echo "== ${pkg} without modernc race instrumentation"
-            time go test -race -vet=off -count=1 -gcflags='modernc.org/...=-race=false' "./internal/${pkg}" | tail -1
-          done
-
-  # 临时诊断（定稿前删除）：测 Windows 机器上的 Linux x64 Runner 能否分担 race。
-  race-probe-x64:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Probe race suite on x64
-        shell: bash
-        run: |
-          nproc
-          grep -m1 'model name' /proc/cpuinfo
-          TIMEFORMAT='%R real %U user %S sys'
-          echo "== compile"
-          time go test -race -vet=off -count=1 -run '^$' . ./internal/... > /dev/null
-          echo "== run"
-          time go test -race -vet=off -count=1 -timeout=15m . ./internal/...
+        run: go test -race -vet=off -count=1 -timeout=15m -gcflags='modernc.org/...=-race=false' . ./internal/...
 
   race-cpa:
     runs-on: [self-hosted, Linux, ARM64]

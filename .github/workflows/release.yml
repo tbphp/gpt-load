@@ -223,8 +223,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # 第三方纯 Go SQLite（modernc.org）不做 race 插桩：它的 checkptr 检查与分配锁争用占 race CPU 大头；项目代码仍全部检测。
       - name: Run race-enabled tests
-        run: go test -race -vet=off -count=1 -timeout=15m . ./internal/...
+        run: go test -race -vet=off -count=1 -timeout=15m -gcflags='modernc.org/...=-race=false' . ./internal/...
 
   race-cpa:
     needs: validate-tag

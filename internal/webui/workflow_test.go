@@ -208,7 +208,7 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 		t,
 		workflowJobBlock(t, content, "race-tests"),
 		"Run race-enabled tests",
-		"go test -race -vet=off -count=1 -timeout=15m . ./internal/...",
+		"go test -race -vet=off -count=1 -timeout=15m -gcflags='modernc.org/...=-race=false' . ./internal/...",
 	)
 	branchCPA := workflowStepBlock(
 		t,
@@ -237,7 +237,7 @@ func TestBranchAndReleaseWorkflowsRunRaceInParallelGates(t *testing.T) {
 		t,
 		workflowJobBlock(t, releaseContent, "race-tests"),
 		"Run race-enabled tests",
-		"go test -race -vet=off -count=1 -timeout=15m . ./internal/...",
+		"go test -race -vet=off -count=1 -timeout=15m -gcflags='modernc.org/...=-race=false' . ./internal/...",
 	)
 	releaseCPA := workflowStepBlock(
 		t,
