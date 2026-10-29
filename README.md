@@ -75,11 +75,9 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 
 ## Online demo
 
-[Open the shared demo](https://demo.gpt-load.com) · Login key: `gpt-load-demo`
+[https://demo.gpt-load.com](https://demo.gpt-load.com)
 
-Try creating, editing, and deleting configuration. All visitors share the same data, which resets every 30 minutes and whenever the service restarts. Groups, credentials, request logs, and usage are synthetic. External requests, OAuth authorization, and network probes are disabled. Do not enter real credentials or personal data. The free Render instance may take about a minute to wake up after being idle.
-
-To host a demo, run `./gpt-load demo`, or append `demo` to the official Docker image command. On Render, set **Docker Command** to `demo` and leave `DATABASE_DSN` empty. The demo creates its own temporary SQLite database and ignores `DATA_DIR`, `AUTH_KEY`, `ENCRYPTION_KEY`, and `.env`. Starting `gpt-load` without `demo` retains normal behavior.
+Login key: `gpt-load-demo`
 
 ## Quick start
 

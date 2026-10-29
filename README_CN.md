@@ -75,11 +75,9 @@
 
 ## 在线演示
 
-[打开共享演示](https://demo.gpt-load.com) · 登录密钥：`gpt-load-demo`
+[https://demo.gpt-load.com](https://demo.gpt-load.com)
 
-可以体验配置的新增、编辑和删除。所有访客共享数据，每 30 分钟及服务重新启动时恢复初始状态。分组、凭据、请求日志和用量均为模拟数据；真实上游调用、OAuth 授权及网络探测已关闭。请勿输入真实密钥或个人信息。Render 免费实例闲置后，首次访问可能需要等待约一分钟唤醒。
-
-自行部署演示可运行 `./gpt-load demo`，或在官方 Docker 镜像后追加 `demo` 参数。Render 的 **Docker Command** 填写 `demo`，并保持 `DATABASE_DSN` 为空。演示使用自己创建的临时 SQLite 数据库，忽略 `DATA_DIR`、`AUTH_KEY`、`ENCRYPTION_KEY` 和 `.env`。不带 `demo` 参数的正常启动行为保持不变。
+登录密钥：`gpt-load-demo`
 
 ## 快速开始
 
