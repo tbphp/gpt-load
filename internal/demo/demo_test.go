@@ -211,10 +211,19 @@ func TestDemoAutomaticallyResetsAndCleansUpOnCancellation(t *testing.T) {
 	t.Setenv("TMP", dir)
 	t.Setenv("TEMP", dir)
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	result := make(chan error, 1)
-	go func() { result <- run(ctx, "127.0.0.1", 0, time.Second) }()
-	deadline := time.After(10 * time.Second)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		result <- run(ctx, "127.0.0.1", 0, time.Second)
+	}()
+	t.Cleanup(func() {
+		// 失败路径也等待后台任务退出，再恢复环境变量和清理临时目录。
+		cancel()
+		<-done
+	})
+	// race 模式下，迁移和样例初始化本身可能超过 10 秒。
+	deadline := time.After(time.Minute)
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	first := ""
