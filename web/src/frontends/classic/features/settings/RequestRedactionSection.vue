@@ -9,6 +9,8 @@ import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AppTooltip from '@/components/ui/AppTooltip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useRedactionValidation } from './use-redaction-validation'
+import RequestRedactionPreview from './RequestRedactionPreview.vue'
+import RequestRedactionQuickAdd from './RequestRedactionQuickAdd.vue'
 
 const props = defineProps<{ modelValue: RedactionRule[]; disabled?: boolean }>()
 const emit = defineEmits<{
@@ -67,6 +69,8 @@ function error(index: number): string | undefined {
         >{{ t('requestRedaction.presets.' + preset.key) }}</AppButton
       >
     </div>
+    <RequestRedactionPreview :rules="modelValue" :disabled="invalid" />
+    <RequestRedactionQuickAdd :disabled="disabled || modelValue.length >= 64" @add="add" />
     <p v-if="!modelValue.length" class="redaction-note">{{ t('requestRedaction.empty') }}</p>
     <div v-if="modelValue.length" class="redaction-heading">
       <span>{{ t('requestRedaction.pattern') }}</span>
