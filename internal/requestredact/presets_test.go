@@ -79,9 +79,17 @@ func TestRedactionNewPresets(t *testing.T) {
 				"postgresql://demo:synthetic%40value@localhost:5432/app?sslmode=require",
 				"mysql://demo:synthetic-value@localhost:3306/app",
 				"rediss://:synthetic-value@localhost:6379/1",
+				"postgresql://demo:synthetic-value@[::1]:5432/app?sslmode=require",
+				"mysql://demo:synthetic-value@[2001:db8::1]/app",
+				"redis://:synthetic-value@[::1]",
+				"mongodb://demo:synthetic-value@[::ffff:192.0.2.1]:27017/app",
 				"mongodb+srv://demo:synthetic-value@database.invalid/app",
 			},
-			negative: []string{"postgresql://localhost:5432/app", "https://demo:synthetic-value@host.invalid", "redis://localhost:6379"},
+			negative: []string{
+				"postgresql://[::1]:5432/app",
+				"postgresql://demo:synthetic-value@[::1/app",
+				"postgresql://demo:synthetic-value@[]/app",
+				"postgresql://localhost:5432/app", "https://demo:synthetic-value@host.invalid", "redis://localhost:6379"},
 		},
 	} {
 		t.Run(test.key, func(t *testing.T) {
@@ -138,6 +146,8 @@ func TestRedactionDatabasePresetBoundaries(t *testing.T) {
 		"postgresql://demo:synthetic-value@db.example:5432/app.v1?options=a,b!c&mode=read:write&empty=",
 		"mongodb://demo:synthetic-value@db1.example:27017,db2.example:27017/app",
 		"redis://:synthetic-value@a",
+		"postgresql://demo:synthetic-value@[::1]:5432/app",
+		"redis://:synthetic-value@[2001:db8::1]",
 	}
 	for _, mode := range []string{ModeReplace, ModeEncrypt} {
 		rule.Mode = mode
@@ -153,7 +163,7 @@ func TestRedactionDatabasePresetBoundaries(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for _, suffix := range []string{"", ".", ",", "!", "?", ":", "...", ",!?"} {
+			for _, suffix := range []string{"", ".", ",", "!", "?", ":", "...", ",!?", "]", ")"} {
 				input := "Connect " + value + suffix + " next"
 				got, err := compiled.TextWithCipher(input, cipher)
 				if err != nil || got != "Connect "+masked+suffix+" next" {
@@ -167,34 +177,39 @@ func TestRedactionDatabasePresetBoundaries(t *testing.T) {
 func TestRedactionDatabasePresetPreservesToolJSONEscapes(t *testing.T) {
 	rule := redactionPresetsForTest(t)["databaseURL"]
 	cipher := syntheticRedactionCipher(t)
-	value := "postgresql://demo:synthetic-value@localhost:5432/app"
-	for _, mode := range []string{ModeReplace, ModeEncrypt} {
-		rule.Mode = mode
-		compiled, err := Compile([]Rule{rule})
-		if err != nil {
-			t.Fatal(err)
-		}
-		masked := rule.Replacement
-		if mode == ModeEncrypt {
-			masked, err = cipher.EncryptToken(value)
+	for _, value := range []string{
+		"postgresql://demo:synthetic-value@localhost:5432/app",
+		"postgresql://demo:synthetic-value@[::1]:5432/app",
+		"redis://:synthetic-value@[2001:db8::1]",
+	} {
+		for _, mode := range []string{ModeReplace, ModeEncrypt} {
+			rule.Mode = mode
+			compiled, err := Compile([]Rule{rule})
 			if err != nil {
 				t.Fatal(err)
 			}
-		}
-		for _, suffix := range []string{`\nKEEP`, `\rKEEP`, `\tKEEP`, `\u0020KEEP`, `\u000aKEEP`, `\"KEEP`, `\\KEEP`} {
-			inner := `{"value":"` + value + suffix + `","count":42}`
-			body, err := json.Marshal(map[string]any{"input": []any{map[string]any{"type": "function_call_output", "output": inner}}})
-			if err != nil {
-				t.Fatal(err)
+			masked := rule.Replacement
+			if mode == ModeEncrypt {
+				masked, err = cipher.EncryptToken(value)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
-			got, err := compiled.ApplyWithCipher(body, cipher)
-			if err != nil {
-				t.Fatal(err)
-			}
-			output := gjson.GetBytes(got, "input.0.output").Str
-			decodedSuffix := strings.TrimPrefix(gjson.Get(inner, "value").Str, value)
-			if !json.Valid([]byte(output)) || gjson.Get(output, "value").Str != masked+decodedSuffix || gjson.Get(output, "count").Int() != 42 {
-				t.Errorf("mode %s suffix %q changed content after the URI", mode, suffix)
+			for _, suffix := range []string{`\nKEEP`, `\rKEEP`, `\tKEEP`, `\u0020KEEP`, `\u000aKEEP`, `\"KEEP`, `\\KEEP`} {
+				inner := `{"value":"` + value + suffix + `","count":42}`
+				body, err := json.Marshal(map[string]any{"input": []any{map[string]any{"type": "function_call_output", "output": inner}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := compiled.ApplyWithCipher(body, cipher)
+				if err != nil {
+					t.Fatal(err)
+				}
+				output := gjson.GetBytes(got, "input.0.output").Str
+				decodedSuffix := strings.TrimPrefix(gjson.Get(inner, "value").Str, value)
+				if !json.Valid([]byte(output)) || gjson.Get(output, "value").Str != masked+decodedSuffix || gjson.Get(output, "count").Int() != 42 {
+					t.Errorf("mode %s suffix %q changed content after the URI", mode, suffix)
+				}
 			}
 		}
 	}

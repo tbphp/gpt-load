@@ -36,7 +36,7 @@
   },
   {
     "key": "databaseURL",
-    "pattern": "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\\+srv)?|mssql|sqlserver)://[^\\s:@/\"'<>]*:[^\\s@/\"'<>]+@[^\\s\\\\\"'<>()\\[\\]{}，。;]*[^\\s\\\\\"'<>()\\[\\]{}，。;.,!?:]",
+    "pattern": "(?i)\\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\\+srv)?|mssql|sqlserver)://[^\\s:@/\"'<>]*:[^\\s@/\"'<>]+@(?:\\[[0-9a-f:.]+\\](?:[^\\s\\\\\"'<>()\\[\\]{}，。;]*[^\\s\\\\\"'<>()\\[\\]{}，。;.,!?:])?|[^\\s\\\\\"'<>()\\[\\]{}，。;]*[^\\s\\\\\"'<>()\\[\\]{}，。;.,!?:])",
     "replacement": "[DATABASE_URL]"
   }
 ]
