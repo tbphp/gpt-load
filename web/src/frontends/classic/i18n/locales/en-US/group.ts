@@ -608,6 +608,17 @@ export default {
         consumeResetCreditSucceeded: 'Quota was reset and quota information was updated.',
         consumeResetCreditPending:
           'Quota was reset, but quota information could not be refreshed. Try again manually.',
+        periodEnd: 'Current subscription period ends',
+        billingRenewal: 'Auto-renewal',
+        renewalEnabled: 'Enabled',
+        renewalDisabled: 'Disabled',
+        renewalUnknown: 'Unknown',
+        billingSync: 'Subscription information',
+        billingState: {
+          confirmed: 'Confirmed',
+          error: 'Sync failed; last known values retained',
+          unavailable: 'No subscription record provided',
+        },
         tokenExpiresAt: 'Credential expires',
         lastTokenRefresh: 'Last credential refresh',
         initialSyncTitle: 'Quota information not loaded',

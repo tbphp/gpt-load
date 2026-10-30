@@ -614,6 +614,17 @@ export default {
         consumeResetCreditSucceeded: '利用枠をリセットし、利用枠情報を更新しました。',
         consumeResetCreditPending:
           '利用枠をリセットしましたが、利用枠情報を更新できませんでした。手動で再試行してください。',
+        periodEnd: '現在の契約期間終了',
+        billingRenewal: '自動更新',
+        renewalEnabled: '有効',
+        renewalDisabled: '無効',
+        renewalUnknown: '不明',
+        billingSync: '契約情報の同期',
+        billingState: {
+          confirmed: '確認済み',
+          error: '同期失敗・前回の情報を保持',
+          unavailable: '契約情報が提供されていません',
+        },
         tokenExpiresAt: '認証期限',
         lastTokenRefresh: '認証情報の最終更新',
         initialSyncTitle: '利用枠情報が未取得です',

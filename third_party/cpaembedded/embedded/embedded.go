@@ -699,6 +699,14 @@ func ObserveCodexAccount(ctx context.Context, credential CodexCredential, baseUR
 	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/usage", nil, "usage", codexOptionsHTTPClient(options))
 }
 
+// ObserveCodexSubscription reads the current billing period for this workspace.
+func ObserveCodexSubscription(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) (AccountObservation, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = defaultCodexAPIBase
+	}
+	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/subscriptions?account_id="+url.QueryEscape(credential.AccountID), nil, "subscription", codexOptionsHTTPClient(options))
+}
+
 // ObserveCodexResetCredits fetches the reset-credit detail endpoint without
 // interpreting its evolving response schema.
 func ObserveCodexResetCredits(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) (AccountObservation, error) {

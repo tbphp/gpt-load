@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { Check, RefreshCw, Ticket } from '@lucide/vue'
@@ -151,6 +152,42 @@ useLoadingActivity(() => Boolean(props.pending))
       </div>
     </header>
     <div class="modern-subscription-card-body">
+      <div v-if="observation?.subscription" class="modern-subscription-card-empty">
+        <span
+          >{{ t('credentialCards.periodEnd') }}:
+          {{
+            observation.subscription.periodEnd
+              ? dateFormatter(locale, {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+                }).format(observation.subscription.periodEnd)
+              : t('credentialCards.noExpiry')
+          }}</span
+        >
+        <span
+          >{{ t('credentialCards.billingRenewal') }}:
+          {{
+            t(
+              'credentialCards.' +
+                (observation.subscription.willRenew === undefined
+                  ? 'renewalUnknown'
+                  : observation.subscription.willRenew
+                    ? 'renewalEnabled'
+                    : 'renewalDisabled'),
+            )
+          }}</span
+        >
+        <span
+          >{{ t('credentialCards.billingState.' + observation.subscription.state)
+          }}<template v-if="observation.subscription.observedAt">
+            · {{ credentialTime(observation.subscription.observedAt, locale) }}</template
+          ></span
+        >
+      </div>
       <div
         v-if="channel?.quotaObservation || observation?.windows.length"
         class="modern-subscription-card-quota"

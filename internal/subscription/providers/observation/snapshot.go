@@ -73,11 +73,33 @@ type CreditSummary struct {
 	ObservedAtMS *int64 `json:"observed_at_ms,omitempty"`
 }
 
+// SubscriptionSummary describes a billing period, independently of OAuth expiry.
+// Failed refreshes retain the last confirmed values and their observation time.
+type SubscriptionSummary struct {
+	State        string `json:"state"`
+	PeriodEndMS  *int64 `json:"period_end_ms,omitempty"`
+	WillRenew    *bool  `json:"will_renew,omitempty"`
+	ObservedAtMS *int64 `json:"observed_at_ms,omitempty"`
+}
+
+func MergeSubscription(previous, current *SubscriptionSummary) *SubscriptionSummary {
+	if current == nil {
+		return previous
+	}
+	if current.State != "error" || previous == nil {
+		return current
+	}
+	merged := *previous
+	merged.State = "error"
+	return &merged
+}
+
 type Snapshot struct {
-	Plan                  PlanSummary     `json:"plan_summary"`
-	Account               *AccountSummary `json:"account_summary,omitempty"`
-	QuotaWindows          []QuotaWindow   `json:"quota_windows"`
-	Credits               *CreditSummary  `json:"credits,omitempty"`
-	ResetCreditsAvailable *int64          `json:"reset_credits_available,omitempty"`
-	ResetCredits          []ResetCredit   `json:"reset_credits,omitempty"`
+	Subscription          *SubscriptionSummary `json:"subscription,omitempty"`
+	Plan                  PlanSummary          `json:"plan_summary"`
+	Account               *AccountSummary      `json:"account_summary,omitempty"`
+	QuotaWindows          []QuotaWindow        `json:"quota_windows"`
+	Credits               *CreditSummary       `json:"credits,omitempty"`
+	ResetCreditsAvailable *int64               `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ResetCredit        `json:"reset_credits,omitempty"`
 }

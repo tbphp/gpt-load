@@ -1295,6 +1295,48 @@ function runMenuAction(
                 />
               </dd>
             </dl>
+            <template v-if="snapshot?.subscription">
+              <dl class="subscription-account__billing-detail">
+                <dt>{{ t('group.credentials.subscription.periodEnd') }}</dt>
+                <dd>
+                  {{
+                    snapshot.subscription.period_end_ms === undefined
+                      ? t('group.credentials.subscription.unknown')
+                      : formatLocalInstant(snapshot.subscription.period_end_ms, locale)
+                  }}
+                </dd>
+              </dl>
+              <dl class="subscription-account__billing-detail">
+                <dt>{{ t('group.credentials.subscription.billingRenewal') }}</dt>
+                <dd>
+                  {{
+                    t(
+                      'group.credentials.subscription.' +
+                        (snapshot.subscription.will_renew === undefined
+                          ? 'unknown'
+                          : snapshot.subscription.will_renew
+                            ? 'renewalEnabled'
+                            : 'renewalDisabled'),
+                    )
+                  }}
+                </dd>
+              </dl>
+              <dl class="subscription-account__billing-detail">
+                <dt>{{ t('group.credentials.subscription.billingSync') }}</dt>
+                <dd>
+                  {{
+                    t('group.credentials.subscription.billingState.' + snapshot.subscription.state)
+                  }}
+                  <AppRelativeTime
+                    v-if="snapshot.subscription.observed_at_ms"
+                    :instant="snapshot.subscription.observed_at_ms"
+                    :empty-label="t('group.credentials.subscription.unknown')"
+                    :locale="locale"
+                    hint
+                  />
+                </dd>
+              </dl>
+            </template>
             <dl>
               <dt>{{ t('group.credentials.subscription.tokenExpiresAt') }}</dt>
               <dd>
@@ -2152,6 +2194,13 @@ function runMenuAction(
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.subscription-account__diagnostics .subscription-account__billing-detail {
+  grid-column: 1 / -1;
+}
+.subscription-account__billing-detail dd {
+  white-space: normal;
+  overflow: visible;
 }
 .subscription-account__diagnostics .subscription-account__failure-summary {
   overflow-wrap: anywhere;
