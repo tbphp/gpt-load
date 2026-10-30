@@ -78,12 +78,13 @@ type ObservationWindowUsage struct {
 }
 
 type CredentialObservationSnapshot struct {
-	Plan                  ObservationPlanSummary             `json:"plan_summary"`
-	Account               *ObservationAccountSummary         `json:"account_summary,omitempty"`
-	QuotaWindows          []ObservationQuotaWindow           `json:"quota_windows"`
-	Credits               *providerobservation.CreditSummary `json:"credits,omitempty"`
-	ResetCreditsAvailable *int64                             `json:"reset_credits_available,omitempty"`
-	ResetCredits          []ObservationResetCredit           `json:"reset_credits,omitempty"`
+	Subscription          *providerobservation.SubscriptionSummary `json:"subscription,omitempty"`
+	Plan                  ObservationPlanSummary                   `json:"plan_summary"`
+	Account               *ObservationAccountSummary               `json:"account_summary,omitempty"`
+	QuotaWindows          []ObservationQuotaWindow                 `json:"quota_windows"`
+	Credits               *providerobservation.CreditSummary       `json:"credits,omitempty"`
+	ResetCreditsAvailable *int64                                   `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ObservationResetCredit                 `json:"reset_credits,omitempty"`
 }
 
 type CredentialObservationResponse struct {
@@ -374,6 +375,9 @@ func (s *Service) refreshCredentialObservationOnce(
 		var previousSnapshot CredentialObservationSnapshot
 		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
 			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
+		if previousSnapshotOK {
+			snapshot.Subscription = providerobservation.MergeSubscription(previousSnapshot.Subscription, snapshot.Subscription)
+		}
 		previousQuotaFresh := previousSnapshotOK && previous.State == models.CredentialObservationFresh
 		if observation.Partial {
 			lastErrorCode = "observation_partial"

@@ -31,6 +31,12 @@ export interface CredentialQuota {
   usage?: QuotaUsage
 }
 export interface CredentialObservation {
+  subscription?: {
+    state: 'confirmed' | 'error' | 'unavailable'
+    periodEnd?: number
+    willRenew?: boolean
+    observedAt?: number
+  }
   state: 'fresh' | 'stale' | 'refreshing' | 'error' | 'unavailable'
   observedAt: number | null
   error?: string
@@ -72,7 +78,17 @@ export function readObservation(value: unknown): CredentialObservation | undefin
   const plan = snapshot ? record(snapshot.plan_summary) : undefined
   const account = snapshot?.account_summary == null ? undefined : record(snapshot.account_summary)
   const credits = snapshot?.credits == null ? undefined : record(snapshot.credits)
+  const subscription = snapshot?.subscription == null ? undefined : record(snapshot.subscription)
   return {
+    subscription: subscription
+      ? {
+          state: oneOf(subscription.state, ['confirmed', 'error', 'unavailable']),
+          periodEnd: optionalTime(subscription.period_end_ms),
+          willRenew:
+            subscription.will_renew === undefined ? undefined : boolean(subscription.will_renew),
+          observedAt: optionalTime(subscription.observed_at_ms),
+        }
+      : undefined,
     state: oneOf(data.state, ['fresh', 'stale', 'refreshing', 'error', 'unavailable']),
     observedAt: data.observed_at_ms == null ? null : integer(data.observed_at_ms),
     error: data.last_error_code === undefined ? undefined : text(data.last_error_code),

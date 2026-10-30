@@ -190,6 +190,15 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	if err != nil {
 		return subscriptionruntime.Observation{}, fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, err)
 	}
+	var snapshot quotaSnapshot
+	if err := json.Unmarshal(normalized, &snapshot); err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
+	snapshot.Subscription = observeSubscription(ctx, value, baseURL)
+	normalized, err = json.Marshal(snapshot)
+	if err != nil {
+		return subscriptionruntime.Observation{}, err
+	}
 	return subscriptionruntime.Observation{Payload: normalized, Header: observed.Header.Clone(), QuotaObserved: true}, nil
 }
 
