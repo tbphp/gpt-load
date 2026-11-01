@@ -4,32 +4,45 @@ import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
 import { AppIcon, AppOverflowText, AppTooltip } from '@modern/components/ui'
 import { formatCompactNumber } from '@modern/components/ui/format'
-defineProps<{ usage: CredentialRow['daily']; compact?: boolean }>()
+const props = defineProps<{ usage: CredentialRow['daily']; compact?: boolean; numeric?: boolean }>()
 const { t, n, locale } = useI18n()
+
+function outcomeLabel(outcome: 'successShort' | 'failureShort', count?: number): string {
+  const label = `${props.numeric ? '24h ' : ''}${t(`credentialCards.${outcome}`)} ${count === undefined ? '—' : n(count)}`
+  return props.numeric && props.usage && !props.usage.complete
+    ? `${label} · ${t('groups.row.partialHelp')}`
+    : label
+}
 </script>
 <template>
-  <div class="modern-credential-outcomes" :class="{ 'is-compact': compact }">
-    <AppTooltip :label="usage && !usage.complete ? t('groups.row.partialHelp') : undefined">
+  <div class="modern-credential-outcomes" :class="{ 'is-compact': compact, 'is-numeric': numeric }">
+    <AppTooltip
+      v-if="!numeric"
+      :label="usage && !usage.complete ? t('groups.row.partialHelp') : undefined"
+    >
       <span
         class="modern-credential-outcomes-window"
         :tabindex="usage && !usage.complete ? 0 : undefined"
         >24h{{ usage && !usage.complete ? '*' : '' }}</span
       >
     </AppTooltip>
-    <template v-if="usage && compact">
-      <AppTooltip :label="`${t('credentialCards.successShort')} ${n(usage.successes)}`">
-        <span class="modern-credential-outcomes-count" tabindex="0"
-          ><AppIcon :icon="Check" size="xs" />{{
-            formatCompactNumber(usage.successes, locale)
+    <template v-if="compact && (usage || numeric)">
+      <AppTooltip :label="outcomeLabel('successShort', usage?.successes)">
+        <span class="modern-credential-outcomes-count is-success" tabindex="0"
+          ><AppIcon v-if="!numeric" :icon="Check" size="xs" />{{
+            usage ? formatCompactNumber(usage.successes, locale) : '—'
           }}</span
         >
       </AppTooltip>
-      <AppTooltip :label="`${t('credentialCards.failureShort')} ${n(usage.failures)}`">
+      <span v-if="numeric" aria-hidden="true">·</span>
+      <AppTooltip :label="outcomeLabel('failureShort', usage?.failures)">
         <span
-          class="modern-credential-outcomes-count"
-          :class="{ 'has-failures': usage.failures > 0 }"
+          class="modern-credential-outcomes-count is-failure"
+          :class="{ 'has-failures': usage && usage.failures > 0 }"
           tabindex="0"
-          ><AppIcon :icon="X" size="xs" />{{ formatCompactNumber(usage.failures, locale) }}</span
+          ><AppIcon v-if="!numeric" :icon="X" size="xs" />{{
+            usage ? formatCompactNumber(usage.failures, locale) : '—'
+          }}</span
         >
       </AppTooltip>
     </template>
@@ -88,6 +101,12 @@ const { t, n, locale } = useI18n()
   gap: var(--modern-space-1);
 }
 .modern-credential-outcomes-count.has-failures {
+  color: var(--modern-danger);
+}
+.modern-credential-outcomes.is-numeric .is-success {
+  color: var(--modern-success);
+}
+.modern-credential-outcomes.is-numeric .is-failure {
   color: var(--modern-danger);
 }
 .modern-credential-outcomes-partial {

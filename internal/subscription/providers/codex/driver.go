@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	cpaembedded "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/embedded"
 
 	"gpt-load/internal/channel/modules"
 	"gpt-load/internal/channel/spec"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 )
 
@@ -162,8 +164,8 @@ func (*codexDriver) DiscoverModels(ctx context.Context, credential subscriptionr
 	return cpaembedded.MergeModelCatalog(cpaembedded.ProviderCodex, result), nil
 }
 
-// Observe retrieves Codex usage and reset-credit details from the resolved
-// target and normalizes them into the provider-neutral quota contract.
+// Observe 并发读取额度、重置卡与订阅周期。额度失败取消附加查询；
+// 附加查询各自降级，不取消已经成功的额度结果。
 func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.Credential, target subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
 	value, err := ParseCredentialJSON(credential.Canonical())
 	if err != nil {
@@ -173,24 +175,54 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	observed, err := ObserveAccount(ctx, value, baseURL)
-	if err != nil {
+	queryContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var observed AccountObservation
+	var snapshot quotaSnapshot
+	var observeErr error
+	var quotaObservedAt time.Time
+	var detailsPayload []byte
+	var subscription *providerobservation.SubscriptionSummary
+	var queries sync.WaitGroup
+	queries.Go(func() {
+		observed, observeErr = ObserveAccount(queryContext, value, baseURL)
+		quotaObservedAt = time.Now()
+		if observeErr == nil {
+			snapshot, observeErr = normalizeQuotaSnapshot(observed.Payload)
+			if observeErr != nil {
+				observeErr = fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, observeErr)
+			}
+		}
+		if observeErr != nil {
+			cancel()
+		}
+	})
+	queries.Go(func() {
+		if details, err := ObserveResetCredits(queryContext, value, baseURL); err == nil {
+			detailsPayload = details.Payload
+		}
+	})
+	queries.Go(func() {
+		subscription = observeSubscription(queryContext, value, baseURL)
+	})
+	queries.Wait()
+	if observeErr != nil {
 		var upstream *UpstreamHTTPError
-		if errors.As(err, &upstream) {
+		if errors.As(observeErr, &upstream) {
 			return subscriptionruntime.Observation{}, &subscriptionruntime.UpstreamHTTPError{StatusCode: upstream.StatusCode}
 		}
+		return subscriptionruntime.Observation{}, observeErr
+	}
+	applyResetCreditDetails(&snapshot, detailsPayload)
+	snapshot.Subscription = subscription
+	normalized, err := json.Marshal(snapshot)
+	if err != nil {
 		return subscriptionruntime.Observation{}, err
 	}
-	var detailsPayload []byte
-	details, detailErr := ObserveResetCredits(ctx, value, baseURL)
-	if detailErr == nil {
-		detailsPayload = details.Payload
-	}
-	normalized, err := NormalizeQuota(observed.Payload, detailsPayload)
-	if err != nil {
-		return subscriptionruntime.Observation{}, fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, err)
-	}
-	return subscriptionruntime.Observation{Payload: normalized, Header: observed.Header.Clone(), QuotaObserved: true}, nil
+	return subscriptionruntime.Observation{
+		Payload: normalized, Header: observed.Header.Clone(),
+		QuotaObserved: true, QuotaObservedAt: quotaObservedAt,
+	}, nil
 }
 
 // Consume redeems one Codex reset credit against the resolved target using the

@@ -39,3 +39,24 @@ func MergeQuotaWindow(previous, patch QuotaWindow) QuotaWindow {
 	}
 	return merged
 }
+
+// MatchQuotaWindow 按来源和实际周期唯一匹配，旧渠道退回 ID 匹配。
+func MatchQuotaWindow(windows []QuotaWindow, target QuotaWindow) int {
+	matched := -1
+	for index, window := range windows {
+		if target.SourceID != "" {
+			if window.SourceID != target.SourceID || target.WindowSeconds == nil ||
+				*target.WindowSeconds <= 0 || window.WindowSeconds == nil ||
+				*window.WindowSeconds != *target.WindowSeconds {
+				continue
+			}
+		} else if window.SourceID != "" || window.ID != target.ID {
+			continue
+		}
+		if matched >= 0 {
+			return -1
+		}
+		matched = index
+	}
+	return matched
+}

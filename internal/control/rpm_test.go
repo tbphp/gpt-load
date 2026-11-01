@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,9 +13,75 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/rpm"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestModernSubscriptionRPMPeakDistinguishesEmptyFromFailure(t *testing.T) {
+	zero, peak := int64(0), int64(9)
+	for _, test := range []struct {
+		name     string
+		age      time.Duration
+		fail     bool
+		wantPeak *int64
+	}{
+		{name: "no records", wantPeak: &zero},
+		{name: "recent records", age: time.Minute, wantPeak: &peak},
+		{name: "expired records", age: 2 * time.Hour, wantPeak: &zero},
+		{name: "query failure", fail: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			initControlI18n(t)
+			fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+			now := time.Now().Truncate(time.Minute)
+			fixture.service.now = func() time.Time { return now }
+			if test.age != 0 {
+				if err := fixture.db.Create(&models.RPMStat{
+					Kind: "credential", KeyID: credentialID, MinuteMS: now.Add(-test.age).UnixMilli(),
+					SessionID: "test", Requests: 7, Peak: peak,
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			reader := requestlog.NewService(fixture.db, redact.New(), rpmTestRetention{})
+			fixture.service.usageStats = reader
+			if test.fail {
+				fixture.service.usageStats = failingRPMPeaksReader{reader}
+			}
+			engine := gin.New()
+			NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+			result := performGroupCollectionRequest(engine,
+				fmt.Sprintf("/api/modern/groups/%d/credentials", groupID), "Bearer "+authTestKey)
+			if result.Code != http.StatusOK {
+				t.Fatalf("collection status=%d body=%s", result.Code, result.Body.String())
+			}
+			var data struct {
+				Items []ModernCredentialItem `json:"items"`
+			}
+			if err := json.Unmarshal(decodeGroupCollectionSuccessData(t, result), &data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Items) != 1 || data.Items[0].CredentialID != credentialID {
+				t.Fatalf("unexpected credential collection: %+v", data.Items)
+			}
+			got := data.Items[0].RPMPeakHour
+			if test.wantPeak == nil {
+				if got != nil {
+					t.Fatalf("query failure reported RPM %d", *got)
+				}
+			} else if got == nil || *got != *test.wantPeak {
+				t.Fatalf("expected RPM %d, response=%s", *test.wantPeak, result.Body.String())
+			}
+		})
+	}
+}
+
+type failingRPMPeaksReader struct{ *requestlog.Service }
+
+func (failingRPMPeaksReader) RPMPeaks(context.Context, rpm.Kind, []uint, time.Time) (map[uint]int64, error) {
+	return nil, fmt.Errorf("test RPM query failed")
+}
 
 func TestRPMCollectionsSortBeforePagination(t *testing.T) {
 	one, high := int64(1), int64(80)

@@ -73,11 +73,19 @@ type CreditSummary struct {
 	ObservedAtMS *int64 `json:"observed_at_ms,omitempty"`
 }
 
+// SubscriptionSummary 只保存订阅周期与续费信息，刷新时间沿用账号观测。
+type SubscriptionSummary struct {
+	State       string `json:"state"`
+	PeriodEndMS *int64 `json:"period_end_ms,omitempty"`
+	WillRenew   *bool  `json:"will_renew,omitempty"`
+}
+
 type Snapshot struct {
-	Plan                  PlanSummary     `json:"plan_summary"`
-	Account               *AccountSummary `json:"account_summary,omitempty"`
-	QuotaWindows          []QuotaWindow   `json:"quota_windows"`
-	Credits               *CreditSummary  `json:"credits,omitempty"`
-	ResetCreditsAvailable *int64          `json:"reset_credits_available,omitempty"`
-	ResetCredits          []ResetCredit   `json:"reset_credits,omitempty"`
+	Subscription          *SubscriptionSummary `json:"subscription,omitempty"`
+	Plan                  PlanSummary          `json:"plan_summary"`
+	Account               *AccountSummary      `json:"account_summary,omitempty"`
+	QuotaWindows          []QuotaWindow        `json:"quota_windows"`
+	Credits               *CreditSummary       `json:"credits,omitempty"`
+	ResetCreditsAvailable *int64               `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ResetCredit        `json:"reset_credits,omitempty"`
 }

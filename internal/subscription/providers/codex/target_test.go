@@ -39,7 +39,11 @@ func TestBusinessTargetPreservesNativeEndpoints(t *testing.T) {
 				{"observation", func(ctx context.Context, c subscriptionruntime.Credential, target subscriptionruntime.Target) error {
 					_, err := driver.Observe(ctx, c, target)
 					return err
-				}, []string{"https://chatgpt.com/backend-api/wham/usage"}},
+				}, []string{
+					"https://chatgpt.com/backend-api/wham/usage",
+					"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+					"https://chatgpt.com/backend-api/subscriptions?account_id=account-one",
+				}},
 				{"refresh official", func(ctx context.Context, c subscriptionruntime.Credential, _ subscriptionruntime.Target) error {
 					_, err := driver.Refresh(ctx, c)
 					return err

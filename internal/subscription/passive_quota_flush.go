@@ -136,7 +136,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 }
 
 // mergePassiveQuotaSamples 按原始时间处理握手和事件，再通过同一次 CAS 写入。
-// 窗口与快照时间比较，点数与自身时间比较；同毫秒时保留已落盘的主动结果。
+// 窗口内各字段组和点数独立比较时间，行时间取最新观测；同毫秒保留已落盘结果。
 func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation PassiveQuotaObservation) (passiveQuotaMerge, int64, error) {
 	result := passiveQuotaMerge{Encoded: raw}
 	var observedAtMS int64
@@ -164,9 +164,6 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 			continue
 		}
 		windows := sample.Windows
-		if storedAtMS != nil && sample.ObservedAtMS <= *storedAtMS {
-			windows = nil
-		}
 		credits := cloneCreditSummary(sample.Credits)
 		if credits != nil {
 			if credits.ObservedAtMS == nil {
@@ -180,11 +177,11 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		if len(windows) == 0 && credits == nil {
 			continue
 		}
-		merged, err := mergePassiveQuotaSnapshot(result.Encoded, windows, credits)
+		merged, err := mergePassiveQuotaSnapshotAt(result.Encoded, windows, &sample.ObservedAtMS, storedAtMS, credits)
 		if err != nil {
 			return passiveQuotaMerge{}, 0, err
 		}
-		if merged.Matched {
+		if merged.WindowMatched {
 			observedAtMS = max(observedAtMS, sample.ObservedAtMS)
 		}
 		if credits != nil {
@@ -194,6 +191,7 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 			windowObservedAtMS[position] = sample.ObservedAtMS
 		}
 		merged.Matched = merged.Matched || result.Matched
+		merged.WindowMatched = merged.WindowMatched || result.WindowMatched
 		merged.Changed = merged.Changed || result.Changed
 		result = merged
 	}
@@ -229,17 +227,19 @@ type passiveQuotaMerge struct {
 	Windows                 []providerobservation.QuotaWindow
 	ObservedWindowPositions []int
 	Matched                 bool
+	WindowMatched           bool
 	Changed                 bool
 	Recovered               bool
 	RecoveredAtMS           int64
 }
 
-// mergePassiveQuotaSnapshot 更新已有且唯一匹配的窗口及已通过时间校验的点数。
+// mergePassiveQuotaSnapshotAt 更新已有且唯一匹配的窗口及已通过时间校验的点数。
 // 无变化时直接返回原始 raw，保持字节不变；仅在观测数据变化时重新编码，
 // 此时保留其他字段的值，但不保证原始键顺序或格式。
-func mergePassiveQuotaSnapshot(
+func mergePassiveQuotaSnapshotAt(
 	raw []byte,
 	patches []providerobservation.QuotaWindow,
+	observedAtMS, storedAtMS *int64,
 	credits ...*providerobservation.CreditSummary,
 ) (result passiveQuotaMerge, err error) {
 	var fields map[string]json.RawMessage
@@ -254,6 +254,28 @@ func mergePassiveQuotaSnapshot(
 	if err := json.Unmarshal(windowsRaw, &existing); err != nil {
 		return passiveQuotaMerge{}, fmt.Errorf("decode credential observation quota windows: %w", err)
 	}
+	var windowTimes []providerobservation.QuotaWindowObservationTimes
+	if encoded, present := fields["quota_window_observed_at_ms"]; present {
+		if err := json.Unmarshal(encoded, &windowTimes); err != nil {
+			return passiveQuotaMerge{}, fmt.Errorf("decode credential observation window times: %w", err)
+		}
+	}
+	hasWindowTimes := len(windowTimes) > 0
+	if hasWindowTimes && len(windowTimes) != len(existing) {
+		return passiveQuotaMerge{}, errors.New("credential observation window times do not match windows")
+	}
+	if !hasWindowTimes {
+		// 旧快照的未命中窗口沿用写入前的基线，不能借用其他窗口的新时间。
+		windowTimes = make([]providerobservation.QuotaWindowObservationTimes, len(existing))
+		if storedAtMS != nil {
+			for index := range windowTimes {
+				windowTimes[index] = providerobservation.QuotaWindowObservationTimes{
+					Usage: *storedAtMS, State: *storedAtMS, Reset: *storedAtMS,
+				}
+			}
+		}
+	}
+	timesChanged := false
 	merged := append([]providerobservation.QuotaWindow(nil), existing...)
 	positions := make([]int, len(patches))
 	namedTargets := make(map[int]bool)
@@ -290,7 +312,40 @@ func mergePassiveQuotaSnapshot(
 			*previous.WindowSeconds != *patch.WindowSeconds {
 			continue
 		}
+		if observedAtMS != nil {
+			times := &windowTimes[position]
+			if previous.SourceID != "" || hasWindowTimes {
+				if hasWindowTimes || storedAtMS != nil {
+					if *observedAtMS <= times.Usage {
+						patch.Used, patch.Limit, patch.Remaining, patch.Utilization = nil, nil, nil, nil
+					}
+					if *observedAtMS <= times.State {
+						patch.State = ""
+					}
+					if *observedAtMS <= times.Reset {
+						patch.ResetAtMS = nil
+					}
+				}
+				stateObserved := patch.State != "" && patch.State != "unknown"
+				if patch.Utilization == nil && !stateObserved && patch.ResetAtMS == nil {
+					continue
+				}
+				if patch.Utilization != nil {
+					times.Usage = *observedAtMS
+				}
+				if stateObserved {
+					times.State = *observedAtMS
+				}
+				if patch.ResetAtMS != nil {
+					times.Reset = *observedAtMS
+				}
+				timesChanged = true
+			} else if storedAtMS != nil && *observedAtMS <= *storedAtMS {
+				continue
+			}
+		}
 		outcome.Matched = true
+		outcome.WindowMatched = true
 		if patch.Utilization != nil {
 			outcome.ObservedWindowPositions = append(outcome.ObservedWindowPositions, position)
 		}
@@ -302,6 +357,7 @@ func mergePassiveQuotaSnapshot(
 		merged[position] = next
 	}
 	windowsChanged := outcome.Changed
+	outcome.Changed = outcome.Changed || timesChanged
 	if len(credits) > 0 && credits[0] != nil {
 		var previous *providerobservation.CreditSummary
 		if encoded, present := fields["credits"]; present {
@@ -344,6 +400,13 @@ func mergePassiveQuotaSnapshot(
 		}
 		fields["quota_windows"] = encodedWindows
 	}
+	if timesChanged {
+		encodedTimes, err := json.Marshal(windowTimes)
+		if err != nil {
+			return passiveQuotaMerge{}, fmt.Errorf("encode credential observation window times: %w", err)
+		}
+		fields["quota_window_observed_at_ms"] = encodedTimes
+	}
 	encoded, err := json.Marshal(fields)
 	if err != nil {
 		return passiveQuotaMerge{}, fmt.Errorf("encode credential observation snapshot: %w", err)
@@ -361,23 +424,7 @@ func matchPassiveQuotaWindow(windows []providerobservation.QuotaWindow, patch pr
 			return -1
 		}
 	}
-	matched := -1
-	for index, window := range windows {
-		if patch.SourceID != "" {
-			if window.SourceID != patch.SourceID || patch.WindowSeconds == nil ||
-				*patch.WindowSeconds <= 0 || window.WindowSeconds == nil ||
-				*window.WindowSeconds != *patch.WindowSeconds {
-				continue
-			}
-		} else if window.SourceID != "" || window.ID != patch.ID {
-			continue
-		}
-		if matched >= 0 {
-			return -1
-		}
-		matched = index
-	}
-	return matched
+	return providerobservation.MatchQuotaWindow(windows, patch)
 }
 
 // Codex WS 的附加额度只报告原始 limit_name。利用主动观测已保存的名称和周期
