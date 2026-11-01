@@ -1405,7 +1405,7 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 			name: "Gemini", protocol: protocol.Gemini,
 			body:         `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
 			wantFragment: `"text":"hello"`,
-			wantTerminal: `data: {"candidates":[{"finishReason":"STOP"}]}` + "\n\n",
+			wantTerminal: "\n\n",
 		},
 	}
 	for _, test := range tests {
@@ -1448,7 +1448,7 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 					if test.protocol == protocol.OpenAIResponses {
 						wantPrefix = []byte("event:")
 					}
-					if !bytes.HasPrefix(event.Data, wantPrefix) {
+					if !bytes.HasPrefix(event.Data, wantPrefix) || !bytes.HasSuffix(event.Data, []byte("\n\n")) {
 						t.Errorf("unframed client event = %q", event.Data)
 					}
 					_, _ = wire.Write(event.Data)
@@ -1464,6 +1464,29 @@ func TestAdapterStreamsRealCPAResponsesAsCompleteClientSSE(t *testing.T) {
 			if test.protocol == protocol.OpenAIResponses &&
 				!strings.Contains(wire.String(), "event: response.completed\ndata: ") {
 				t.Fatalf("Responses terminal event is incomplete: %q", wire.String())
+			}
+			if test.protocol == protocol.Gemini {
+				frames := strings.Split(strings.TrimSuffix(wire.String(), "\n\n"), "\n\n")
+				var terminal struct {
+					Candidates []struct {
+						FinishReason string `json:"finishReason"`
+					} `json:"candidates"`
+					UsageMetadata struct {
+						PromptTokenCount     int `json:"promptTokenCount"`
+						CandidatesTokenCount int `json:"candidatesTokenCount"`
+						TotalTokenCount      int `json:"totalTokenCount"`
+					} `json:"usageMetadata"`
+				}
+				if err := json.Unmarshal([]byte(strings.TrimPrefix(frames[len(frames)-1], "data:")), &terminal); err != nil {
+					t.Fatalf("decode Gemini terminal event: %v", err)
+				}
+				if len(terminal.Candidates) != 1 || terminal.Candidates[0].FinishReason != "STOP" {
+					t.Fatalf("Gemini terminal candidates = %#v", terminal.Candidates)
+				}
+				if terminal.UsageMetadata.PromptTokenCount != 1 || terminal.UsageMetadata.CandidatesTokenCount != 1 ||
+					terminal.UsageMetadata.TotalTokenCount != 2 {
+					t.Fatalf("Gemini terminal usage = %#v", terminal.UsageMetadata)
+				}
 			}
 		})
 	}
