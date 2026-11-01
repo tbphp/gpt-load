@@ -2,6 +2,7 @@
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { useLoadingActivity } from '@modern/components/ui/loading'
 import { dateFormatter } from '@modern/components/ui/intl-formatters'
+import { formatCompactNumber } from '@modern/components/ui/format'
 import { Check, CircleAlert, RefreshCw, Ticket } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -44,6 +45,11 @@ defineEmits<{
 }>()
 const { t, n, locale } = useI18n()
 const state = computed(() => credentialStatus(props.row))
+const rpmLabel = computed(() =>
+  props.row.rpmPeakHour === undefined
+    ? t('rpm.loadFailed')
+    : `${t('rpm.hourPeak')} ${n(props.row.rpmPeakHour)}`,
+)
 const observation = computed(() => props.row.observation)
 const subscription = computed(() => observation.value?.subscription)
 const subscriptionEnd = computed(() => {
@@ -276,11 +282,12 @@ useLoadingActivity(() => Boolean(props.pending))
           class="modern-subscription-card-daily"
           :usage="row.daily"
           compact
+          numeric
         />
-        <AppTooltip :label="t(row.rpmPeakHour === undefined ? 'rpm.loadFailed' : 'rpm.hourPeak')">
+        <AppTooltip :label="rpmLabel">
           <span class="modern-subscription-card-rpm" tabindex="0">
             <span aria-hidden="true">·</span>
-            {{ t('rpm.cardLabel') }} {{ row.rpmPeakHour === undefined ? '—' : n(row.rpmPeakHour) }}
+            {{ row.rpmPeakHour === undefined ? '—' : formatCompactNumber(row.rpmPeakHour, locale) }}
           </span>
         </AppTooltip>
       </div>
