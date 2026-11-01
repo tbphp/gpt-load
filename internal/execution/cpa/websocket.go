@@ -225,7 +225,7 @@ func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvid
 			}
 		}
 		if !strings.EqualFold(e.Type, "usage_limit_reached") &&
-			(strings.EqualFold(failure.UpstreamCode, "model_at_capacity") || strings.EqualFold(failure.UpstreamCode, "model_is_at_capacity") ||
+			(failure.TransientRateLimit || strings.EqualFold(failure.UpstreamCode, "model_at_capacity") || strings.EqualFold(failure.UpstreamCode, "model_is_at_capacity") ||
 				strings.EqualFold(failure.UpstreamCode, "turn_rate_limit_exceeded")) {
 			e.Hint = execution.FailureHintCandidateUnavailable
 			e.ScopeHint = execution.ErrorScopeModel
