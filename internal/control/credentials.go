@@ -465,7 +465,9 @@ func (s *Service) mapCredentialCollection(
 		}
 		peaks := s.rpmPeaks(ctx, rpm.Credential, ids, observation.observedAt)
 		for i := range records {
-			if peak, ok := peaks[records[i].item.CredentialID]; ok {
+			// 订阅卡固定展示 RPM：查询成功但无记录为 0，查询失败仍保持未知。
+			if peak, ok := peaks[records[i].item.CredentialID]; ok ||
+				(peaks != nil && records[i].item.ConnectionType == string(models.ConnectionTypeSubscription)) {
 				records[i].item.RPMPeakHour = &peak
 			}
 		}

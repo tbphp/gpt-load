@@ -277,10 +277,10 @@ useLoadingActivity(() => Boolean(props.pending))
           :usage="row.daily"
           compact
         />
-        <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
+        <AppTooltip :label="t(row.rpmPeakHour === undefined ? 'rpm.loadFailed' : 'rpm.hourPeak')">
           <span class="modern-subscription-card-rpm" tabindex="0">
             <span aria-hidden="true">·</span>
-            {{ t('rpm.cardLabel') }} {{ n(row.rpmPeakHour) }}
+            {{ t('rpm.cardLabel') }} {{ row.rpmPeakHour === undefined ? '—' : n(row.rpmPeakHour) }}
           </span>
         </AppTooltip>
       </div>
