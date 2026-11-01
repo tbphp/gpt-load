@@ -54,3 +54,14 @@ func TestWSErrorFromBridgePreservesSafeRateLimitMetadata(t *testing.T) {
 		t.Fatalf("safe WebSocket rate-limit metadata was lost: %+v", failure)
 	}
 }
+
+func TestWSErrorFromBridgePreservesTransientCapacity(t *testing.T) {
+	err := wsErrorFromBridge(&cpaembedded.CodexWSError{
+		Code: "upstream_error", UpstreamType: "rate_limit_error", HTTPStatus: 429,
+		TransientRateLimit: true, DispatchState: WSMaybeSent,
+	})
+	var failure *WSError
+	if !errors.As(err, &failure) || !failure.TransientRateLimit || failure.DispatchState != WSMaybeSent {
+		t.Fatalf("WebSocket capacity evidence was lost: %+v", failure)
+	}
+}

@@ -321,6 +321,59 @@ func TestCodexWSSessionPreservesUpstreamFailure(t *testing.T) {
 	}
 }
 
+func TestCodexWSSessionPreservesTransientCapacity(t *testing.T) {
+	for _, transport := range []string{"event", "handshake"} {
+		for _, test := range []struct {
+			name      string
+			body      string
+			transient bool
+		}{
+			{"turn limit", `{"type":"rate_limit_error","code":"turn_rate_limit_exceeded","message":"Codex is at capacity"}`, true},
+			{"capacity without code", `{"type":"rate_limit_error","message":"Codex is at capacity"}`, true},
+			{"generic rate limit", `{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"The model is at capacity"}`, false},
+			{"quota takes precedence", `{"type":"usage_limit_reached","code":"turn_rate_limit_exceeded","message":"quota exhausted"}`, false},
+		} {
+			t.Run(transport+"/"+test.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if transport == "handshake" {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusTooManyRequests)
+						_, _ = io.WriteString(w, `{"error":`+test.body+`}`)
+						return
+					}
+					conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					defer conn.Close()
+					if _, _, err := conn.ReadMessage(); err != nil {
+						return
+					}
+					if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","status":429,"error":`+test.body+`}`)); err != nil {
+						t.Error(err)
+					}
+					_, _, _ = conn.ReadMessage()
+				}))
+				defer server.Close()
+				session := wsTestSession(t, server.URL)
+				result, err := session.ExecuteTurn(t.Context(), json.RawMessage(`{"model":"gpt-5","input":"hello"}`), nil)
+				var failure *CodexWSError
+				if !errors.As(err, &failure) || failure.HTTPStatus != http.StatusTooManyRequests || failure.TransientRateLimit != test.transient {
+					t.Fatalf("WebSocket capacity classification was lost: error=%v failure=%+v", err, failure)
+				}
+				wantDispatch := CodexWSMaybeSent
+				if transport == "handshake" {
+					wantDispatch = CodexWSNotSent
+				}
+				if result.DispatchState != wantDispatch || failure.DispatchState != wantDispatch {
+					t.Fatalf("dispatch evidence changed: result=%s failure=%s", result.DispatchState, failure.DispatchState)
+				}
+			})
+		}
+	}
+}
+
 func TestCodexWSSessionPreservesUsageLimitRetryAfter(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -1081,8 +1134,8 @@ func TestCodexWSSessionPreservesDoneErrorCode(t *testing.T) {
 }
 
 func TestCodexWSSessionFixedIdentity(t *testing.T) {
-	const wantUA = "codex-tui/0.164.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.164.0)"
-	for _, model := range []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-5.6-luna"} {
+	const wantUA = "codex-tui/0.166.0 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.166.0)"
+	for _, model := range []string{"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-5.6-luna", "gpt-5.5"} {
 		for _, test := range []struct {
 			name        string
 			headers     http.Header
@@ -1102,7 +1155,7 @@ func TestCodexWSSessionFixedIdentity(t *testing.T) {
 				var handshakes atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handshakes.Add(1)
-					if r.Header.Get("Version") != "0.164.0" || r.Header.Get("User-Agent") != wantUA {
+					if r.Header.Get("Version") != "0.166.0" || r.Header.Get("User-Agent") != wantUA {
 						t.Errorf("handshake identity: version=%q UA=%q", r.Header.Get("Version"), r.Header.Get("User-Agent"))
 					}
 					if r.Header.Get("Authorization") != "Bearer test-access" {

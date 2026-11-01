@@ -68,10 +68,18 @@ func TestWebsocketMalformedEventRetainsProtocolEvidence(t *testing.T) {
 }
 
 func TestWebsocketModelCapacityDoesNotApplyQuotaCooldown(t *testing.T) {
-	for _, code := range []string{"model_at_capacity", "model_is_at_capacity"} {
+	for _, test := range []struct {
+		code      string
+		transient bool
+	}{
+		{code: "model_at_capacity"},
+		{code: "model_is_at_capacity"},
+		{code: "turn_rate_limit_exceeded"},
+		{transient: true},
+	} {
 		evidence := codexWebsocketEvidence(t.Context(), &codex.WSError{
-			Code: "upstream_error", UpstreamCode: code, HTTPStatus: http.StatusTooManyRequests,
-			DispatchState: codex.WSMaybeSent,
+			Code: "upstream_error", UpstreamType: "rate_limit_error", UpstreamCode: test.code, HTTPStatus: http.StatusTooManyRequests,
+			DispatchState: codex.WSMaybeSent, TransientRateLimit: test.transient,
 		})
 		if evidence.Hint != execution.FailureHintCandidateUnavailable || evidence.ScopeHint != execution.ErrorScopeModel ||
 			evidence.ReplaySafety != execution.ReplaySafetyUnknown {
@@ -80,9 +88,22 @@ func TestWebsocketModelCapacityDoesNotApplyQuotaCooldown(t *testing.T) {
 		decision := health.JudgeExecution(health.ExecutionAttempt{
 			DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusTooManyRequests, Evidence: evidence,
 		}, health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
-		if decision.Effect != health.EffectNone || decision.Retry != health.RetryNone {
+		if decision.Effect != health.EffectNone || decision.Retry != health.RetryNone || decision.QuotaCooldown {
 			t.Fatalf("capacity rejection caused cooldown or unsafe replay: %+v", decision)
 		}
+	}
+}
+
+func TestWebsocketGenericRateLimitKeepsQuotaCooldown(t *testing.T) {
+	evidence := codexWebsocketEvidence(t.Context(), &codex.WSError{
+		Code: "upstream_error", UpstreamType: "rate_limit_error", UpstreamCode: "rate_limit_exceeded",
+		HTTPStatus: http.StatusTooManyRequests, DispatchState: codex.WSMaybeSent,
+	})
+	decision := health.JudgeExecution(health.ExecutionAttempt{
+		DispatchState: execution.DispatchMaybeSent, StatusCode: http.StatusTooManyRequests, Evidence: evidence,
+	}, health.DecisionContext{Method: http.MethodPost, Operation: execution.OperationResponsesCreate})
+	if !decision.QuotaCooldown || decision.Effect != health.EffectCooldownModel {
+		t.Fatalf("generic rate limit lost quota policy: %+v", decision)
 	}
 }
 
@@ -101,7 +122,8 @@ func TestWebsocketUsageLimitUsesUpstreamModelCooldownDeadline(t *testing.T) {
 	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 	evidence := codexWebsocketEvidence(t.Context(), &codex.WSError{
 		Code: "upstream_error", UpstreamType: "usage_limit_reached",
-		HTTPStatus: http.StatusTooManyRequests, RetryAfter: 2 * time.Hour,
+		UpstreamCode: "turn_rate_limit_exceeded",
+		HTTPStatus:   http.StatusTooManyRequests, RetryAfter: 2 * time.Hour,
 		DispatchState: codex.WSMaybeSent,
 	})
 	if evidence.Type != "usage_limit_reached" || evidence.Hint != execution.FailureHintRateLimited ||

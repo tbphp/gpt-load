@@ -62,15 +62,16 @@ type CodexWSTurnResult struct {
 }
 
 // CodexWSError 的文本不包含上游响应、凭据、地址或代理密码。
-// UpstreamType、UpstreamCode、HTTPStatus 和 RetryAfter 仅提供调用者所需的错误分类证据。
+// 仅提供调用者所需的安全错误分类证据。
 type CodexWSError struct {
-	Code          string
-	UpstreamType  string
-	UpstreamCode  string
-	HTTPStatus    int
-	RetryAfter    time.Duration
-	DispatchState string
-	cause         error
+	Code               string
+	UpstreamType       string
+	UpstreamCode       string
+	HTTPStatus         int
+	RetryAfter         time.Duration
+	DispatchState      string
+	TransientRateLimit bool
+	cause              error
 }
 
 func (err *CodexWSError) Error() string { return "codex websocket: " + err.Code }
@@ -326,6 +327,10 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 		var status interface{ StatusCode() int }
 		if errors.As(executionErr, &status) {
 			failure.HTTPStatus = status.StatusCode()
+		}
+		var transient cliproxyexecutor.TransientRateLimitError
+		if errors.As(executionErr, &transient) {
+			failure.TransientRateLimit = transient.IsTransientRateLimit()
 		}
 		var headers interface{ Headers() http.Header }
 		if errors.As(executionErr, &headers) {

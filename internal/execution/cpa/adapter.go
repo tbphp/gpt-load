@@ -391,6 +391,7 @@ func (a *Adapter) ExecuteStream(
 	modelObserver := responsemodel.New(spec.ClientProtocol, spec.UpstreamModel)
 	openAIDone := false
 	geminiTerminal := false
+	incomplete := false
 	var nativeResponsesAssembler *nativeResponsesSSEAssembler
 	var codexBootstrap *codexBootstrapBuffer
 	if spec.ClientProtocol == protocol.OpenAIResponses && spec.RouteMode == execution.RouteNative {
@@ -480,7 +481,9 @@ func (a *Adapter) ExecuteStream(
 				}
 			}
 			modelObserver.FinishSSE()
-			return successfulStreamTerminal(upstreamProtocol, modelObserver.Model, headers, applied)
+			result := successfulStreamTerminal(upstreamProtocol, modelObserver.Model, headers, applied)
+			result.Incomplete = incomplete
+			return result
 		}
 		if chunk.Err != nil {
 			if codexBootstrap != nil && !codexBootstrap.released && len(chunk.Payload) == 0 &&
@@ -499,6 +502,7 @@ func (a *Adapter) ExecuteStream(
 			}
 			return streamExecutionError(streamCtx, provider, upstreamProtocol, headers, chunk.Err, credential, applied, ready)
 		}
+		incomplete = incomplete || chunk.Incomplete
 		if len(chunk.Payload) == 0 && nativeResponsesAssembler == nil {
 			continue
 		}

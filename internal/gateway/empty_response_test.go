@@ -13,6 +13,32 @@ import (
 	"gpt-load/internal/execution"
 )
 
+func TestIncompleteExecutionIsNotRetriedAsEmptyResponse(t *testing.T) {
+	const wire = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+	executor := fakeExecutionExecutor{stream: func(_ context.Context, _ execution.AttemptSpec, sink execution.StreamSink) execution.StreamResult {
+		header := http.Header{"Content-Type": {"text/event-stream"}}
+		for _, event := range []execution.StreamEvent{
+			{Sequence: 1, Kind: execution.StreamEventReady, StatusCode: http.StatusOK, Header: header},
+			{Sequence: 2, Kind: execution.StreamEventData, Data: []byte(wire)},
+		} {
+			if err := sink(event); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return execution.StreamResult{
+			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			StatusCode: http.StatusOK, Header: header, Incomplete: true,
+		}
+	}}
+	input := executionForwardInput()
+	input.EmptyResponseRetry = true
+	recorder := httptest.NewRecorder()
+	result := NewExecutionForwarder(executor).ForwardStream(t.Context(), input, recorder)
+	if result.EmptyResponseBeforeCommit || !result.Committed || result.Stream.EndReason != StreamEndProviderIncomplete || recorder.Body.String() != wire {
+		t.Fatalf("committed=%v empty=%v end=%v body=%q", result.Committed, result.EmptyResponseBeforeCommit, result.Stream.EndReason, recorder.Body.String())
+	}
+}
+
 // TestEmptyResponsePrereadLimits 固定预读窗口的三重上限。事件数是主判据，
 // 时间与字节数兜底：任一耗尽都必须立即提交，不能无限压住响应。
 func TestEmptyResponsePrereadLimits(t *testing.T) {
