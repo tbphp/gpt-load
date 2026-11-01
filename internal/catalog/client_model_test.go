@@ -34,6 +34,19 @@ func TestCodexClientModelUsesGPT61SolTemplate(t *testing.T) {
 	assertCodexInstructionFields(t, model)
 }
 
+func TestCodexClientModelUsesGPT61TerraTemplate(t *testing.T) {
+	model, automatic, _, err := BuildCodexClientModel("gpt-6.1-terra", 0, ClientModelOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model["context_window"] != json.Number("500000") || model["default_reasoning_level"] != "low" ||
+		model["supports_reasoning_effort_updates"] != true ||
+		!reflect.DeepEqual(automatic.SupportedReasoningLevels, []string{"low", "medium", "high", "xhigh", "max", "ultra"}) {
+		t.Fatalf("GPT-6.1 Terra did not retain its native capabilities: context=%v, updates=%v, profile=%#v",
+			model["context_window"], model["supports_reasoning_effort_updates"], automatic)
+	}
+}
+
 func TestCodexClientModelUsesGPT6Templates(t *testing.T) {
 	for _, test := range []struct {
 		id     string

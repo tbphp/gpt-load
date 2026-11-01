@@ -312,8 +312,9 @@ type ExecuteStreamResponse struct {
 
 // ExecuteStreamChunk contains one converted payload or terminal bridge error.
 type ExecuteStreamChunk struct {
-	Payload []byte
-	Err     error
+	Payload    []byte
+	Incomplete bool
+	Err        error
 }
 
 // Executor is the isolated CPA execution surface consumed by GPT-Load.
@@ -410,7 +411,7 @@ func (e *executor) ExecuteStream(
 	go func() {
 		defer close(chunks)
 		for chunk := range response.Chunks {
-			converted := ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Err: chunk.Err}
+			converted := ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Incomplete: chunk.Incomplete, Err: chunk.Err}
 			select {
 			case chunks <- converted:
 			case <-ctx.Done():

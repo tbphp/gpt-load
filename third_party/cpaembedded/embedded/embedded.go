@@ -188,8 +188,9 @@ type ExecuteStreamResponse struct {
 }
 
 type ExecuteStreamChunk struct {
-	Payload []byte
-	Err     error
+	Payload    []byte
+	Incomplete bool
+	Err        error
 }
 
 // BeginCodexBrowserAuthorization creates one browser OAuth challenge without
@@ -540,7 +541,7 @@ func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credenti
 		defer close(chunks)
 		for chunk := range response.Chunks {
 			select {
-			case chunks <- ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Err: chunk.Err}:
+			case chunks <- ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Incomplete: chunk.Incomplete, Err: chunk.Err}:
 			case <-ctx.Done():
 				return
 			}

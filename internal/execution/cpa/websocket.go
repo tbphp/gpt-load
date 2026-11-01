@@ -224,7 +224,9 @@ func codexWebsocketEvidence(ctx context.Context, err error) *execution.ErrorEvid
 				e.OriginHint = execution.ErrorOriginDownstream
 			}
 		}
-		if strings.EqualFold(failure.UpstreamCode, "model_at_capacity") || strings.EqualFold(failure.UpstreamCode, "model_is_at_capacity") {
+		if !strings.EqualFold(e.Type, "usage_limit_reached") &&
+			(failure.TransientRateLimit || strings.EqualFold(failure.UpstreamCode, "model_at_capacity") || strings.EqualFold(failure.UpstreamCode, "model_is_at_capacity") ||
+				strings.EqualFold(failure.UpstreamCode, "turn_rate_limit_exceeded")) {
 			e.Hint = execution.FailureHintCandidateUnavailable
 			e.ScopeHint = execution.ErrorScopeModel
 			// WS 错误未携带生成阶段证据；容量不足不计为额度耗尽，也不据此重放。
