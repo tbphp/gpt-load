@@ -87,6 +87,12 @@ type CredentialObservationSnapshot struct {
 	ResetCredits          []ObservationResetCredit                 `json:"reset_credits,omitempty"`
 }
 
+// credentialObservationSnapshotRecord 将窗口时序留在持久化边界，管理 API 不暴露。
+type credentialObservationSnapshotRecord struct {
+	CredentialObservationSnapshot
+	QuotaWindowObservedAtMS []int64 `json:"quota_window_observed_at_ms,omitempty"`
+}
+
 type CredentialObservationResponse struct {
 	State              string                         `json:"state"`
 	Snapshot           *CredentialObservationSnapshot `json:"snapshot"`
@@ -356,7 +362,7 @@ func (s *Service) refreshCredentialObservationOnce(
 			return CredentialObservationResponse{}, err
 		}
 		previous = latest
-		var snapshot CredentialObservationSnapshot
+		var snapshot credentialObservationSnapshotRecord
 		if err := json.Unmarshal(observation.Payload, &snapshot); err != nil || snapshot.QuotaWindows == nil {
 			return s.recordCredentialObservationFailure(
 				ctx, credential, previous, attemptMS,
@@ -364,6 +370,12 @@ func (s *Service) refreshCredentialObservationOnce(
 			)
 		}
 		freshWindows := providerQuotaWindows(snapshot.QuotaWindows)
+		if !observation.QuotaObservedAt.IsZero() {
+			snapshot.QuotaWindowObservedAtMS = make([]int64, len(snapshot.QuotaWindows))
+			for index := range snapshot.QuotaWindows {
+				snapshot.QuotaWindowObservedAtMS[index] = quotaObservedMS
+			}
+		}
 		if len(observation.ObservedQuotaScopes) > 0 {
 			covered, _ := mergeObservationQuotaWindows(nil, snapshot.QuotaWindows, observation.ObservedQuotaScopes)
 			freshWindows = providerQuotaWindows(covered)
@@ -376,7 +388,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 		state := models.CredentialObservationFresh
 		lastErrorCode := ""
-		var previousSnapshot CredentialObservationSnapshot
+		var previousSnapshot credentialObservationSnapshotRecord
 		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
 			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
 		previousQuotaFresh := previousSnapshotOK && previous.State == models.CredentialObservationFresh
@@ -440,9 +452,25 @@ func (s *Service) refreshCredentialObservationOnce(
 		if !observation.QuotaObservedAt.IsZero() && previousSnapshotOK &&
 			previous.IdentityFingerprint == credential.IdentityFingerprint {
 			if previousQuotaFresh && previous.ObservedAtMS != nil && *previous.ObservedAtMS > quotaObservedMS {
-				snapshot.QuotaWindows = previousSnapshot.QuotaWindows
-				observedMS = *previous.ObservedAtMS
-				freshWindows = nil
+				previousWindows := providerQuotaWindows(previousSnapshot.QuotaWindows)
+				for index, current := range freshWindows {
+					position := providerobservation.MatchQuotaWindow(previousWindows, current)
+					if position < 0 || providerobservation.MatchQuotaWindow(freshWindows, current) != index {
+						continue
+					}
+					if position >= len(previousSnapshot.QuotaWindowObservedAtMS) || previousSnapshot.QuotaWindowObservedAtMS[position] <= quotaObservedMS {
+						continue
+					}
+					stored := previousSnapshot.QuotaWindows[position]
+					window := &snapshot.QuotaWindows[index]
+					window.Used, window.Limit = stored.Used, stored.Limit
+					window.Remaining, window.Utilization = stored.Remaining, stored.Utilization
+					window.ResetAtMS, window.State = stored.ResetAtMS, stored.State
+					snapshot.QuotaWindowObservedAtMS[index] = previousSnapshot.QuotaWindowObservedAtMS[position]
+					observedMS = max(observedMS, snapshot.QuotaWindowObservedAtMS[index])
+					// 已保留被动结果的窗口不再用旧主动值触发恢复。
+					freshWindows[index].State = ""
+				}
 			}
 			if credits := previousSnapshot.Credits; credits != nil && credits.ObservedAtMS != nil &&
 				*credits.ObservedAtMS > quotaObservedMS {

@@ -12,6 +12,11 @@ import (
 	providerobservation "gpt-load/internal/subscription/providers/observation"
 )
 
+// 纯合并测试不指定观测时间；真实落盘测试通过 FlushPassiveQuotaObservations 校验时序。
+func mergePassiveQuotaSnapshot(raw []byte, windows []providerobservation.QuotaWindow) (passiveQuotaMerge, error) {
+	return mergePassiveQuotaSnapshotAt(raw, windows, nil, nil)
+}
+
 func newFlushableCredentialObservation(
 	t *testing.T,
 	manager *CredentialManager,

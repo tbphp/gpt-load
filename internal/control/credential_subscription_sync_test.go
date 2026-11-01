@@ -175,3 +175,122 @@ func TestAccountSyncPreservesNewerPassiveQuotaAndCredits(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountSyncKeepsIndependentQuotaWindows(t *testing.T) {
+	for _, test := range []struct {
+		name, sourceID string
+		period         int64
+		passiveUsed    float64
+	}{
+		{name: "feature", sourceID: "codex_bengalfox", period: 18000, passiveUsed: 90},
+		{name: "unchanged feature", sourceID: "codex_bengalfox", period: 18000, passiveUsed: 80},
+		{name: "weekly account", sourceID: "codex", period: 604800, passiveUsed: 90},
+	} {
+		for _, flushBeforeSave := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/passive_flushed_before_save=%t", test.name, flushBeforeSave), func(t *testing.T) {
+				fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+				base := time.Now().UnixMilli()
+				var clock atomic.Int64
+				clock.Store(base)
+				fixture.service.now = func() time.Time { return time.UnixMilli(clock.Load()) }
+				var credential models.Credential
+				if err := fixture.db.First(&credential, credentialID).Error; err != nil {
+					t.Fatal(err)
+				}
+				storedAt := base - 1000
+				if err := fixture.db.Create(&models.CredentialObservation{
+					CredentialID: credentialID, IdentityFingerprint: credential.IdentityFingerprint,
+					SchemaVersion: 1, ObservationVersion: 1, State: models.CredentialObservationFresh,
+					ObservedAtMS: &storedAt, UpdatedAtMS: storedAt,
+					SnapshotJSON: models.JSON(fmt.Sprintf(`{"plan_summary":{"name":"Plus"},"quota_windows":[{"id":"primary","source_id":"codex","label":"5h","scope":"account","unit":"percent","used":100,"utilization":1,"state":"exhausted","window_seconds":18000},{"id":"secondary","source_id":"%s","label":"5h","scope":"Spark","unit":"percent","used":80,"utilization":0.8,"state":"available","window_seconds":%d}]}`, test.sourceID, test.period)),
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+				ref, ok := fixture.registry.CredentialRef(credentialID)
+				if !ok {
+					t.Fatal("missing runtime credential")
+				}
+				fixture.registry.SetQuotaCooldown(ref, "", time.UnixMilli(base).Add(time.Hour), time.UnixMilli(base-500))
+				started, release := make(chan struct{}), make(chan struct{})
+				released := false
+				defer func() {
+					if !released {
+						close(release)
+					}
+				}()
+				fixture.service.observeSubscriptionAccount = func(ctx context.Context, _ channel.ID, _ subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
+					close(started)
+					select {
+					case <-release:
+					case <-ctx.Done():
+						return subscriptionruntime.Observation{}, ctx.Err()
+					}
+					return subscriptionruntime.Observation{
+						QuotaObserved: true, QuotaObservedAt: time.UnixMilli(base),
+						Payload: []byte(fmt.Sprintf(`{"plan_summary":{"name":"Plus"},"quota_windows":[{"id":"primary","source_id":"codex","label":"5h","scope":"account","unit":"percent","used":25,"utilization":0.25,"state":"available","window_seconds":18000},{"id":"secondary","source_id":"%s","label":"5h","scope":"Spark","unit":"percent","used":85,"utilization":0.85,"state":"available","window_seconds":%d}],"credits":{"balance":"100"},"reset_credits_available":2,"subscription":{"state":"confirmed","period_end_ms":1800000000000,"will_renew":true}}`, test.sourceID, test.period)),
+					}, nil
+				}
+				done := make(chan error, 1)
+				go func() {
+					_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
+					done <- err
+				}()
+				select {
+				case <-started:
+				case <-time.After(time.Second):
+					t.Fatal("active refresh did not start")
+				}
+				manager := subscription.NewCredentialManager(fixture.db, fixture.encryption, fixture.registry, fixture.mutations, fixture.service.subscriptions)
+				used, ratio, period, passiveAt := test.passiveUsed, test.passiveUsed/100, test.period, base+1000
+				windows := []providerobservation.QuotaWindow{
+					{ID: "primary", SourceID: test.sourceID, Used: &used, Utilization: &ratio, WindowSeconds: &period, State: "available"},
+				}
+				manager.RecordPassiveQuotaObservation(credentialID, ref.IdentityGeneration, passiveAt, windows,
+					&providerobservation.CreditSummary{Balance: "5", ObservedAtMS: &passiveAt})
+				flush := func() {
+					if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if flushBeforeSave {
+					flush()
+				}
+				clock.Store(base + 2000)
+				close(release)
+				released = true
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+				if !flushBeforeSave {
+					flush()
+				}
+				result, err := fixture.service.GetCredentialObservation(t.Context(), groupID, credentialID)
+				if err != nil || result.Snapshot == nil {
+					t.Fatalf("readback failed: %v", err)
+				}
+				snapshot := result.Snapshot
+				if len(snapshot.QuotaWindows) != 2 {
+					t.Fatalf("expected account and feature windows: %s", observationJSON(t, result))
+				}
+				account, feature := snapshot.QuotaWindows[0], snapshot.QuotaWindows[1]
+				t.Logf("account used=%.0f, feature used=%.0f, cooldown_active=%t", *account.Used, *feature.Used, !fixture.registry.Snapshot()[0].CooldownUntil.IsZero())
+				if *account.Used != 25 {
+					t.Errorf("unrefreshed account window displaced active result: used=%.0f, want 25", *account.Used)
+				}
+				if *feature.Used != test.passiveUsed {
+					t.Errorf("newer second window lost: used=%.0f, want %.0f", *feature.Used, test.passiveUsed)
+				}
+				if !fixture.registry.Snapshot()[0].CooldownUntil.IsZero() {
+					t.Error("account quota recovery did not clear the earlier cooldown")
+				}
+				encoded := observationJSON(t, snapshot)
+				if strings.Contains(encoded, "quota_window_observed_at_ms") {
+					t.Fatal("internal window timestamps leaked into the management API")
+				}
+				if !strings.Contains(encoded, `"subscription":{"state":"confirmed"`) || snapshot.ResetCreditsAvailable == nil || *snapshot.ResetCreditsAvailable != 2 {
+					t.Fatalf("fresh subscription or reset credits were lost: %s", encoded)
+				}
+			})
+		}
+	}
+}
