@@ -246,6 +246,9 @@ type Observation struct {
 	Partial         bool
 	AccountObserved bool
 	QuotaObserved   bool
+	// QuotaObservedAt 仅在本次调用中传递额度响应时间，不把附加查询的等待算入额度新鲜度。
+	// 零值沿用调用方的完成时间；不新增持久化字段或对外时间字段。
+	QuotaObservedAt time.Time
 	// ObservedQuotaScopes lists quota scopes whose current payload is authoritative.
 	// Unlisted scopes may retain a still-fresh previous observation.
 	ObservedQuotaScopes []string

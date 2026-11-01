@@ -22,11 +22,19 @@ type quotaSnapshot = providerobservation.Snapshot
 // NormalizeQuota converts Codex provider payloads into the canonical,
 // provider-neutral observation contract consumed by the control plane.
 func NormalizeQuota(primary, details []byte) ([]byte, error) {
+	snapshot, err := normalizeQuotaSnapshot(primary, details)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(snapshot)
+}
+
+func normalizeQuotaSnapshot(primary, details []byte) (quotaSnapshot, error) {
 	decoder := json.NewDecoder(bytes.NewReader(primary))
 	decoder.UseNumber()
 	var payload map[string]any
 	if err := decoder.Decode(&payload); err != nil || payload == nil {
-		return nil, errors.New("invalid subscription quota observation")
+		return quotaSnapshot{}, errors.New("invalid subscription quota observation")
 	}
 	result := quotaSnapshot{QuotaWindows: []quotaWindow{}}
 	result.Plan = codexPlan(cleanString(firstValue(payload, "plan_type", "planType")))
@@ -102,7 +110,7 @@ func NormalizeQuota(primary, details []byte) ([]byte, error) {
 			result.ResetCredits = credits
 		}
 	}
-	return json.Marshal(result)
+	return result, nil
 }
 
 // passiveQuotaMaxResetAtSeconds bounds a reset timestamp before it is scaled

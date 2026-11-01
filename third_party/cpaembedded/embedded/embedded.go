@@ -699,6 +699,15 @@ func ObserveCodexAccount(ctx context.Context, credential CodexCredential, baseUR
 	return requestCodexJSON(ctx, credential, http.MethodGet, strings.TrimRight(baseURL, "/")+"/wham/usage", nil, "usage", codexOptionsHTTPClient(options))
 }
 
+// ObserveCodexSubscription 查询当前账号的订阅周期，不执行续费或其他写操作。
+func ObserveCodexSubscription(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) (AccountObservation, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = defaultCodexAPIBase
+	}
+	target := strings.TrimRight(baseURL, "/") + "/subscriptions?account_id=" + url.QueryEscape(credential.AccountID)
+	return requestCodexJSON(ctx, credential, http.MethodGet, target, nil, "subscription", codexOptionsHTTPClient(options))
+}
+
 // ObserveCodexResetCredits fetches the reset-credit detail endpoint without
 // interpreting its evolving response schema.
 func ObserveCodexResetCredits(ctx context.Context, credential CodexCredential, baseURL string, options ...Options) (AccountObservation, error) {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import CredentialDisplay from '@modern/components/CredentialDisplay.vue'
 import { useLoadingActivity } from '@modern/components/ui/loading'
-import { Check, RefreshCw, Ticket } from '@lucide/vue'
+import { dateFormatter } from '@modern/components/ui/intl-formatters'
+import { Check, CircleAlert, RefreshCw, Ticket } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -10,6 +11,7 @@ import {
   AppBadge,
   AppButton,
   AppCheckbox,
+  AppIcon,
   AppIconButton,
   AppOverflowText,
   AppSwitch,
@@ -43,6 +45,36 @@ defineEmits<{
 const { t, n, locale } = useI18n()
 const state = computed(() => credentialStatus(props.row))
 const observation = computed(() => props.row.observation)
+const subscription = computed(() => observation.value?.subscription)
+const subscriptionEnd = computed(() => {
+  const end = subscription.value?.periodEnd
+  if (end === undefined) return undefined
+  return {
+    label: t('credentialCards.subscriptionPeriodEnd', {
+      date: dateFormatter(locale.value, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(end),
+    }),
+    hint: t('credentialCards.subscriptionPeriodEnd', {
+      date: dateFormatter(locale.value, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        hour12: false,
+      }).format(end),
+    }),
+  }
+})
+const subscriptionRenewal = computed(() =>
+  t(
+    subscription.value?.willRenew === undefined
+      ? 'credentialCards.subscriptionRenewalUnknown'
+      : subscription.value.willRenew
+        ? 'credentialCards.subscriptionRenewalEnabled'
+        : 'credentialCards.subscriptionRenewalDisabled',
+  ),
+)
 const plan = computed(() => observation.value?.plan.trim() ?? '')
 const creditBalanceLabel = computed(() => {
   const credits = observation.value?.credits
@@ -147,6 +179,41 @@ useLoadingActivity(() => Boolean(props.pending))
               <AppOverflowText :text="t(state.key)" />
             </AppBadge>
           </div>
+        </div>
+        <div v-if="subscription" class="modern-subscription-card-subscription">
+          <template v-if="subscriptionEnd">
+            <AppTooltip :label="subscriptionEnd.hint" touchable>
+              <span tabindex="0">{{ subscriptionEnd.label }}</span>
+            </AppTooltip>
+            <span class="modern-subscription-card-renewal">· {{ subscriptionRenewal }}</span>
+            <AppTooltip
+              v-if="subscription.state === 'error'"
+              :label="t('credentialCards.subscriptionStale')"
+              touchable
+            >
+              <span
+                class="modern-subscription-card-subscription-warning"
+                tabindex="0"
+                role="img"
+                :aria-label="t('credentialCards.subscriptionStale')"
+              >
+                <AppIcon :icon="CircleAlert" size="xs" />
+              </span>
+            </AppTooltip>
+          </template>
+          <span
+            v-else
+            :class="{
+              'modern-subscription-card-subscription-warning': subscription.state === 'error',
+            }"
+            >{{
+              t(
+                subscription.state === 'error'
+                  ? 'credentialCards.subscriptionFailed'
+                  : 'credentialCards.subscriptionUnavailable',
+              )
+            }}</span
+          >
         </div>
       </div>
     </header>
@@ -345,6 +412,20 @@ useLoadingActivity(() => Boolean(props.pending))
 .modern-subscription-card-status {
   flex: 0 1 auto;
   min-width: 0;
+}
+.modern-subscription-card-subscription {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1);
+  color: var(--modern-muted);
+  font-size: var(--modern-font-size-small);
+}
+.modern-subscription-card-renewal {
+  white-space: nowrap;
+}
+.modern-subscription-card-subscription-warning {
+  color: var(--modern-warning);
 }
 .modern-subscription-card-body {
   display: grid;

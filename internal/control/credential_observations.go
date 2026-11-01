@@ -78,12 +78,13 @@ type ObservationWindowUsage struct {
 }
 
 type CredentialObservationSnapshot struct {
-	Plan                  ObservationPlanSummary             `json:"plan_summary"`
-	Account               *ObservationAccountSummary         `json:"account_summary,omitempty"`
-	QuotaWindows          []ObservationQuotaWindow           `json:"quota_windows"`
-	Credits               *providerobservation.CreditSummary `json:"credits,omitempty"`
-	ResetCreditsAvailable *int64                             `json:"reset_credits_available,omitempty"`
-	ResetCredits          []ObservationResetCredit           `json:"reset_credits,omitempty"`
+	Subscription          *providerobservation.SubscriptionSummary `json:"subscription,omitempty"`
+	Plan                  ObservationPlanSummary                   `json:"plan_summary"`
+	Account               *ObservationAccountSummary               `json:"account_summary,omitempty"`
+	QuotaWindows          []ObservationQuotaWindow                 `json:"quota_windows"`
+	Credits               *providerobservation.CreditSummary       `json:"credits,omitempty"`
+	ResetCreditsAvailable *int64                                   `json:"reset_credits_available,omitempty"`
+	ResetCredits          []ObservationResetCredit                 `json:"reset_credits,omitempty"`
 }
 
 type CredentialObservationResponse struct {
@@ -312,6 +313,10 @@ func (s *Service) refreshCredentialObservationOnce(
 	if completedMS < attemptMS {
 		completedMS = attemptMS
 	}
+	quotaObservedMS := completedMS
+	if !observation.QuotaObservedAt.IsZero() {
+		quotaObservedMS = max(attemptMS, min(completedMS, observation.QuotaObservedAt.UnixMilli()))
+	}
 	// 网络请求期间允许编辑分组；迟到结果不得写入新目标的观测或运行态。
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -375,6 +380,12 @@ func (s *Service) refreshCredentialObservationOnce(
 		previousSnapshotOK := len(previous.SnapshotJSON) > 0 &&
 			json.Unmarshal(previous.SnapshotJSON, &previousSnapshot) == nil
 		previousQuotaFresh := previousSnapshotOK && previous.State == models.CredentialObservationFresh
+		if previousSnapshotOK && previous.IdentityFingerprint == credential.IdentityFingerprint &&
+			previousSnapshot.Subscription != nil &&
+			snapshot.Subscription != nil && snapshot.Subscription.State == "error" {
+			snapshot.Subscription.PeriodEndMS = previousSnapshot.Subscription.PeriodEndMS
+			snapshot.Subscription.WillRenew = previousSnapshot.Subscription.WillRenew
+		}
 		if observation.Partial {
 			lastErrorCode = "observation_partial"
 			if previousSnapshotOK {
@@ -420,7 +431,23 @@ func (s *Service) refreshCredentialObservationOnce(
 				snapshot.Credits = &providerobservation.CreditSummary{}
 			}
 			if snapshot.Credits != nil {
-				snapshot.Credits.ObservedAtMS = &completedMS
+				snapshot.Credits.ObservedAtMS = &quotaObservedMS
+			}
+		}
+		observedMS := quotaObservedMS
+		// 附加查询结束之前，被动观测可能已经落库。只有提供了额度响应时间的
+		// 查询才参与此比较，其他渠道继续使用原有的完成时间与合并规则。
+		if !observation.QuotaObservedAt.IsZero() && previousQuotaFresh &&
+			previous.IdentityFingerprint == credential.IdentityFingerprint {
+			if previous.ObservedAtMS != nil && *previous.ObservedAtMS > quotaObservedMS {
+				snapshot.QuotaWindows = previousSnapshot.QuotaWindows
+				observedMS = *previous.ObservedAtMS
+				freshWindows = nil
+			}
+			if credits := previousSnapshot.Credits; credits != nil && credits.ObservedAtMS != nil &&
+				*credits.ObservedAtMS > quotaObservedMS {
+				snapshot.Credits = credits
+				observedMS = max(observedMS, *credits.ObservedAtMS)
 			}
 		}
 		encoded, err := json.Marshal(snapshot)
@@ -430,7 +457,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		row := models.CredentialObservation{
 			CredentialID: credential.ID, IdentityFingerprint: credential.IdentityFingerprint,
 			SchemaVersion: 1, ObservationVersion: version, SnapshotJSON: models.JSON(encoded),
-			State: state, ObservedAtMS: &completedMS,
+			State: state, ObservedAtMS: &observedMS,
 			LastAttemptAtMS: &attemptMS,
 			LastErrorCode:   lastErrorCode, UpdatedAtMS: completedMS,
 		}

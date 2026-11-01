@@ -174,6 +174,15 @@ const supportsResetCredit = computed(() =>
   props.capabilities.credential_actions.includes('reset_credit'),
 )
 const snapshot = computed(() => observation.value?.snapshot)
+const subscriptionRenewal = computed(() =>
+  t(
+    snapshot.value?.subscription?.will_renew === undefined
+      ? 'group.credentials.subscription.renewalUnknown'
+      : snapshot.value.subscription.will_renew
+        ? 'group.credentials.subscription.renewalEnabled'
+        : 'group.credentials.subscription.renewalDisabled',
+  ),
+)
 const creditBalanceLabel = computed(() => {
   const credits = snapshot.value?.credits
   if (credits?.unlimited) return t('group.credentials.subscription.creditUnlimited')
@@ -1307,6 +1316,37 @@ function runMenuAction(
                 />
               </dd>
             </dl>
+            <dl v-if="snapshot?.subscription" class="subscription-account__billing">
+              <dt>{{ t('group.credentials.subscription.periodEnd') }}</dt>
+              <dd>
+                <template v-if="snapshot.subscription.period_end_ms !== undefined">
+                  <span>
+                    {{ formatLocalInstant(snapshot.subscription.period_end_ms, locale) }}
+                    · {{ subscriptionRenewal }}
+                  </span>
+                  <span
+                    v-if="snapshot.subscription.state === 'error'"
+                    class="subscription-account__billing-warning"
+                    >{{ t('group.credentials.subscription.billingStale') }}</span
+                  >
+                </template>
+                <span
+                  v-else
+                  :class="{
+                    'subscription-account__billing-warning':
+                      snapshot.subscription.state === 'error',
+                  }"
+                >
+                  {{
+                    t(
+                      snapshot.subscription.state === 'error'
+                        ? 'group.credentials.subscription.billingFailed'
+                        : 'group.credentials.subscription.billingUnavailable',
+                    )
+                  }}
+                </span>
+              </dd>
+            </dl>
             <dl>
               <dt>{{ t('group.credentials.subscription.lastQuotaSync') }}</dt>
               <dd>
@@ -2156,6 +2196,18 @@ function runMenuAction(
 .subscription-account__diagnostics .subscription-account__failure-summary {
   overflow-wrap: anywhere;
   white-space: normal;
+}
+.subscription-account__diagnostics .subscription-account__billing {
+  grid-column: 1 / -1;
+}
+.subscription-account__billing dd {
+  display: grid;
+  gap: var(--space-1);
+  overflow: visible;
+  white-space: normal;
+}
+.subscription-account__billing-warning {
+  color: var(--color-warning);
 }
 .subscription-account__models {
   display: flex;

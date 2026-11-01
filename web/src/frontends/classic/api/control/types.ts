@@ -249,6 +249,11 @@ export interface CredentialObservationAccountSummaryDto {
 export type CredentialPlanLevel = 'free' | 'standard' | 'premium' | 'elite'
 
 export interface CredentialObservationSnapshotDto {
+  subscription?: {
+    state: 'confirmed' | 'error' | 'unavailable'
+    period_end_ms?: number
+    will_renew?: boolean
+  }
   plan_summary: { name?: string; level?: CredentialPlanLevel }
   account_summary?: CredentialObservationAccountSummaryDto
   quota_windows: CredentialQuotaWindowDto[]
