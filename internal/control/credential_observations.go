@@ -90,7 +90,7 @@ type CredentialObservationSnapshot struct {
 // credentialObservationSnapshotRecord 将窗口时序留在持久化边界，管理 API 不暴露。
 type credentialObservationSnapshotRecord struct {
 	CredentialObservationSnapshot
-	QuotaWindowObservedAtMS []int64 `json:"quota_window_observed_at_ms,omitempty"`
+	QuotaWindowObservedAtMS []providerobservation.QuotaWindowObservationTimes `json:"quota_window_observed_at_ms,omitempty"`
 }
 
 type CredentialObservationResponse struct {
@@ -371,9 +371,11 @@ func (s *Service) refreshCredentialObservationOnce(
 		}
 		freshWindows := providerQuotaWindows(snapshot.QuotaWindows)
 		if !observation.QuotaObservedAt.IsZero() {
-			snapshot.QuotaWindowObservedAtMS = make([]int64, len(snapshot.QuotaWindows))
+			snapshot.QuotaWindowObservedAtMS = make([]providerobservation.QuotaWindowObservationTimes, len(snapshot.QuotaWindows))
 			for index := range snapshot.QuotaWindows {
-				snapshot.QuotaWindowObservedAtMS[index] = quotaObservedMS
+				snapshot.QuotaWindowObservedAtMS[index] = providerobservation.QuotaWindowObservationTimes{
+					Usage: quotaObservedMS, State: quotaObservedMS, Reset: quotaObservedMS,
+				}
 			}
 		}
 		if len(observation.ObservedQuotaScopes) > 0 {
@@ -458,18 +460,28 @@ func (s *Service) refreshCredentialObservationOnce(
 					if position < 0 || providerobservation.MatchQuotaWindow(freshWindows, current) != index {
 						continue
 					}
-					if position >= len(previousSnapshot.QuotaWindowObservedAtMS) || previousSnapshot.QuotaWindowObservedAtMS[position] <= quotaObservedMS {
+					if position >= len(previousSnapshot.QuotaWindowObservedAtMS) {
 						continue
 					}
 					stored := previousSnapshot.QuotaWindows[position]
+					storedTimes := previousSnapshot.QuotaWindowObservedAtMS[position]
 					window := &snapshot.QuotaWindows[index]
-					window.Used, window.Limit = stored.Used, stored.Limit
-					window.Remaining, window.Utilization = stored.Remaining, stored.Utilization
-					window.ResetAtMS, window.State = stored.ResetAtMS, stored.State
-					snapshot.QuotaWindowObservedAtMS[index] = previousSnapshot.QuotaWindowObservedAtMS[position]
-					observedMS = max(observedMS, snapshot.QuotaWindowObservedAtMS[index])
-					// 已保留被动结果的窗口不再用旧主动值触发恢复。
-					freshWindows[index].State = ""
+					times := &snapshot.QuotaWindowObservedAtMS[index]
+					if storedTimes.Usage > quotaObservedMS {
+						window.Used, window.Limit = stored.Used, stored.Limit
+						window.Remaining, window.Utilization = stored.Remaining, stored.Utilization
+						times.Usage = storedTimes.Usage
+						freshWindows[index].State = ""
+					}
+					if storedTimes.State > quotaObservedMS {
+						window.State, times.State = stored.State, storedTimes.State
+						freshWindows[index].State = ""
+					}
+					if storedTimes.Reset > quotaObservedMS {
+						window.ResetAtMS, times.Reset = stored.ResetAtMS, storedTimes.Reset
+					}
+					// 重置时间更新不影响主动用量的恢复判定。
+					observedMS = max(observedMS, times.Usage, times.State, times.Reset)
 				}
 			}
 			if credits := previousSnapshot.Credits; credits != nil && credits.ObservedAtMS != nil &&

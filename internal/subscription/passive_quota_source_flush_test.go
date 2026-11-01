@@ -96,7 +96,7 @@ func TestPassiveQuotaWindowsKeepIndependentFreshness(t *testing.T) {
 	}
 	var snapshot struct {
 		providerobservation.Snapshot
-		WindowTimes []int64 `json:"quota_window_observed_at_ms"`
+		WindowTimes []providerobservation.QuotaWindowObservationTimes `json:"quota_window_observed_at_ms"`
 	}
 	if err := json.Unmarshal(raw, &snapshot); err != nil {
 		t.Fatal(err)
@@ -105,8 +105,57 @@ func TestPassiveQuotaWindowsKeepIndependentFreshness(t *testing.T) {
 		t.Fatalf("windows changed: %s", raw)
 	}
 	account, feature := snapshot.QuotaWindows[0], snapshot.QuotaWindows[1]
-	if account.Used == nil || *account.Used != 25 || snapshot.WindowTimes[0] != 2000 ||
-		feature.Used == nil || *feature.Used != 90 || snapshot.WindowTimes[1] != 3000 || storedAt != 3000 {
+	if account.Used == nil || *account.Used != 25 || snapshot.WindowTimes[0].Usage != 2000 ||
+		feature.Used == nil || *feature.Used != 90 || snapshot.WindowTimes[1].Usage != 3000 || storedAt != 3000 {
 		t.Fatalf("independent window freshness was lost: %s, row time=%d", raw, storedAt)
+	}
+}
+
+func TestPassiveQuotaPartialSamplesKeepIndependentFields(t *testing.T) {
+	// 旧版内部时间数组必须仍能读取；后续不同字段按各自的证据时间合并。
+	raw := []byte(`{"quota_windows":[{"id":"primary","source_id":"codex","scope":"account","unit":"percent","used":100,"utilization":1,"state":"exhausted","reset_at_ms":6000,"window_seconds":18000}],"quota_window_observed_at_ms":[1000]}`)
+	storedAt, period := int64(1000), int64(18000)
+	for _, test := range []struct {
+		name, state, wantState string
+		at, reset              int64
+		used                   *float64
+		wantUsed               float64
+		wantMatched            bool
+	}{
+		{name: "new reset", at: 3000, reset: 9000, wantUsed: 100, wantState: "exhausted", wantMatched: true},
+		{name: "earlier usage still newer than its baseline", at: 2000, used: floatPointer(25), state: "available", wantUsed: 25, wantState: "available", wantMatched: true},
+		{name: "new denial", at: 2500, state: "exhausted", wantUsed: 25, wantState: "exhausted", wantMatched: true},
+		{name: "usage cannot replace newer denial", at: 2400, used: floatPointer(30), state: "available", wantUsed: 30, wantState: "exhausted", wantMatched: true},
+		{name: "older reset", at: 1500, reset: 7000, wantUsed: 30, wantState: "exhausted"},
+		{name: "tied reset", at: 3000, reset: 7000, wantUsed: 30, wantState: "exhausted"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			patch := providerobservation.QuotaWindow{SourceID: "codex", WindowSeconds: &period, State: test.state}
+			if test.used != nil {
+				patch.Used, patch.Utilization = test.used, floatPointer(*test.used/100)
+			}
+			if test.reset != 0 {
+				patch.ResetAtMS = &test.reset
+			}
+			merged, observedAt, err := mergePassiveQuotaSamples(raw, &storedAt, PassiveQuotaObservation{
+				ObservedAtMS: test.at, Windows: []providerobservation.QuotaWindow{patch},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var snapshot providerobservation.Snapshot
+			if err := json.Unmarshal(merged.Encoded, &snapshot); err != nil || len(snapshot.QuotaWindows) != 1 {
+				t.Fatalf("readback: %v, snapshot=%s", err, merged.Encoded)
+			}
+			window := snapshot.QuotaWindows[0]
+			if merged.Matched != test.wantMatched || window.Used == nil || *window.Used != test.wantUsed ||
+				window.State != test.wantState || window.ResetAtMS == nil || *window.ResetAtMS != 9000 || observedAt != 3000 {
+				t.Errorf("field freshness was lost: matched=%t, at=%d, snapshot=%s", merged.Matched, observedAt, merged.Encoded)
+			}
+			if test.at == 2000 && (!merged.Recovered || merged.RecoveredAtMS != 2000) {
+				t.Errorf("usage recovery borrowed metadata time: recovered=%t, at=%d", merged.Recovered, merged.RecoveredAtMS)
+			}
+			raw, storedAt = merged.Encoded, observedAt
+		})
 	}
 }

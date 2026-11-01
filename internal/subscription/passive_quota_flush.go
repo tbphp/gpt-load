@@ -136,7 +136,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 }
 
 // mergePassiveQuotaSamples 按原始时间处理握手和事件，再通过同一次 CAS 写入。
-// 窗口按自身时间比较，行时间取最新窗口；点数独立比较，同毫秒保留已落盘的主动结果。
+// 窗口内各字段组和点数独立比较时间，行时间取最新观测；同毫秒保留已落盘结果。
 func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation PassiveQuotaObservation) (passiveQuotaMerge, int64, error) {
 	result := passiveQuotaMerge{Encoded: raw}
 	var observedAtMS int64
@@ -254,7 +254,7 @@ func mergePassiveQuotaSnapshotAt(
 	if err := json.Unmarshal(windowsRaw, &existing); err != nil {
 		return passiveQuotaMerge{}, fmt.Errorf("decode credential observation quota windows: %w", err)
 	}
-	var windowTimes []int64
+	var windowTimes []providerobservation.QuotaWindowObservationTimes
 	if encoded, present := fields["quota_window_observed_at_ms"]; present {
 		if err := json.Unmarshal(encoded, &windowTimes); err != nil {
 			return passiveQuotaMerge{}, fmt.Errorf("decode credential observation window times: %w", err)
@@ -266,10 +266,12 @@ func mergePassiveQuotaSnapshotAt(
 	}
 	if !hasWindowTimes {
 		// 旧快照的未命中窗口沿用写入前的基线，不能借用其他窗口的新时间。
-		windowTimes = make([]int64, len(existing))
+		windowTimes = make([]providerobservation.QuotaWindowObservationTimes, len(existing))
 		if storedAtMS != nil {
 			for index := range windowTimes {
-				windowTimes[index] = *storedAtMS
+				windowTimes[index] = providerobservation.QuotaWindowObservationTimes{
+					Usage: *storedAtMS, State: *storedAtMS, Reset: *storedAtMS,
+				}
 			}
 		}
 	}
@@ -305,13 +307,42 @@ func mergePassiveQuotaSnapshotAt(
 			continue
 		}
 		previous := merged[position]
-		if observedAtMS != nil && (hasWindowTimes || storedAtMS != nil) && *observedAtMS <= windowTimes[position] {
-			continue
-		}
 		// primary/secondary 只是上游槽位；周期冲突时连用量、重置时间和状态也不能合并。
 		if previous.WindowSeconds != nil && patch.WindowSeconds != nil &&
 			*previous.WindowSeconds != *patch.WindowSeconds {
 			continue
+		}
+		if observedAtMS != nil {
+			times := &windowTimes[position]
+			if previous.SourceID != "" || hasWindowTimes {
+				if hasWindowTimes || storedAtMS != nil {
+					if *observedAtMS <= times.Usage {
+						patch.Used, patch.Limit, patch.Remaining, patch.Utilization = nil, nil, nil, nil
+					}
+					if *observedAtMS <= times.State {
+						patch.State = ""
+					}
+					if *observedAtMS <= times.Reset {
+						patch.ResetAtMS = nil
+					}
+				}
+				stateObserved := patch.State != "" && patch.State != "unknown"
+				if patch.Utilization == nil && !stateObserved && patch.ResetAtMS == nil {
+					continue
+				}
+				if patch.Utilization != nil {
+					times.Usage = *observedAtMS
+				}
+				if stateObserved {
+					times.State = *observedAtMS
+				}
+				if patch.ResetAtMS != nil {
+					times.Reset = *observedAtMS
+				}
+				timesChanged = true
+			} else if storedAtMS != nil && *observedAtMS <= *storedAtMS {
+				continue
+			}
 		}
 		outcome.Matched = true
 		outcome.WindowMatched = true
@@ -320,10 +351,6 @@ func mergePassiveQuotaSnapshotAt(
 		}
 		patch.ID = previous.ID // 响应槽位可以变化，卡片窗口身份不变。
 		next := providerobservation.MergeQuotaWindow(previous, patch)
-		if observedAtMS != nil && (next.SourceID != "" || hasWindowTimes) {
-			windowTimes[position] = *observedAtMS
-			timesChanged = true
-		}
 		if !reflect.DeepEqual(next, previous) {
 			outcome.Changed = true
 		}
