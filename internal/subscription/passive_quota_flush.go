@@ -136,7 +136,7 @@ func (manager *CredentialManager) flushOnePassiveQuotaObservationLocked(
 }
 
 // mergePassiveQuotaSamples 按原始时间处理握手和事件，再通过同一次 CAS 写入。
-// 窗口与快照时间比较，点数与自身时间比较；同毫秒时保留已落盘的主动结果。
+// 行时间只跟随窗口，点数沿用自身时间；同毫秒时保留已落盘的主动结果。
 func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation PassiveQuotaObservation) (passiveQuotaMerge, int64, error) {
 	result := passiveQuotaMerge{Encoded: raw}
 	var observedAtMS int64
@@ -184,7 +184,7 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 		if err != nil {
 			return passiveQuotaMerge{}, 0, err
 		}
-		if merged.Matched {
+		if merged.WindowMatched {
 			observedAtMS = max(observedAtMS, sample.ObservedAtMS)
 		}
 		if credits != nil {
@@ -194,6 +194,7 @@ func mergePassiveQuotaSamples(raw []byte, storedAtMS *int64, observation Passive
 			windowObservedAtMS[position] = sample.ObservedAtMS
 		}
 		merged.Matched = merged.Matched || result.Matched
+		merged.WindowMatched = merged.WindowMatched || result.WindowMatched
 		merged.Changed = merged.Changed || result.Changed
 		result = merged
 	}
@@ -229,6 +230,7 @@ type passiveQuotaMerge struct {
 	Windows                 []providerobservation.QuotaWindow
 	ObservedWindowPositions []int
 	Matched                 bool
+	WindowMatched           bool
 	Changed                 bool
 	Recovered               bool
 	RecoveredAtMS           int64
@@ -291,6 +293,7 @@ func mergePassiveQuotaSnapshot(
 			continue
 		}
 		outcome.Matched = true
+		outcome.WindowMatched = true
 		if patch.Utilization != nil {
 			outcome.ObservedWindowPositions = append(outcome.ObservedWindowPositions, position)
 		}

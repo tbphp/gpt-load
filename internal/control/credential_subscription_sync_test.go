@@ -55,95 +55,123 @@ func TestSubscriptionSyncPreservesOldValuesOnlyOnFailure(t *testing.T) {
 }
 
 func TestAccountSyncPreservesNewerPassiveQuotaAndCredits(t *testing.T) {
-	for _, flushBeforeSave := range []bool{true, false} {
-		t.Run(fmt.Sprintf("passive_flushed_before_save=%t", flushBeforeSave), func(t *testing.T) {
-			fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
-			base := time.Now().UnixMilli()
-			var clock atomic.Int64
-			clock.Store(base)
-			fixture.service.now = func() time.Time { return time.UnixMilli(clock.Load()) }
-			var credential models.Credential
-			if err := fixture.db.First(&credential, credentialID).Error; err != nil {
-				t.Fatal(err)
-			}
-			storedAt := base - 1000
-			if err := fixture.db.Create(&models.CredentialObservation{
-				CredentialID: credentialID, IdentityFingerprint: credential.IdentityFingerprint,
-				SchemaVersion: 1, ObservationVersion: 1, State: models.CredentialObservationFresh,
-				ObservedAtMS: &storedAt, UpdatedAtMS: storedAt,
-				SnapshotJSON: models.JSON(`{"plan_summary":{"name":"Plus"},"quota_windows":[{"id":"primary","source_id":"codex","label":"5h","scope":"account","unit":"percent","used":20,"utilization":0.2,"state":"available","window_seconds":18000}]}`),
-			}).Error; err != nil {
-				t.Fatal(err)
-			}
-			started, release := make(chan struct{}), make(chan struct{})
-			released := false
-			defer func() {
-				if !released {
-					close(release)
-				}
-			}()
-			fixture.service.observeSubscriptionAccount = func(ctx context.Context, _ channel.ID, _ subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
-				close(started)
-				select {
-				case <-release:
-				case <-ctx.Done():
-					return subscriptionruntime.Observation{}, ctx.Err()
-				}
-				return subscriptionruntime.Observation{
-					QuotaObserved: true, QuotaObservedAt: time.UnixMilli(base),
-					Payload: []byte(`{"plan_summary":{"name":"Plus"},"quota_windows":[{"id":"primary","source_id":"codex","label":"5h","scope":"account","unit":"percent","used":25,"utilization":0.25,"state":"available","window_seconds":18000}],"credits":{"balance":"100"},"reset_credits_available":2,"subscription":{"state":"confirmed","period_end_ms":1800000000000,"will_renew":true}}`),
-				}, nil
-			}
-			done := make(chan error, 1)
-			go func() {
-				_, err := fixture.service.RefreshCredentialObservation(t.Context(), groupID, credentialID)
-				done <- err
-			}()
-			select {
-			case <-started:
-			case <-time.After(time.Second):
-				t.Fatal("active refresh did not start")
-			}
-			manager := subscription.NewCredentialManager(fixture.db, fixture.encryption, fixture.registry, fixture.mutations, fixture.service.subscriptions)
-			ref, ok := fixture.registry.CredentialRef(credentialID)
-			if !ok {
-				t.Fatal("missing runtime credential")
-			}
-			used, ratio, period, passiveAt := 95.0, 0.95, int64(18000), base+1000
-			manager.RecordPassiveQuotaObservation(credentialID, ref.IdentityGeneration, passiveAt, []providerobservation.QuotaWindow{
-				{ID: "primary", SourceID: "codex", Used: &used, Utilization: &ratio, WindowSeconds: &period, State: "available"},
-			}, &providerobservation.CreditSummary{Balance: "5", ObservedAtMS: &passiveAt})
-			flush := func() {
-				if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+	for _, test := range []struct {
+		name                   string
+		creditOnly, afterReset bool
+		passiveUsed, wantUsed  float64
+	}{
+		{name: "quota and credits", passiveUsed: 95, wantUsed: 95},
+		{name: "unchanged quota and credits", passiveUsed: 100, wantUsed: 100},
+		{name: "credits only", creditOnly: true, wantUsed: 25},
+		{name: "credits after reset", creditOnly: true, afterReset: true, wantUsed: 25},
+	} {
+		for _, flushBeforeSave := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/passive_flushed_before_save=%t", test.name, flushBeforeSave), func(t *testing.T) {
+				fixture, groupID, credentialID := newSubscriptionCredentialFixture(t)
+				base := time.Now().UnixMilli()
+				var clock atomic.Int64
+				clock.Store(base)
+				fixture.service.now = func() time.Time { return time.UnixMilli(clock.Load()) }
+				var credential models.Credential
+				if err := fixture.db.First(&credential, credentialID).Error; err != nil {
 					t.Fatal(err)
 				}
-			}
-			if flushBeforeSave {
-				flush()
-			}
-			clock.Store(base + 2000)
-			close(release)
-			released = true
-			if err := <-done; err != nil {
-				t.Fatal(err)
-			}
-			if !flushBeforeSave {
-				flush()
-			}
-			result, err := fixture.service.GetCredentialObservation(t.Context(), groupID, credentialID)
-			if err != nil || result.Snapshot == nil {
-				t.Fatalf("readback failed: %v", err)
-			}
-			snapshot := result.Snapshot
-			if len(snapshot.QuotaWindows) != 1 || snapshot.QuotaWindows[0].Used == nil || *snapshot.QuotaWindows[0].Used != 95 ||
-				snapshot.Credits == nil || snapshot.Credits.Balance != "5" || snapshot.Credits.ObservedAtMS == nil || *snapshot.Credits.ObservedAtMS != passiveAt ||
-				result.ObservedAtMS == nil || *result.ObservedAtMS != passiveAt {
-				t.Fatalf("newer passive values were lost: %s", observationJSON(t, result))
-			}
-			encoded := observationJSON(t, snapshot)
-			if !strings.Contains(encoded, `"subscription":{"state":"confirmed"`) || snapshot.ResetCreditsAvailable == nil || *snapshot.ResetCreditsAvailable != 2 {
-				t.Fatalf("fresh subscription or reset credits were lost: %s", encoded)
-			}
-		})
+				storedAt := base - 1000
+				if err := fixture.db.Create(&models.CredentialObservation{
+					CredentialID: credentialID, IdentityFingerprint: credential.IdentityFingerprint,
+					SchemaVersion: 1, ObservationVersion: 1, State: models.CredentialObservationFresh,
+					ObservedAtMS: &storedAt, UpdatedAtMS: storedAt,
+					SnapshotJSON: models.JSON(`{"plan_summary":{"name":"Plus"},"quota_windows":[{"id":"primary","source_id":"codex","label":"5h","scope":"account","unit":"percent","used":100,"utilization":1,"state":"exhausted","window_seconds":18000}]}`),
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+				ref, ok := fixture.registry.CredentialRef(credentialID)
+				if !ok {
+					t.Fatal("missing runtime credential")
+				}
+				if test.creditOnly && !test.afterReset {
+					fixture.registry.SetQuotaCooldown(ref, "", time.UnixMilli(base).Add(time.Hour), time.UnixMilli(base-500))
+				}
+				started, release := make(chan struct{}), make(chan struct{})
+				released := false
+				defer func() {
+					if !released {
+						close(release)
+					}
+				}()
+				fixture.service.observeSubscriptionAccount = func(ctx context.Context, _ channel.ID, _ subscriptionruntime.Credential, _ subscriptionruntime.Target) (subscriptionruntime.Observation, error) {
+					close(started)
+					select {
+					case <-release:
+					case <-ctx.Done():
+						return subscriptionruntime.Observation{}, ctx.Err()
+					}
+					return subscriptionruntime.Observation{
+						QuotaObserved: true, QuotaObservedAt: time.UnixMilli(base),
+						Payload: []byte(`{"plan_summary":{"name":"Plus"},"quota_windows":[{"id":"primary","source_id":"codex","label":"5h","scope":"account","unit":"percent","used":25,"utilization":0.25,"state":"available","window_seconds":18000}],"credits":{"balance":"100"},"reset_credits_available":2,"subscription":{"state":"confirmed","period_end_ms":1800000000000,"will_renew":true}}`),
+					}, nil
+				}
+				done := make(chan error, 1)
+				go func() {
+					mode := observationRefreshManual
+					if test.afterReset {
+						mode = observationRefreshAfterReset
+					}
+					_, err := fixture.service.refreshCredentialObservation(t.Context(), groupID, credentialID, mode)
+					done <- err
+				}()
+				select {
+				case <-started:
+				case <-time.After(time.Second):
+					t.Fatal("active refresh did not start")
+				}
+				manager := subscription.NewCredentialManager(fixture.db, fixture.encryption, fixture.registry, fixture.mutations, fixture.service.subscriptions)
+				used, ratio, period, passiveAt := test.passiveUsed, test.passiveUsed/100, int64(18000), base+1000
+				windows := []providerobservation.QuotaWindow{
+					{ID: "primary", SourceID: "codex", Used: &used, Utilization: &ratio, WindowSeconds: &period, State: "available"},
+				}
+				if test.creditOnly {
+					windows = nil
+				} else if used == 100 {
+					windows[0].State = "exhausted"
+				}
+				manager.RecordPassiveQuotaObservation(credentialID, ref.IdentityGeneration, passiveAt, windows,
+					&providerobservation.CreditSummary{Balance: "5", ObservedAtMS: &passiveAt})
+				flush := func() {
+					if _, err := manager.FlushPassiveQuotaObservations(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if flushBeforeSave {
+					flush()
+				}
+				clock.Store(base + 2000)
+				close(release)
+				released = true
+				if err := <-done; err != nil {
+					t.Fatal(err)
+				}
+				if !flushBeforeSave {
+					flush()
+				}
+				result, err := fixture.service.GetCredentialObservation(t.Context(), groupID, credentialID)
+				if err != nil || result.Snapshot == nil {
+					t.Fatalf("readback failed: %v", err)
+				}
+				snapshot := result.Snapshot
+				if len(snapshot.QuotaWindows) != 1 || snapshot.QuotaWindows[0].Used == nil || *snapshot.QuotaWindows[0].Used != test.wantUsed ||
+					snapshot.Credits == nil || snapshot.Credits.Balance != "5" || snapshot.Credits.ObservedAtMS == nil || *snapshot.Credits.ObservedAtMS != passiveAt ||
+					result.ObservedAtMS == nil || *result.ObservedAtMS != passiveAt {
+					t.Fatalf("newer passive values were lost: %s", observationJSON(t, result))
+				}
+				if test.creditOnly && !test.afterReset && !fixture.registry.Snapshot()[0].CooldownUntil.IsZero() {
+					t.Fatal("credit-only update prevented active quota recovery")
+				}
+				encoded := observationJSON(t, snapshot)
+				if !strings.Contains(encoded, `"subscription":{"state":"confirmed"`) || snapshot.ResetCreditsAvailable == nil || *snapshot.ResetCreditsAvailable != 2 {
+					t.Fatalf("fresh subscription or reset credits were lost: %s", encoded)
+				}
+			})
+		}
 	}
 }

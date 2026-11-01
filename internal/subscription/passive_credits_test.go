@@ -29,7 +29,7 @@ func TestPassiveCreditsMergeZeroAndPreserveOnWindowOnlyUpdates(t *testing.T) {
 	merged, observedAt, err := mergePassiveQuotaSamples(raw, nil, PassiveQuotaObservation{
 		ObservedAtMS: at, Credits: &providerobservation.CreditSummary{Balance: "0", ObservedAtMS: &at},
 	})
-	if err != nil || !merged.Matched || !merged.Changed || observedAt != at {
+	if err != nil || !merged.Matched || !merged.Changed || observedAt != 0 {
 		t.Fatalf("zero balance was not applied: %#v, at=%d, error=%v", merged, observedAt, err)
 	}
 	var snapshot providerobservation.Snapshot
@@ -47,7 +47,7 @@ func TestPassiveCreditsMergeZeroAndPreserveOnWindowOnlyUpdates(t *testing.T) {
 
 func TestPassiveCreditsFlushAddsToLegacySnapshotAndRejectsOldSamples(t *testing.T) {
 	manager, db, registry, _, credential := newCredentialManagerFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
-	newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
+	initial := newFlushableCredentialObservation(t, manager, credential.ID, models.CredentialObservationFresh,
 		`{"plan_summary":{"name":"Pro"},"quota_windows":[],"reset_credits_available":2}`)
 	ref, _ := registry.CredentialRef(credential.ID)
 	at := int64(2000)
@@ -64,7 +64,7 @@ func TestPassiveCreditsFlushAddsToLegacySnapshotAndRejectsOldSamples(t *testing.
 	if err := json.Unmarshal(row.SnapshotJSON, &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Credits == nil || snapshot.Credits.Balance != "62500" || *snapshot.Credits.ObservedAtMS != at || *row.ObservedAtMS != at {
+	if snapshot.Credits == nil || snapshot.Credits.Balance != "62500" || *snapshot.Credits.ObservedAtMS != at || *row.ObservedAtMS != *initial.ObservedAtMS {
 		t.Fatalf("legacy snapshot did not acquire credits: %s", row.SnapshotJSON)
 	}
 	baseline := string(row.SnapshotJSON)

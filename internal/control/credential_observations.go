@@ -437,9 +437,9 @@ func (s *Service) refreshCredentialObservationOnce(
 		observedMS := quotaObservedMS
 		// 附加查询结束之前，被动观测可能已经落库。只有提供了额度响应时间的
 		// 查询才参与此比较，其他渠道继续使用原有的完成时间与合并规则。
-		if !observation.QuotaObservedAt.IsZero() && previousQuotaFresh &&
+		if !observation.QuotaObservedAt.IsZero() && previousSnapshotOK &&
 			previous.IdentityFingerprint == credential.IdentityFingerprint {
-			if previous.ObservedAtMS != nil && *previous.ObservedAtMS > quotaObservedMS {
+			if previousQuotaFresh && previous.ObservedAtMS != nil && *previous.ObservedAtMS > quotaObservedMS {
 				snapshot.QuotaWindows = previousSnapshot.QuotaWindows
 				observedMS = *previous.ObservedAtMS
 				freshWindows = nil
@@ -447,7 +447,6 @@ func (s *Service) refreshCredentialObservationOnce(
 			if credits := previousSnapshot.Credits; credits != nil && credits.ObservedAtMS != nil &&
 				*credits.ObservedAtMS > quotaObservedMS {
 				snapshot.Credits = credits
-				observedMS = max(observedMS, *credits.ObservedAtMS)
 			}
 		}
 		encoded, err := json.Marshal(snapshot)
@@ -781,6 +780,11 @@ func mapCredentialObservation(row models.CredentialObservation) CredentialObserv
 		var snapshot CredentialObservationSnapshot
 		if json.Unmarshal(row.SnapshotJSON, &snapshot) == nil {
 			response.Snapshot = &snapshot
+			// 存储分别保留额度和点数的时间，界面仍只展示最近一次观测。
+			if credits := snapshot.Credits; credits != nil && credits.ObservedAtMS != nil &&
+				(response.ObservedAtMS == nil || *credits.ObservedAtMS > *response.ObservedAtMS) {
+				response.ObservedAtMS = credits.ObservedAtMS
+			}
 		}
 	}
 	return response

@@ -178,6 +178,7 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	queryContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var observed AccountObservation
+	var snapshot quotaSnapshot
 	var observeErr error
 	var quotaObservedAt time.Time
 	var detailsPayload []byte
@@ -186,6 +187,12 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 	queries.Go(func() {
 		observed, observeErr = ObserveAccount(queryContext, value, baseURL)
 		quotaObservedAt = time.Now()
+		if observeErr == nil {
+			snapshot, observeErr = normalizeQuotaSnapshot(observed.Payload)
+			if observeErr != nil {
+				observeErr = fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, observeErr)
+			}
+		}
 		if observeErr != nil {
 			cancel()
 		}
@@ -206,10 +213,7 @@ func (*codexDriver) Observe(ctx context.Context, credential subscriptionruntime.
 		}
 		return subscriptionruntime.Observation{}, observeErr
 	}
-	snapshot, err := normalizeQuotaSnapshot(observed.Payload, detailsPayload)
-	if err != nil {
-		return subscriptionruntime.Observation{}, fmt.Errorf("%w: %v", subscriptionruntime.ErrObservationPayloadInvalid, err)
-	}
+	applyResetCreditDetails(&snapshot, detailsPayload)
 	snapshot.Subscription = subscription
 	normalized, err := json.Marshal(snapshot)
 	if err != nil {

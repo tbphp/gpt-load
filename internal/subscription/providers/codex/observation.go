@@ -22,14 +22,15 @@ type quotaSnapshot = providerobservation.Snapshot
 // NormalizeQuota converts Codex provider payloads into the canonical,
 // provider-neutral observation contract consumed by the control plane.
 func NormalizeQuota(primary, details []byte) ([]byte, error) {
-	snapshot, err := normalizeQuotaSnapshot(primary, details)
+	snapshot, err := normalizeQuotaSnapshot(primary)
 	if err != nil {
 		return nil, err
 	}
+	applyResetCreditDetails(&snapshot, details)
 	return json.Marshal(snapshot)
 }
 
-func normalizeQuotaSnapshot(primary, details []byte) (quotaSnapshot, error) {
+func normalizeQuotaSnapshot(primary []byte) (quotaSnapshot, error) {
 	decoder := json.NewDecoder(bytes.NewReader(primary))
 	decoder.UseNumber()
 	var payload map[string]any
@@ -102,15 +103,18 @@ func normalizeQuotaSnapshot(primary, details []byte) (quotaSnapshot, error) {
 	if len(result.QuotaWindows) > 0 {
 		result.QuotaWindows[0].IsPrimary = true
 	}
+	return result, nil
+}
+
+func applyResetCreditDetails(snapshot *quotaSnapshot, details []byte) {
 	if count, credits, present, err := normalizeResetCreditDetails(details); err == nil {
 		if count != nil {
-			result.ResetCreditsAvailable = count
+			snapshot.ResetCreditsAvailable = count
 		}
 		if present {
-			result.ResetCredits = credits
+			snapshot.ResetCredits = credits
 		}
 	}
-	return result, nil
 }
 
 // passiveQuotaMaxResetAtSeconds bounds a reset timestamp before it is scaled

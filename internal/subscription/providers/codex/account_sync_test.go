@@ -166,31 +166,51 @@ func TestAccountSyncKeepsQuotaWhenSubscriptionIsUnavailable(t *testing.T) {
 }
 
 func TestAccountSyncCancelsOptionalQueriesWhenQuotaFails(t *testing.T) {
-	started := make(chan struct{}, 2)
-	cancelled := make(chan struct{}, 2)
-	previous := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = previous })
-	http.DefaultTransport = targetRoundTripper(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path == "/backend-api/wham/usage" {
-			for range 2 {
-				select {
-				case <-started:
-				case <-request.Context().Done():
-					return nil, request.Context().Err()
+	for _, test := range []struct {
+		name, body string
+		status     int
+	}{
+		{name: "unauthorized", status: http.StatusUnauthorized, body: "{}"},
+		{name: "null", status: http.StatusOK, body: "null"},
+		{name: "array", status: http.StatusOK, body: "[]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			started := make(chan struct{}, 2)
+			cancelled := make(chan struct{}, 2)
+			previous := http.DefaultTransport
+			t.Cleanup(func() { http.DefaultTransport = previous })
+			http.DefaultTransport = targetRoundTripper(func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path == "/backend-api/wham/usage" {
+					for range 2 {
+						select {
+						case <-started:
+						case <-request.Context().Done():
+							return nil, request.Context().Err()
+						}
+					}
+					return syncTestResponse(request, test.status, test.body), nil
+				}
+				started <- struct{}{}
+				<-request.Context().Done()
+				cancelled <- struct{}{}
+				return nil, request.Context().Err()
+			})
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			_, err := newCodexDriver().Observe(ctx, syncTestCredential(t), subscriptionruntime.NewTarget(nil))
+			if test.status == http.StatusOK {
+				if !errors.Is(err, subscriptionruntime.ErrObservationPayloadInvalid) {
+					t.Fatalf("invalid payload was not rejected: %v", err)
+				}
+			} else {
+				var upstream *subscriptionruntime.UpstreamHTTPError
+				if !errors.As(err, &upstream) || upstream.StatusCode != test.status {
+					t.Fatalf("quota failure lost: %v", err)
 				}
 			}
-			return syncTestResponse(request, 401, "{}"), nil
-		}
-		started <- struct{}{}
-		<-request.Context().Done()
-		cancelled <- struct{}{}
-		return nil, request.Context().Err()
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-	_, err := newCodexDriver().Observe(ctx, syncTestCredential(t), subscriptionruntime.NewTarget(nil))
-	var upstream *subscriptionruntime.UpstreamHTTPError
-	if !errors.As(err, &upstream) || upstream.StatusCode != 401 || len(cancelled) != 2 {
-		t.Fatalf("quota failure lost or optional queries not cancelled: %v, cancelled=%d", err, len(cancelled))
+			if len(cancelled) != 2 || ctx.Err() != nil {
+				t.Fatalf("quota failure lost or optional queries not cancelled: %v, cancelled=%d", err, len(cancelled))
+			}
+		})
 	}
 }
