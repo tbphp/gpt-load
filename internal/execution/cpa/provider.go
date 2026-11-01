@@ -182,8 +182,9 @@ type providerStreamResponse struct {
 }
 
 type providerStreamChunk struct {
-	Payload []byte
-	Err     error
+	Payload    []byte
+	Incomplete bool
+	Err        error
 }
 
 // providerBridge is the narrow provider-specific boundary below the shared

@@ -570,6 +570,8 @@ func (e StreamEvent) Clone() StreamEvent {
 // StreamResult is the terminal metadata returned after streaming ends.
 // The result owns Header, Usage, and Error after return from Executor.
 type StreamResult struct {
+	// Incomplete 保留上游明确的未完成终态，不改变客户端响应或错误处理。
+	Incomplete        bool              `json:"incomplete,omitempty"`
 	DispatchState     DispatchState     `json:"dispatch_state"`
 	ResponseStarted   bool              `json:"response_started"`
 	UpstreamProtocol  protocol.Protocol `json:"upstream_protocol,omitempty"`

@@ -374,7 +374,7 @@ func (bridge *codexProviderBridge) ExecuteStream(
 	go func() {
 		defer close(chunks)
 		for chunk := range response.Chunks {
-			converted := providerStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Err: chunk.Err}
+			converted := providerStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Incomplete: chunk.Incomplete, Err: chunk.Err}
 			select {
 			case chunks <- converted:
 			case <-ctx.Done():
@@ -498,8 +498,16 @@ func codexErrorTypeCode(err error) (string, string) {
 }
 
 func codexModelCapacityError(err error) bool {
-	_, code := codexErrorTypeCode(err)
-	if strings.EqualFold(code, "model_at_capacity") || strings.EqualFold(code, "model_is_at_capacity") {
+	typeValue, code := codexErrorTypeCode(err)
+	if strings.EqualFold(typeValue, "usage_limit_reached") {
+		return false
+	}
+	var transient interface{ IsTransientRateLimit() bool }
+	if errors.As(err, &transient) {
+		return transient.IsTransientRateLimit()
+	}
+	if strings.EqualFold(code, "model_at_capacity") || strings.EqualFold(code, "model_is_at_capacity") ||
+		strings.EqualFold(code, "turn_rate_limit_exceeded") {
 		return true
 	}
 	for current := err; current != nil; current = errors.Unwrap(current) {

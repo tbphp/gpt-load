@@ -263,7 +263,7 @@ func newCodexBootstrapGateway(t *testing.T, baseURL string, rules []health.Error
 	}
 	sink := &searchRequestLogSink{}
 	handler := gateway.NewHandler(manager, registry, keyService, gateway.NewExecutionForwarder(contextTransportCPAExecutor{adapter}),
-		dialect.NewSet(dialect.NewOpenAIResponses()), health.NewStatsStore(), health.NewMutationCoordinator(), nil, sink, nil)
+		dialect.NewSet(dialect.NewOpenAIResponses(), dialect.NewOpenAI(), dialect.NewAnthropic(), dialect.NewGemini()), health.NewStatsStore(), health.NewMutationCoordinator(), nil, sink, nil)
 	engine := gin.New()
 	routes, err := httproute.NewRegistry(handler.HTTPModule())
 	if err != nil {

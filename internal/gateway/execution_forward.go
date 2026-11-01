@@ -505,7 +505,7 @@ func (forwarder *ExecutionForwarder) ForwardStream(
 			}
 		}
 	}
-	emptyResponse := !committed && downstreamErr == nil && terminal.Error == nil &&
+	emptyResponse := !committed && downstreamErr == nil && terminal.Error == nil && !terminal.Incomplete &&
 		ready != nil && ready.StatusCode >= http.StatusOK && ready.StatusCode < http.StatusMultipleChoices &&
 		preread.active() && streamEvents.endedWithoutContent()
 	if !emptyResponse {
@@ -1214,7 +1214,11 @@ func executionStreamObservation(
 		return observeStreamTermination(ctx, downstreamErr, streamEvents)
 	}
 	if terminal.Error == nil {
-		return streamEvents.endObservation()
+		observation := streamEvents.endObservation()
+		if terminal.Incomplete && observation.EndReason == StreamEndCleanEOF {
+			return streamTerminalObservation(StreamEndProviderIncomplete)
+		}
+		return observation
 	}
 	switch terminal.Error.Kind {
 	case execution.ErrorKindCanceled:
