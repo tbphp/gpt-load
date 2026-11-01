@@ -116,104 +116,97 @@ useLoadingActivity(() => Boolean(props.pending))
     :aria-busy="pending || undefined"
   >
     <header class="modern-subscription-card-heading">
-      <AppTooltip :label="t('groupDetail.selectCredential', { name: row.label })">
-        <AppCheckbox
-          class="modern-subscription-card-select"
-          :model-value="selected"
-          :label="t('groupDetail.selectCredential', { name: row.label })"
-          label-hidden
-          :disabled="disabled"
-          @update:model-value="$emit('select', $event)"
-        />
-      </AppTooltip>
-      <div class="modern-subscription-card-identity">
-        <div class="modern-subscription-card-name-line">
-          <CredentialDisplay
-            class="modern-subscription-card-name"
-            :name="row.name"
-            :value="row.account || row.mask"
-            :save-name="saveName"
+      <div class="modern-subscription-card-name-line">
+        <AppTooltip :label="t('groupDetail.selectCredential', { name: row.label })">
+          <AppCheckbox
+            class="modern-subscription-card-select"
+            :model-value="selected"
+            :label="t('groupDetail.selectCredential', { name: row.label })"
+            label-hidden
             :disabled="disabled"
-            subscription
-            detail
-            reveal
-            @dirty="$emit('nameDirty', $event)"
+            @update:model-value="$emit('select', $event)"
           />
-          <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
-            <span class="modern-subscription-card-rpm" tabindex="0"
-              >{{ t('rpm.cardLabel') }} {{ n(row.rpmPeakHour) }}</span
-            >
-          </AppTooltip>
-        </div>
-        <div class="modern-subscription-card-subtitle">
-          <div class="modern-subscription-card-plan">
-            <CredentialPlanBadge v-if="plan" :name="plan" :level="observation?.planLevel" />
-            <AppBadge
-              v-if="creditBalanceLabel"
-              class="modern-subscription-card-credit-balance"
-              size="xs"
-            >
-              {{ t('credentialCards.creditBalance') }} {{ creditBalanceLabel }}
-            </AppBadge>
-            <CredentialRoutingMeta :row="row" />
-          </div>
-          <div class="modern-subscription-card-status-actions">
-            <AppIconButton
-              v-if="channel?.quotaObservation"
-              class="modern-subscription-card-sync"
-              :class="{ 'is-succeeded': syncSucceeded }"
-              :icon="syncIcon"
-              :label="syncLabel"
-              size="xs"
-              :loading="pendingAction === 'quota'"
-              :disabled="disabled || row.authState !== 'ready'"
-              @click="$emit('action', 'quota')"
-            />
-            <AppBadge
-              class="modern-subscription-card-status"
-              :tone="state.tone"
-              variant="plain"
-              size="xs"
-              dot
-            >
-              <AppOverflowText :text="t(state.key)" />
-            </AppBadge>
-          </div>
-        </div>
-        <div v-if="subscription" class="modern-subscription-card-subscription">
-          <template v-if="subscriptionEnd">
-            <AppTooltip :label="subscriptionEnd.hint" touchable>
-              <span tabindex="0">{{ subscriptionEnd.label }}</span>
-            </AppTooltip>
-            <span class="modern-subscription-card-renewal">· {{ subscriptionRenewal }}</span>
-            <AppTooltip
-              v-if="subscription.state === 'error'"
-              :label="t('credentialCards.subscriptionStale')"
-              touchable
-            >
-              <span
-                class="modern-subscription-card-subscription-warning"
-                tabindex="0"
-                role="img"
-                :aria-label="t('credentialCards.subscriptionStale')"
-              >
-                <AppIcon :icon="CircleAlert" size="xs" />
-              </span>
-            </AppTooltip>
-          </template>
-          <span
-            v-else
-            :class="{
-              'modern-subscription-card-subscription-warning': subscription.state === 'error',
-            }"
-            >{{
-              t(
-                subscription.state === 'error'
-                  ? 'credentialCards.subscriptionFailed'
-                  : 'credentialCards.subscriptionUnavailable',
-              )
-            }}</span
+        </AppTooltip>
+        <CredentialDisplay
+          class="modern-subscription-card-name"
+          :name="row.name"
+          :value="row.account || row.mask"
+          :save-name="saveName"
+          :disabled="disabled"
+          subscription
+          detail
+          reveal
+          @dirty="$emit('nameDirty', $event)"
+        />
+        <div class="modern-subscription-card-status-actions">
+          <AppIconButton
+            v-if="channel?.quotaObservation"
+            class="modern-subscription-card-sync"
+            :class="{ 'is-succeeded': syncSucceeded }"
+            :icon="syncIcon"
+            :label="syncLabel"
+            size="xs"
+            :loading="pendingAction === 'quota'"
+            :disabled="disabled || row.authState !== 'ready'"
+            @click="$emit('action', 'quota')"
+          />
+          <AppBadge
+            class="modern-subscription-card-status"
+            :tone="state.tone"
+            variant="plain"
+            size="xs"
+            dot
           >
+            <AppOverflowText :text="t(state.key)" />
+          </AppBadge>
+        </div>
+      </div>
+      <div class="modern-subscription-card-subtitle">
+        <div v-if="plan || subscription" class="modern-subscription-card-plan">
+          <CredentialPlanBadge v-if="plan" :name="plan" :level="observation?.planLevel" />
+          <div v-if="subscription" class="modern-subscription-card-subscription">
+            <template v-if="subscriptionEnd">
+              <AppTooltip :label="subscriptionEnd.hint" touchable>
+                <span class="modern-subscription-card-period" tabindex="0">{{
+                  subscriptionEnd.label
+                }}</span>
+              </AppTooltip>
+              <span class="modern-subscription-card-renewal">· {{ subscriptionRenewal }}</span>
+              <AppTooltip
+                v-if="subscription.state === 'error'"
+                :label="t('credentialCards.subscriptionStale')"
+                touchable
+              >
+                <span
+                  class="modern-subscription-card-subscription-warning"
+                  tabindex="0"
+                  role="img"
+                  :aria-label="t('credentialCards.subscriptionStale')"
+                >
+                  <AppIcon :icon="CircleAlert" size="xs" />
+                </span>
+              </AppTooltip>
+            </template>
+            <span
+              v-else
+              :class="{
+                'modern-subscription-card-subscription-warning': subscription.state === 'error',
+              }"
+              >{{
+                t(
+                  subscription.state === 'error'
+                    ? 'credentialCards.subscriptionFailed'
+                    : 'credentialCards.subscriptionUnavailable',
+                )
+              }}</span
+            >
+          </div>
+        </div>
+        <div class="modern-subscription-card-resources">
+          <span v-if="creditBalanceLabel" class="modern-subscription-card-credit-balance"
+            >{{ t('credentialCards.creditBalance') }} {{ creditBalanceLabel }}</span
+          >
+          <CredentialRoutingMeta :row="row" />
         </div>
       </div>
     </header>
@@ -278,7 +271,19 @@ useLoadingActivity(() => Boolean(props.pending))
       </div>
     </div>
     <footer class="modern-subscription-card-footer modern-credential-surface-footer">
-      <CredentialOutcomeSummary :usage="row.daily" compact />
+      <div class="modern-subscription-card-statistics">
+        <CredentialOutcomeSummary
+          class="modern-subscription-card-daily"
+          :usage="row.daily"
+          compact
+        />
+        <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
+          <span class="modern-subscription-card-rpm" tabindex="0">
+            <span aria-hidden="true">·</span>
+            {{ t('rpm.cardLabel') }} {{ n(row.rpmPeakHour) }}
+          </span>
+        </AppTooltip>
+      </div>
       <div class="modern-subscription-card-actions">
         <AppTooltip v-if="channel?.resetCredit && observation?.resetCredits" :label="creditLabel">
           <AppButton
@@ -345,25 +350,19 @@ useLoadingActivity(() => Boolean(props.pending))
   border-color: var(--modern-accent);
 }
 .modern-subscription-card-heading {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
   gap: var(--modern-space-2);
   padding: var(--modern-credential-card-inset) var(--modern-credential-card-inset)
-    var(--modern-space-3);
-}
-.modern-subscription-card-identity {
-  display: grid;
-  gap: var(--modern-space-1);
-  flex: 1;
-  min-width: 0;
+    var(--modern-space-2);
 }
 .modern-subscription-card-name-line {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--modern-space-2);
   min-width: 0;
 }
 .modern-subscription-card-select {
+  flex: none;
   align-self: flex-start;
   margin-top: var(--modern-space-0-5);
 }
@@ -374,6 +373,9 @@ useLoadingActivity(() => Boolean(props.pending))
   font-weight: var(--modern-weight-semibold);
 }
 .modern-subscription-card-rpm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--modern-space-1);
   flex: none;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-caption);
@@ -384,14 +386,15 @@ useLoadingActivity(() => Boolean(props.pending))
 .modern-subscription-card-subtitle {
   display: flex;
   align-items: center;
-  gap: var(--modern-space-2);
+  flex-wrap: wrap;
+  gap: var(--modern-space-1) var(--modern-space-2);
   min-width: 0;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
 .modern-subscription-card-plan {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--modern-space-1) var(--modern-space-2);
@@ -406,7 +409,7 @@ useLoadingActivity(() => Boolean(props.pending))
   gap: var(--modern-space-0-5);
   min-height: var(--modern-control-xs);
   min-width: 0;
-  max-width: 65%;
+  max-width: 50%;
   margin-left: auto;
 }
 .modern-subscription-card-status {
@@ -418,11 +421,22 @@ useLoadingActivity(() => Boolean(props.pending))
   flex-wrap: wrap;
   align-items: center;
   gap: var(--modern-space-1);
+  min-width: 0;
   color: var(--modern-muted);
   font-size: var(--modern-font-size-small);
 }
+.modern-subscription-card-period,
 .modern-subscription-card-renewal {
   white-space: nowrap;
+}
+.modern-subscription-card-resources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--modern-space-1) var(--modern-space-2);
+  min-height: var(--modern-control-xs);
+  margin-left: auto;
 }
 .modern-subscription-card-subscription-warning {
   color: var(--modern-warning);
@@ -475,6 +489,16 @@ useLoadingActivity(() => Boolean(props.pending))
 .modern-subscription-card-footer > :first-child {
   flex: 1 0 auto;
 }
+.modern-subscription-card-statistics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--modern-space-1);
+  min-width: 0;
+}
+.modern-subscription-card-daily {
+  flex: none;
+}
 .modern-subscription-card-actions {
   display: flex;
   align-items: center;
@@ -499,22 +523,5 @@ useLoadingActivity(() => Boolean(props.pending))
   background: var(--modern-accent-soft);
   font-size: var(--modern-font-size-caption);
   font-variant-numeric: tabular-nums;
-}
-@media (max-width: 760px) {
-  .modern-subscription-card-name-line {
-    flex-wrap: wrap;
-  }
-  .modern-subscription-card-name {
-    flex-basis: 100%;
-  }
-  .modern-subscription-card-rpm {
-    margin-left: auto;
-  }
-  .modern-subscription-card-subtitle {
-    flex-wrap: wrap;
-  }
-  .modern-subscription-card-status-actions {
-    max-width: 100%;
-  }
 }
 </style>

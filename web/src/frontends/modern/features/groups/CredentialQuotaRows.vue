@@ -23,8 +23,10 @@ function label(window: CredentialQuota): string {
 }
 function value(window: CredentialQuota): string {
   const percent = quotaRemaining(window)
-  if (percent !== undefined) return n(Math.round(percent)) + '%'
-  if (window.remaining !== undefined) return n(window.remaining)
+  if (percent !== undefined)
+    return t('credentialCards.quotaRemaining', { value: n(Math.round(percent)) + '%' })
+  if (window.remaining !== undefined)
+    return t('credentialCards.quotaRemaining', { value: n(window.remaining) })
   return '—'
 }
 function period(window: CredentialQuota): string {
@@ -43,13 +45,9 @@ function countdown(window: CredentialQuota): string {
 <template>
   <div class="modern-credential-quota-list">
     <div v-for="window in rows" :key="window.id" class="modern-credential-quota">
-      <div
-        class="modern-credential-quota-label"
-        :class="{ 'is-tight': quotaTone(window) === 'danger' }"
-      >
-        <AppOverflowText v-if="label(window)" :text="label(window)" /><span>{{
-          value(window)
-        }}</span>
+      <div class="modern-credential-quota-label">
+        <AppOverflowText v-if="label(window)" :text="label(window)" />
+        <span :class="{ 'is-tight': quotaTone(window) === 'danger' }">{{ value(window) }}</span>
       </div>
       <AppProgressBar
         :label="[label(window), value(window)].filter(Boolean).join(' · ')"
@@ -98,7 +96,7 @@ function countdown(window: CredentialQuota): string {
   flex: none;
   font-variant-numeric: tabular-nums;
 }
-.modern-credential-quota-label.is-tight {
+.modern-credential-quota-label > .is-tight {
   color: var(--modern-danger);
 }
 .modern-credential-quota-note {

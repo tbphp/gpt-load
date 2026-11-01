@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Eye, KeyRound, RotateCcw, Stethoscope, Trash2 } from '@lucide/vue'
+import { Download, Eye, FileText, KeyRound, RotateCcw, Stethoscope, Trash2 } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -30,7 +30,7 @@ const actions = computed(() => [
 <template>
   <div class="modern-credential-card-action-menu">
     <AppIconButton
-      :icon="Eye"
+      :icon="subscription ? FileText : Eye"
       :label="t('credentialCards.viewDetails')"
       size="xxs"
       :disabled="disabled"
