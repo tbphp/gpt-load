@@ -279,20 +279,20 @@ func (executor *museHTTPExecutor) executionContext(
 	request ExecuteRequest,
 ) context.Context {
 	transport := executionRoundTripper(ctx, executor.cfg, auth, request.ProxyFromEnvironment)
-	transport = museHeadersRoundTripper{base: transport, source: request.Headers.Clone(), configured: append([]string(nil), request.ConfiguredHeaders...)}
+	transport = museRoundTripper{base: transport, source: request.Headers.Clone(), configured: append([]string(nil), request.ConfiguredHeaders...)}
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{
 		base: transport, observation: observation,
 	})
 }
 
 // 分组规则在 SDK 补齐默认头之后生效；认证及账号会话仍由渠道持有。
-type museHeadersRoundTripper struct {
+type museRoundTripper struct {
 	base       http.RoundTripper
 	source     http.Header
 	configured []string
 }
 
-func (transport museHeadersRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+func (transport museRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	request = request.Clone(request.Context())
 	for _, name := range transport.configured {
 		lower := strings.ToLower(name)
@@ -308,7 +308,16 @@ func (transport museHeadersRoundTripper) RoundTrip(request *http.Request) (*http
 		}
 	}
 	request.Header.Set("X-Tbh-Contributor-Mode", "0")
-	return transport.base.RoundTrip(request)
+	response, err := transport.base.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		if err := normalizeMuseResponse(response); err != nil {
+			return nil, err
+		}
+	}
+	return response, nil
 }
 
 func normalizeMuseExecutionError(err error) error {

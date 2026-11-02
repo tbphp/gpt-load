@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -149,18 +151,31 @@ func (transport museMintTransport) RoundTrip(request *http.Request) (*http.Respo
 
 func TestMuseDeviceMintRetriesInterruptedTransportButNotCancellation(t *testing.T) {
 	state := MuseDeviceState{DeviceCode: "device", PollInterval: 5, DCAToken: "dca:saved"}
-	options := MuseOptions{HTTPClient: &http.Client{Transport: museMintTransport(func(*http.Request) (*http.Response, error) {
-		return nil, io.ErrUnexpectedEOF
-	})}}
-	pending, err := PollMuseDeviceAuthorizationOnce(t.Context(), state, options)
-	if err != nil || pending.Status != "pending" || pending.PollInterval != 10*time.Second || pending.State.DCAToken != state.DCAToken {
-		t.Fatalf("interrupted mint did not remain pending: status=%s interval=%s error=%v", pending.Status, pending.PollInterval, err)
+	for _, interruption := range []error{io.ErrUnexpectedEOF, &net.OpError{Op: "read", Net: "tcp", Err: &os.SyscallError{Syscall: "read", Err: museConnectionReset}}} {
+		t.Run(interruption.Error(), func(t *testing.T) {
+			calls := 0
+			options := MuseOptions{HTTPClient: &http.Client{Transport: museMintTransport(func(*http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return nil, interruption
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"api_key":"minted-key","user_email":"account","is_subs_active":true}`))}, nil
+			})}}
+			pending, err := PollMuseDeviceAuthorizationOnce(t.Context(), state, options)
+			if err != nil || pending.Status != "pending" || pending.PollInterval != 10*time.Second || pending.State.DCAToken != state.DCAToken {
+				t.Fatalf("interrupted mint did not remain pending: status=%s interval=%s error=%v", pending.Status, pending.PollInterval, err)
+			}
+			completed, err := PollMuseDeviceAuthorizationOnce(t.Context(), pending.State, options)
+			if err != nil || completed.Status != "authorized" || calls != 2 {
+				t.Fatalf("mint did not recover: status=%s calls=%d error=%v", completed.Status, calls, err)
+			}
+		})
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	options.HTTPClient.Transport = museMintTransport(func(request *http.Request) (*http.Response, error) {
+	options := MuseOptions{HTTPClient: &http.Client{Transport: museMintTransport(func(request *http.Request) (*http.Response, error) {
 		cancel()
 		return nil, request.Context().Err()
-	})
+	})}}
 	defer cancel()
 	if _, err := PollMuseDeviceAuthorizationOnce(ctx, state, options); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation became a retry: %v", err)

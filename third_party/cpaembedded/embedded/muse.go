@@ -254,7 +254,7 @@ func museDeviceMintRetryDelay(err error, interval int) (time.Duration, bool) {
 		return 0, false
 	}
 	var networkError net.Error
-	retryable := errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) ||
+	retryable := errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) || errors.Is(err, museConnectionReset) ||
 		errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary())
 	return delay, retryable
 }
