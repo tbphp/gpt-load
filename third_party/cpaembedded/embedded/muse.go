@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -49,6 +50,8 @@ type MuseDeviceState struct {
 	// 已取得的 DCA 令牌随加密 Stage 保存，兑换失败后不再次消费设备码。
 	DCAToken   string `json:"dca_token,omitempty"`
 	DCAExpired string `json:"dca_expired,omitempty"`
+	// Stage 单次轮询间隔最多一分钟，较长的 Retry-After 需随加密状态保存。
+	MintRetryAtMS int64 `json:"mint_retry_at_ms,omitempty"`
 }
 
 type MuseDeviceAuthorization struct {
@@ -210,12 +213,50 @@ func PollMuseDeviceAuthorizationOnce(ctx context.Context, state MuseDeviceState,
 		// 单次轮询只执行一次认证动作，让 Stage 先可靠保存兑换所需的 DCA。
 		return result, nil
 	}
+	if remaining := time.UnixMilli(state.MintRetryAtMS).Sub(museNow(options)); remaining > 0 {
+		result.PollInterval = min(max(remaining, 5*time.Second), time.Minute)
+		return result, nil
+	}
+	result.State.MintRetryAtMS = 0
 	credential, err := mintMuseCredential(ctx, MuseCredential{DCAToken: state.DCAToken, DCAExpired: state.DCAExpired}, options)
 	if err != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return MuseDevicePoll{}, err
+		}
+		if delay, retryable := museDeviceMintRetryDelay(err, state.PollInterval); retryable {
+			result.PollInterval = min(delay, time.Minute)
+			result.State.PollInterval = int((result.PollInterval + time.Second - 1) / time.Second)
+			if delay > time.Minute {
+				result.State.MintRetryAtMS = museNow(options).Add(delay).UnixMilli()
+			}
+			// 已保存的 DCA 可再次兑换；返回 pending 让管理层继续保存并调度。
+			return result, nil
+		}
 		return MuseDevicePoll{}, err
 	}
 	result.Status, result.Credential = "authorized", credential
 	return result, nil
+}
+
+func museDeviceMintRetryDelay(err error, interval int) (time.Duration, bool) {
+	delay := time.Duration(min(interval*2, 60)) * time.Second
+	var response *MuseHTTPError
+	if errors.As(err, &response) {
+		switch response.Code {
+		case "invalid_client", "invalid_grant", "invalid_token", "expired_token", "access_denied", "subscription_inactive":
+			return 0, false
+		case "temporarily_unavailable", "server_error":
+			return max(delay, response.RetryAfter), true
+		}
+		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 && response.StatusCode <= 599 {
+			return max(delay, response.RetryAfter), true
+		}
+		return 0, false
+	}
+	var networkError net.Error
+	retryable := errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) ||
+		errors.As(err, &networkError) && (networkError.Timeout() || networkError.Temporary())
+	return delay, retryable
 }
 
 func ImportMuseCredential(ctx context.Context, raw []byte, options MuseOptions) (MuseCredential, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -66,17 +67,103 @@ func TestMuseDeviceAuthorizationPreservesDCAAcrossMintRetry(t *testing.T) {
 	if err != nil || authorized.Status != "pending" || authorized.State.DCAToken != "dca:renewal-secret" || mintCalls != 0 {
 		t.Fatal("DCA was not checkpointed before minting")
 	}
-	_, err = PollMuseDeviceAuthorizationOnce(t.Context(), authorized.State, options)
-	var rateLimit *MuseHTTPError
-	if !errors.As(err, &rateLimit) || rateLimit.StatusCode != 429 || rateLimit.RetryAfter != 20*time.Second {
-		t.Fatalf("mint error: %v", err)
+	retry, err := PollMuseDeviceAuthorizationOnce(t.Context(), authorized.State, options)
+	if err != nil || retry.Status != "pending" || retry.State.DCAToken != authorized.State.DCAToken || retry.PollInterval != 20*time.Second {
+		t.Fatalf("mint did not remain pending: status=%s interval=%s error=%v", retry.Status, retry.PollInterval, err)
 	}
-	completed, err := PollMuseDeviceAuthorizationOnce(t.Context(), authorized.State, options)
+	now = now.Add(retry.PollInterval)
+	completed, err := PollMuseDeviceAuthorizationOnce(t.Context(), retry.State, options)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if completed.Status != "authorized" || completed.Credential.Email != "muse@example.com" || completed.Credential.AccessToken != "minted-secret" || tokenCalls != 2 || mintCalls != 2 {
 		t.Fatal("authorization did not resume minting once")
+	}
+}
+
+func TestMuseDeviceMintHonorsLongRetryAfter(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"api_key":"minted-secret","user_email":"account","is_subs_active":true}`))
+	}))
+	defer server.Close()
+	now := time.Date(2026, 11, 2, 1, 0, 0, 0, time.UTC)
+	options := MuseOptions{MintURL: server.URL, Now: func() time.Time { return now }}
+	state := MuseDeviceState{DeviceCode: "device", PollInterval: 5, DCAToken: "dca:saved"}
+	for attempt := 0; attempt < 2; attempt++ {
+		pending, err := PollMuseDeviceAuthorizationOnce(t.Context(), state, options)
+		if err != nil || pending.Status != "pending" || pending.PollInterval != time.Minute || calls != 1 {
+			t.Fatalf("early mint retry: status=%s interval=%s calls=%d error=%v", pending.Status, pending.PollInterval, calls, err)
+		}
+		// 模拟 DriverState 加密落库后的 JSON 往返，不能只依赖进程内计时。
+		raw, err := json.Marshal(pending.State)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &state); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(pending.PollInterval)
+	}
+	completed, err := PollMuseDeviceAuthorizationOnce(t.Context(), state, options)
+	if err != nil || completed.Status != "authorized" || calls != 2 {
+		t.Fatalf("mint did not resume: status=%s calls=%d error=%v", completed.Status, calls, err)
+	}
+}
+
+func TestMuseDeviceMintRejectsDefinitiveFailures(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		status     int
+	}{
+		{"invalid token", `{"error":"invalid_token"}`, http.StatusUnauthorized},
+		{"inactive subscription", `{"api_key":"paid-key","user_email":"account","is_subs_active":false}`, http.StatusOK},
+		{"invalid grant on server error", `{"error":"invalid_grant"}`, http.StatusServiceUnavailable},
+		{"malformed success", `{`, http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer server.Close()
+			result, err := PollMuseDeviceAuthorizationOnce(t.Context(), MuseDeviceState{DeviceCode: "device", PollInterval: 5, DCAToken: "dca:saved"}, MuseOptions{MintURL: server.URL})
+			if err == nil || result.Status == "pending" {
+				t.Fatal("definitive mint failure became retryable")
+			}
+		})
+	}
+}
+
+type museMintTransport func(*http.Request) (*http.Response, error)
+
+func (transport museMintTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestMuseDeviceMintRetriesInterruptedTransportButNotCancellation(t *testing.T) {
+	state := MuseDeviceState{DeviceCode: "device", PollInterval: 5, DCAToken: "dca:saved"}
+	options := MuseOptions{HTTPClient: &http.Client{Transport: museMintTransport(func(*http.Request) (*http.Response, error) {
+		return nil, io.ErrUnexpectedEOF
+	})}}
+	pending, err := PollMuseDeviceAuthorizationOnce(t.Context(), state, options)
+	if err != nil || pending.Status != "pending" || pending.PollInterval != 10*time.Second || pending.State.DCAToken != state.DCAToken {
+		t.Fatalf("interrupted mint did not remain pending: status=%s interval=%s error=%v", pending.Status, pending.PollInterval, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	options.HTTPClient.Transport = museMintTransport(func(request *http.Request) (*http.Response, error) {
+		cancel()
+		return nil, request.Context().Err()
+	})
+	defer cancel()
+	if _, err := PollMuseDeviceAuthorizationOnce(ctx, state, options); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation became a retry: %v", err)
 	}
 }
 

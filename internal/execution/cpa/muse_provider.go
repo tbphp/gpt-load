@@ -101,7 +101,7 @@ func (bridge *museProviderBridge) ExecuteStream(
 	go func() {
 		defer close(chunks)
 		for chunk := range response.Chunks {
-			converted := providerStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Err: chunk.Err}
+			converted := providerStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Incomplete: chunk.Incomplete, Err: chunk.Err}
 			select {
 			case chunks <- converted:
 			case <-ctx.Done():

@@ -30,8 +30,9 @@ type ExecuteResponse struct {
 }
 
 type ExecuteStreamChunk struct {
-	Payload []byte
-	Err     error
+	Payload    []byte
+	Incomplete bool
+	Err        error
 }
 
 type ExecuteStreamResponse struct {
@@ -71,7 +72,7 @@ func (value *executor) ExecuteStream(ctx context.Context, credentialID string, c
 	go func() {
 		defer close(chunks)
 		for chunk := range response.Chunks {
-			converted := ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Err: chunk.Err}
+			converted := ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Incomplete: chunk.Incomplete, Err: chunk.Err}
 			select {
 			case chunks <- converted:
 			case <-ctx.Done():

@@ -183,6 +183,8 @@ func (executor *museHTTPExecutor) ExecuteStreamCanonical(
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, museCPAProvider)
 	executionCtx := executor.executionContext(ctx, auth, observation, request)
+	terminal := &museStreamTerminal{}
+	executionCtx = withMuseStreamTerminal(executionCtx, terminal)
 	response, err := executor.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, museExecutorOptions(request, format, true))
@@ -194,15 +196,31 @@ func (executor *museHTTPExecutor) ExecuteStreamCanonical(
 	chunks := make(chan ExecuteStreamChunk)
 	go func() {
 		defer close(chunks)
+		failed := false
 		for chunk := range response.Chunks {
-			converted := ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...)}
+			converted := ExecuteStreamChunk{Payload: append([]byte(nil), chunk.Payload...), Incomplete: chunk.Incomplete}
 			if chunk.Err != nil {
+				failed = true
 				converted.Err = normalizeMuseExecutionError(chunk.Err)
 			}
 			select {
 			case chunks <- converted:
 			case <-ctx.Done():
 				return
+			}
+		}
+		// SDK 读取协程关闭 Chunks 后，原始流观测已完成，才读取最终状态。
+		if failed || ctx.Err() != nil {
+			return
+		}
+		final := ExecuteStreamChunk{Incomplete: terminal.incomplete}
+		if !terminal.seen || terminal.failed {
+			final.Err = &MuseExecutionError{status: http.StatusBadGateway, code: "upstream_stream_incomplete", summary: "Muse upstream stream ended without a successful terminal response"}
+		}
+		if final.Incomplete || final.Err != nil {
+			select {
+			case chunks <- final:
+			case <-ctx.Done():
 			}
 		}
 	}()
