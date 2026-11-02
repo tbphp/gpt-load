@@ -3,6 +3,7 @@ package cpa
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -229,4 +230,9 @@ func indexProviderBridges(bridges ...providerBridge) map[channel.ProviderKind]pr
 		indexed[bridge.ProviderKind()] = bridge
 	}
 	return indexed
+}
+
+// 私有二进制上游在 Provider 内识别帧，不让通用 SSE 观察器解释二进制字节。
+type providerStreamBodyObserver interface {
+	ObserveStreamBody(context.Context, io.ReadCloser, http.Header) io.ReadCloser
 }

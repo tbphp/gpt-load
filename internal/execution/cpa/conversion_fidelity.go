@@ -67,7 +67,7 @@ func prepareConvertedToolConstraints(
 		return spec, nil
 	}
 	switch providerKind {
-	case channel.ProviderClaude, channel.ProviderAntigravity, channel.ProviderCodex, channel.ProviderGrok, channel.ProviderMuse:
+	case channel.ProviderClaude, channel.ProviderAntigravity, channel.ProviderCodex, channel.ProviderGrok, channel.ProviderMuse, channel.ProviderDevin:
 	default:
 		return spec, nil
 	}
@@ -175,8 +175,15 @@ func prepareGeminiFunctionAllowlist(body []byte, providerKind channel.ProviderKi
 	if providerKind == channel.ProviderClaude && gjson.GetBytes(body, "tool_config").Exists() {
 		config = gjson.GetBytes(body, "tool_config.function_calling_config")
 	}
+	if providerKind == channel.ProviderDevin {
+		var err error
+		config, err = devinGeminiToolConfig(body)
+		if err != nil {
+			return body, true, false
+		}
+	}
 	allowed := config.Get("allowedFunctionNames")
-	if providerKind == channel.ProviderClaude && !allowed.Exists() {
+	if (providerKind == channel.ProviderClaude || providerKind == channel.ProviderDevin) && !allowed.Exists() {
 		allowed = config.Get("allowed_function_names")
 	}
 	if !allowed.Exists() || !allowed.IsArray() || len(allowed.Array()) == 0 {

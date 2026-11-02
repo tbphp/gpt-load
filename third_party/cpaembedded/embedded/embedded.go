@@ -925,6 +925,9 @@ func (o *executionObservation) observe(request *http.Request) {
 		return
 	}
 	effort := thinking.ExtractTranslatedReasoningEffort(body, o.provider)
+	if o.provider == ProviderDevin {
+		effort = devinWireReasoningEffort(body)
+	}
 	mode, budget := extractReasoningDetails(body, o.provider)
 	clear(body)
 	if effort == "" && mode == "" && budget == nil {

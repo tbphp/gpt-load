@@ -8,6 +8,9 @@ import (
 
 // 导入字段包含认证所需的临时字段，持久化仍由各渠道生成固定凭据结构。
 var cpaImportFields = map[channel.ID][]string{
+	channel.Devin: {
+		"type", "session_token", "api_key", "user_id", "org_id", "email", "user_name", "plan", "device_seed", "last_refresh", "auth_kind", "base_url", "team_id", "org_name",
+	},
 	channel.Muse: {
 		"type", "auth_kind", "dca_token", "access_token", "api_key", "email",
 		"dca_expired", "dca_expires_at", "last_refresh", "subs_tier_name", "is_subs_active",
@@ -53,6 +56,10 @@ func mapCPA(object map[string]any, channelID channel.ID) (map[string]any, string
 	if channelID == channel.Muse {
 		// Muse 使用 DCA 令牌重新兑换密钥，没有 refresh_token。
 		if stringValue(m.out["dca_token"]) == "" && !strings.HasPrefix(stringValue(m.out["access_token"]), "dca:") {
+			m.fail("invalid_credential")
+		}
+	} else if channelID == channel.Devin {
+		if stringValue(m.out["session_token"]) == "" && stringValue(m.out["api_key"]) == "" {
 			m.fail("invalid_credential")
 		}
 	} else {

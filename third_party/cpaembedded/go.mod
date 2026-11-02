@@ -11,6 +11,7 @@ require (
 	github.com/tidwall/gjson v1.20.0
 	github.com/tidwall/sjson v1.2.5
 	golang.org/x/net v0.62.0
+	google.golang.org/protobuf v1.34.1
 )
 
 require (
@@ -52,7 +53,6 @@ require (
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

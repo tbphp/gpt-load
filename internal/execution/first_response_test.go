@@ -115,3 +115,24 @@ func TestFirstResponseDoesNotUseSyntheticSDKData(t *testing.T) {
 		t.Fatal("synthetic SDK completion counted as an upstream response")
 	}
 }
+
+func TestNativeFrameFirstResponseSuppressesSyntheticFallbackAndStops(t *testing.T) {
+	calls := 0
+	ctx, stop := WithFirstResponseObserver(t.Context(), func() { calls++ })
+	frame := NewFirstResponseFrameObserver(ctx)
+	fallback := NewFirstResponseSSEFallback(ctx)
+	fallback([]byte("data: synthetic\n\n"))
+	if calls != 0 {
+		t.Fatal("synthetic event counted before native frame")
+	}
+	frame()
+	frame()
+	if calls != 1 {
+		t.Fatal("native frame was not counted exactly once")
+	}
+	stop()
+	frame()
+	if calls != 1 {
+		t.Fatal("stopped observation changed")
+	}
+}

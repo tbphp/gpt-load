@@ -87,6 +87,7 @@ func NewAdapter(credentials *subscription.CredentialManager, channels *channel.R
 			newAntigravityProviderBridge(),
 			newGrokProviderBridge(),
 			newMuseProviderBridge(),
+			newDevinProviderBridge(),
 		),
 	}
 }
@@ -360,6 +361,9 @@ func (a *Adapter) ExecuteStream(
 	firstByte := startFirstByteGate(spec.Timeouts.FirstByte, cancelStream)
 	defer firstByte.stop()
 	streamCtx = subscriptionproviders.WithStreamBodyObserver(streamCtx, func(body io.ReadCloser, header http.Header) io.ReadCloser {
+		if observer, ok := provider.(providerStreamBodyObserver); ok {
+			return observer.ObserveStreamBody(streamCtx, body, header)
+		}
 		return observeStreamBody(streamCtx, body, header.Get("Content-Encoding"))
 	})
 	response, err := provider.ExecuteStream(streamCtx, strconv.FormatUint(uint64(spec.Credential.ID), 10), credential, request)
