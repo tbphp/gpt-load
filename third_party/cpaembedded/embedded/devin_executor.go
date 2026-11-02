@@ -118,7 +118,7 @@ func (executor *devinHTTPExecutor) ExecuteCanonical(
 	auth := NewDevinAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, devinCPAProvider)
-	executionCtx := executor.executionContext(ctx, auth, observation, request)
+	executionCtx := executor.executionContext(ctx, auth, observation, request, credential.SecretValues())
 	response, err := executor.inner.Execute(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
 		Model: request.Model, Payload: append([]byte(nil), request.Payload...), Format: format,
 	}, devinExecutorOptions(request, format, false))
@@ -159,7 +159,7 @@ func (executor *devinHTTPExecutor) ExecuteStreamCanonical(
 	auth := NewDevinAuth(credentialID, credential, baseURL)
 	auth.ProxyURL = request.ProxyURL
 	observation := newProviderExecutionObservation(request, devinCPAProvider)
-	executionCtx := executor.executionContext(ctx, auth, observation, request)
+	executionCtx := executor.executionContext(ctx, auth, observation, request, credential.SecretValues())
 	terminal := &devinStreamState{}
 	executionCtx = withDevinStreamState(executionCtx, terminal)
 	response, err := executor.inner.ExecuteStream(executionCtx, authWithoutProxyURL(auth), cliproxyexecutor.Request{
@@ -244,9 +244,10 @@ func (executor *devinHTTPExecutor) executionContext(
 	auth *cliproxyauth.Auth,
 	observation *executionObservation,
 	request ExecuteRequest,
+	secrets []string,
 ) context.Context {
 	transport := executionRoundTripper(ctx, executor.cfg, auth, request.ProxyFromEnvironment)
-	transport = devinRoundTripper{base: transport, source: request.Headers.Clone(), configured: append([]string(nil), request.ConfiguredHeaders...)}
+	transport = devinRoundTripper{base: transport, source: request.Headers.Clone(), configured: append([]string(nil), request.ConfiguredHeaders...), secrets: secrets}
 	return context.WithValue(ctx, "cliproxy.roundtripper", noRedirectRoundTripper{
 		base: transport, observation: observation,
 	})
@@ -257,6 +258,7 @@ type devinRoundTripper struct {
 	base       http.RoundTripper
 	source     http.Header
 	configured []string
+	secrets    []string
 }
 
 func (transport devinRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -284,7 +286,7 @@ func (transport devinRoundTripper) RoundTrip(request *http.Request) (*http.Respo
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
-		response.Body = decoded
+		response.Body = &devinResponseBody{ReadCloser: decoded, secrets: transport.secrets}
 		response.Header = response.Header.Clone()
 		response.Header.Del("Content-Encoding")
 		response.Header.Del("Content-Length")
@@ -295,6 +297,10 @@ func (transport devinRoundTripper) RoundTrip(request *http.Request) (*http.Respo
 
 func normalizeDevinExecutionError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var normalized *DevinExecutionError
+	if errors.As(err, &normalized) {
 		return err
 	}
 	var statusError interface {

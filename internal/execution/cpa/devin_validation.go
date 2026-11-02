@@ -16,6 +16,22 @@ func (*devinProviderBridge) ValidateRequest(request providerRequest) error {
 	if !root.IsObject() {
 		return errors.New("invalid Devin request")
 	}
+	// 这些续接字段会被 CPA 优先用于私有会话，不能覆盖 GPT-Load 的账号隔离标识。
+	for _, field := range []string{"previous_response_id", "previous_interaction_id"} {
+		if strings.TrimSpace(root.Get(field).String()) != "" {
+			return errors.New("Devin does not support upstream response continuation")
+		}
+	}
+	for _, path := range []string{
+		"stop", "stop_sequences", "generationConfig.stopSequences", "generationConfig.stop_sequences",
+		"generation_config.stopSequences", "generation_config.stop_sequences",
+	} {
+		value := root.Get(path)
+		if value.Exists() && value.Type != gjson.Null &&
+			!(value.Type == gjson.String && value.Str == "") && !(value.IsArray() && len(value.Array()) == 0) {
+			return errors.New("Devin does not support stop sequences")
+		}
+	}
 	proto := protocol.OpenAICompletions
 	switch request.Format {
 	case "claude":
@@ -45,16 +61,28 @@ func (*devinProviderBridge) ValidateRequest(request providerRequest) error {
 			return errors.New("Devin does not support constrained output formats")
 		}
 	}
-	if mime := root.Get("generationConfig.responseMimeType").String(); mime != "" && mime != "text/plain" {
-		return errors.New("Devin does not support constrained output formats")
+	for _, path := range []string{
+		"generationConfig.responseMimeType", "generationConfig.response_mime_type",
+		"generation_config.responseMimeType", "generation_config.response_mime_type",
+	} {
+		if mime := root.Get(path).String(); mime != "" && mime != "text/plain" {
+			return errors.New("Devin does not support constrained output formats")
+		}
 	}
-	if mode := root.Get("toolConfig.functionCallingConfig.mode").String(); mode != "" && mode != "AUTO" {
+	toolConfig, err := devinGeminiToolConfig(request.Payload)
+	if err != nil {
+		return err
+	}
+	if mode := toolConfig.Get("mode").String(); mode != "" && mode != "AUTO" {
 		return errors.New("Devin does not support forced or disabled tool choice")
 	}
 	if root.Get("tool_choice.disable_parallel_tool_use").Bool() {
 		return errors.New("Devin cannot enforce serial tool calls")
 	}
 	for _, tool := range root.Get("tools").Array() {
+		if kind := tool.Get("type").String(); request.Format == "openai" && kind != "" && kind != "function" {
+			return errors.New("Devin Chat Completions only supports function tools")
+		}
 		if request.Format == "gemini" {
 			unsupported := false
 			tool.ForEach(func(key, _ gjson.Result) bool {
@@ -95,6 +123,28 @@ func (*devinProviderBridge) ValidateRequest(request providerRequest) error {
 		return errors.New("Devin supports text and inline images only; remote images, audio, video and documents are unsupported")
 	}
 	return nil
+}
+
+// 校验和白名单转换共用同一份 Gemini 字段选择，避免一种拼写检查另一种拼写执行。
+func devinGeminiToolConfig(body []byte) (gjson.Result, error) {
+	var config gjson.Result
+	for _, path := range []string{
+		"toolConfig.functionCallingConfig", "toolConfig.function_calling_config",
+		"tool_config.functionCallingConfig", "tool_config.function_calling_config",
+	} {
+		candidate := gjson.GetBytes(body, path)
+		if !candidate.Exists() || candidate.Type == gjson.Null {
+			continue
+		}
+		if !candidate.IsObject() || config.Exists() {
+			return gjson.Result{}, errors.New("invalid or ambiguous Devin Gemini tool configuration")
+		}
+		config = candidate
+	}
+	if config.Get("allowedFunctionNames").Exists() && config.Get("allowed_function_names").Exists() {
+		return gjson.Result{}, errors.New("ambiguous Devin Gemini function allowlist")
+	}
+	return config, nil
 }
 
 func devinUnsupportedParts(parts gjson.Result) bool {

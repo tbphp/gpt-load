@@ -10,6 +10,8 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 )
 
+const devinMaxConnectFrameBytes = 16 << 20
+
 // Devin 与 SSE 渠道共用上游读取钩子；二进制帧观察仍封装在 CPA 边界内。
 func ObserveDevinStreamBody(body io.ReadCloser, firstResponse func()) io.ReadCloser {
 	return &devinObservedBody{ReadCloser: body, state: &devinStreamState{firstResponse: firstResponse, firstOnly: true}}
@@ -53,7 +55,7 @@ func (state *devinStreamState) feed(raw []byte) {
 		if needed <= 0 {
 			length := binary.BigEndian.Uint32(state.pending[1:5])
 			// 与 CPA Connect 帧上限保持一致，绝不缓存整个回答。
-			if length > 16<<20 {
+			if length > devinMaxConnectFrameBytes {
 				state.invalid = true
 				state.pending = nil
 				return
@@ -69,7 +71,7 @@ func (state *devinStreamState) feed(raw []byte) {
 			continue
 		}
 		length := binary.BigEndian.Uint32(state.pending[1:5])
-		if length > 16<<20 {
+		if length > devinMaxConnectFrameBytes {
 			state.invalid = true
 			state.pending = nil
 			return
