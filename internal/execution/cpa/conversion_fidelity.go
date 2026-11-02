@@ -67,7 +67,7 @@ func prepareConvertedToolConstraints(
 		return spec, nil
 	}
 	switch providerKind {
-	case channel.ProviderClaude, channel.ProviderAntigravity, channel.ProviderCodex, channel.ProviderGrok, channel.ProviderMuse:
+	case channel.ProviderClaude, channel.ProviderAntigravity, channel.ProviderCodex, channel.ProviderGrok, channel.ProviderMuse, channel.ProviderDevin:
 	default:
 		return spec, nil
 	}

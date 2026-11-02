@@ -118,3 +118,22 @@ func (reader *firstResponseReader) Read(buffer []byte) (int, error) {
 	}
 	return n, err
 }
+
+// NewFirstResponseFrameObserver 在上游原生帧被识别时采样；不接受 SDK 合成的下游事件。
+func NewFirstResponseFrameObserver(ctx context.Context) func() {
+	callback, _ := ctx.Value(firstResponseKey{}).(*firstResponseCallback)
+	if callback == nil {
+		return func() {}
+	}
+	callback.mu.Lock()
+	callback.upstream = true
+	callback.mu.Unlock()
+	return func() {
+		callback.mu.Lock()
+		defer callback.mu.Unlock()
+		if callback.notify != nil {
+			callback.notify()
+			callback.notify = nil
+		}
+	}
+}
