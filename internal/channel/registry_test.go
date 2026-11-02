@@ -20,6 +20,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 		Claude,
 		Antigravity,
 		Grok,
+		Muse,
 		Anthropic,
 		Gemini,
 		ID("azure_openai"),
@@ -58,8 +59,8 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	if got := descriptorIDs(registry.Search("GeMiNi")); !reflect.DeepEqual(got, []ID{Gemini}) {
 		t.Fatalf("Search(gemini) IDs = %v", got)
 	}
-	if got := descriptorIDs(registry.Search("subscription")); !reflect.DeepEqual(got, []ID{Codex, Claude, Antigravity, Grok}) {
-		t.Fatalf("Search(subscription) IDs = %v, want [codex claude antigravity grok]", got)
+	if got := descriptorIDs(registry.Search("subscription")); !reflect.DeepEqual(got, []ID{Codex, Claude, Antigravity, Grok, Muse}) {
+		t.Fatalf("Search(subscription) IDs = %v, want [codex claude antigravity grok muse]", got)
 	}
 	if got := descriptorIDs(registry.Search("compatible")); !reflect.DeepEqual(got, []ID{OpenAICompatible}) {
 		t.Fatalf("Search(compatible) IDs = %v", got)
@@ -95,7 +96,7 @@ func TestRegistryHasStableBuiltInOrderAndSearch(t *testing.T) {
 	first := registry.List()
 	first[0].ClientProtocols[0] = protocol.Protocol("mutated")
 	first[0].ParamFields = append(first[0].ParamFields, FieldDescriptor{Key: "mutated"})
-	vertexIndex := 9
+	vertexIndex := 10
 	if first[vertexIndex].ID != GoogleVertex || first[vertexIndex].ParamFields[0].DefaultValue == nil {
 		t.Fatalf("unexpected Vertex descriptor = %#v", first[vertexIndex])
 	}
@@ -341,7 +342,7 @@ func TestSubscriptionChannelsRemainSeparateFromAPIKeyChannels(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	for _, id := range []ID{Codex, Claude, Antigravity, Grok} {
+	for _, id := range []ID{Codex, Claude, Antigravity, Grok, Muse} {
 		if !registry.SupportsConnectionType(id, "subscription") {
 			t.Fatalf("%s subscription is not supported", id)
 		}
@@ -846,6 +847,7 @@ func TestEveryResponsesCreateChannelDeclaresStoreHandling(t *testing.T) {
 		Claude:           ResponsesStoreHandlingStateless,
 		Antigravity:      ResponsesStoreHandlingStateless,
 		Grok:             ResponsesStoreHandlingStateless,
+		Muse:             ResponsesStoreHandlingStateless,
 		Anthropic:        ResponsesStoreHandlingStateless,
 		Gemini:           ResponsesStoreHandlingStateless,
 		AzureOpenAI:      ResponsesStoreHandlingStateless,
