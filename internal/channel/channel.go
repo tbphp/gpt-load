@@ -28,6 +28,7 @@ const (
 	Claude           = spec.Claude
 	Antigravity      = spec.Antigravity
 	Grok             = spec.Grok
+	Muse             = spec.Muse
 	Anthropic        = spec.Anthropic
 	Gemini           = spec.Gemini
 	AzureOpenAI      = spec.AzureOpenAI
@@ -234,6 +235,7 @@ const (
 	ProviderClaude               = spec.ProviderClaude
 	ProviderAntigravity          = spec.ProviderAntigravity
 	ProviderGrok                 = spec.ProviderGrok
+	ProviderMuse                 = spec.ProviderMuse
 	ProviderAnthropic            = spec.ProviderAnthropic
 	ProviderGemini               = spec.ProviderGemini
 	ProviderMultiProtocolGateway = spec.ProviderMultiProtocolGateway

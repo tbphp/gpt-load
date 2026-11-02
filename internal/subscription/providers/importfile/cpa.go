@@ -1,9 +1,17 @@
 package importfile
 
-import "gpt-load/internal/channel"
+import (
+	"strings"
+
+	"gpt-load/internal/channel"
+)
 
 // 导入字段包含认证所需的临时字段，持久化仍由各渠道生成固定凭据结构。
 var cpaImportFields = map[channel.ID][]string{
+	channel.Muse: {
+		"type", "auth_kind", "dca_token", "access_token", "api_key", "email",
+		"dca_expired", "dca_expires_at", "last_refresh", "subs_tier_name", "is_subs_active",
+	},
 	channel.Codex: {
 		"type", "access_token", "refresh_token", "id_token", "account_id", "email",
 		"plan_type", "expired", "last_refresh",
@@ -42,6 +50,13 @@ func mapCPA(object map[string]any, channelID channel.ID) (map[string]any, string
 	}
 	// 保留白名单字段的原始类型和值，由渠道执行既有的完整性和身份校验。
 	// 其他字段既不校验业务结构，也不进入暂存或 CPA 执行器。
-	m.requireRefresh()
+	if channelID == channel.Muse {
+		// Muse 使用 DCA 令牌重新兑换密钥，没有 refresh_token。
+		if stringValue(m.out["dca_token"]) == "" && !strings.HasPrefix(stringValue(m.out["access_token"]), "dca:") {
+			m.fail("invalid_credential")
+		}
+	} else {
+		m.requireRefresh()
+	}
 	return m.result()
 }

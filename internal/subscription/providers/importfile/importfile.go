@@ -463,6 +463,8 @@ func (m *mapper) validateClient(source map[string]any, channelID channel.ID) {
 		expected = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 	case channel.Grok:
 		expected = "b1a00492-073a-47ea-816f-4c329264a828"
+	case channel.Muse:
+		expected = "1031625952748946"
 	}
 	if client != "" && client != expected {
 		m.fail("unsupported_client")
@@ -502,6 +504,8 @@ func cpaChannel(provider string) channel.ID {
 		return channel.Antigravity
 	case "grok", "xai":
 		return channel.Grok
+	case "muse", "meta":
+		return channel.Muse
 	default:
 		return ""
 	}
