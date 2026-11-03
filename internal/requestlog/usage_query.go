@@ -374,6 +374,10 @@ func mergeUsageHours(source []usageHourPoint, bucketWidthMS int64) ([]UsageSerie
 	return series, nil
 }
 
+func AddUsageAggregates(left, right UsageAggregate) (UsageAggregate, error) {
+	return addUsageAggregates(left, right)
+}
+
 func addUsageAggregates(left, right UsageAggregate) (UsageAggregate, error) {
 	result := UsageAggregate{}
 	fields := []struct {

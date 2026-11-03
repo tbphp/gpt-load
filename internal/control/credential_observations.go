@@ -520,7 +520,7 @@ func (s *Service) refreshCredentialObservationOnce(
 		s.mutations.Do(credentialID, func() { response, finishErr = finish() })
 	}
 	if finishErr == nil {
-		s.enrichCredentialObservationUsage(ctx, credentialID, &response)
+		s.enrichCredentialObservationUsage(ctx, credentialID, channelID, &response)
 	}
 	return response, finishErr
 }
@@ -688,16 +688,16 @@ func (s *Service) GetCredentialObservation(ctx context.Context, groupID, credent
 		return CredentialObservationResponse{}, err
 	}
 	response := observationResponseValue(withCredentialPlan(presentCredentialObservation(row, credential.IdentityFingerprint), account.PlanType))
-	s.enrichCredentialObservationUsage(ctx, credentialID, &response)
+	s.enrichCredentialObservationUsage(ctx, credentialID, channel.ID(group.ChannelID), &response)
 	return response, nil
 }
 
 func (s *Service) GetCredentialDetail(ctx context.Context, groupID, credentialID uint) (CredentialDetailResponse, error) {
-	item, err := s.loadCredentialItem(ctx, groupID, credentialID)
+	item, channelID, err := s.loadCredentialItem(ctx, groupID, credentialID)
 	if err != nil {
 		return CredentialDetailResponse{}, err
 	}
-	s.enrichCredentialObservationUsage(ctx, credentialID, item.Observation)
+	s.enrichCredentialObservationUsage(ctx, credentialID, channelID, item.Observation)
 	s.enrichCredentialDailyUsage(ctx, credentialID, &item)
 	observation := observationResponseValue(item.Observation)
 	return CredentialDetailResponse{Credential: item, Observation: observation}, nil
@@ -953,6 +953,7 @@ func (s *Service) enrichCredentialDailyUsage(
 func (s *Service) enrichCredentialObservationUsage(
 	ctx context.Context,
 	credentialID uint,
+	channelID channel.ID,
 	response *CredentialObservationResponse,
 ) {
 	if s == nil || s.credentialWindowUsage == nil || credentialID == 0 ||
@@ -962,36 +963,85 @@ func (s *Service) enrichCredentialObservationUsage(
 	}
 	for index := range response.Snapshot.QuotaWindows {
 		window := &response.Snapshot.QuotaWindows[index]
-		if window.Scope != "account" || window.ResetAtMS == nil ||
-			window.WindowSeconds == nil || *window.WindowSeconds <= 0 ||
-			*window.ResetAtMS <= 0 {
+		fromMS, toMS, ok := observationWindowBounds(*window)
+		if !ok {
 			continue
 		}
-		if *window.WindowSeconds > math.MaxInt64/1000 {
-			continue
-		}
-		windowMS := *window.WindowSeconds * 1000
-		if windowMS > *window.ResetAtMS {
-			continue
-		}
-		fromMS := *window.ResetAtMS - windowMS
-		if fromMS >= *window.ResetAtMS {
-			continue
-		}
-		observed, err := s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, requestlog.CredentialWindowUsageQuery{
+		query := requestlog.CredentialWindowUsageQuery{
 			CredentialID: credentialID,
 			FromMS:       fromMS,
-			ToMS:         *window.ResetAtMS,
+			ToMS:         toMS,
 			Source:       requestlog.CredentialWindowUsageSourceHourlyStats,
-		})
-		if err != nil {
+		}
+		var observed requestlog.CredentialWindowUsage
+		switch {
+		case window.Scope == "account":
+			var err error
+			observed, err = s.credentialWindowUsage.QueryCredentialWindowUsage(ctx, query)
+			if err != nil {
+				continue
+			}
+		case channelID == channel.Antigravity && antigravityWeeklyModelWindow(*window):
+			byModel, err := s.credentialWindowUsage.QueryCredentialWindowUsageByModel(ctx, query)
+			if err != nil {
+				continue
+			}
+			var observedOK bool
+			observed, observedOK = sumAntigravityPoolWindowUsage(*window, byModel)
+			if !observedOK {
+				continue
+			}
+		default:
 			continue
 		}
-		mapped, ok := mapObservationWindowUsage(fromMS, *window.ResetAtMS, observed)
-		if ok {
+		if mapped, mappedOK := mapObservationWindowUsage(fromMS, toMS, observed); mappedOK {
 			window.ObservedUsage = mapped
 		}
 	}
+}
+
+func observationWindowBounds(window ObservationQuotaWindow) (int64, int64, bool) {
+	if window.ResetAtMS == nil || window.WindowSeconds == nil ||
+		*window.WindowSeconds <= 0 || *window.ResetAtMS <= 0 {
+		return 0, 0, false
+	}
+	if *window.WindowSeconds > math.MaxInt64/1000 {
+		return 0, 0, false
+	}
+	windowMS := *window.WindowSeconds * 1000
+	if windowMS > *window.ResetAtMS {
+		return 0, 0, false
+	}
+	fromMS := *window.ResetAtMS - windowMS
+	if fromMS >= *window.ResetAtMS {
+		return 0, 0, false
+	}
+	return fromMS, *window.ResetAtMS, true
+}
+
+func sumAntigravityPoolWindowUsage(
+	window ObservationQuotaWindow,
+	byModel requestlog.CredentialWindowUsageByModel,
+) (requestlog.CredentialWindowUsage, bool) {
+	observed := requestlog.CredentialWindowUsage{
+		Source:       byModel.Source,
+		DataComplete: byModel.DataComplete,
+	}
+	for _, row := range byModel.Models {
+		if !antigravityModelBelongsToWindow(row.Model, window) {
+			continue
+		}
+		merged, err := requestlog.AddUsageAggregates(observed.UsageAggregate, row.UsageAggregate)
+		if err != nil {
+			return requestlog.CredentialWindowUsage{}, false
+		}
+		observed.UsageAggregate = merged
+		if row.LastUsedAtMS != nil &&
+			(observed.LastUsedAtMS == nil || *row.LastUsedAtMS > *observed.LastUsedAtMS) {
+			observed.LastUsedAtMS = row.LastUsedAtMS
+		}
+	}
+	return observed, true
 }
 
 func mapObservationWindowUsage(

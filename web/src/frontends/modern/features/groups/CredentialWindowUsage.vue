@@ -13,18 +13,27 @@ import {
   sortedQuotaWindows,
 } from './credential-presentation'
 
-const props = defineProps<{ windows: readonly CredentialQuota[] }>()
+const props = defineProps<{ windows: readonly CredentialQuota[]; channelId?: string }>()
 const { t, te, n, locale } = useI18n()
 const minimumUsedPercent = 5
 const minimumRequests = 10
 const minimumCostNanoUSD = 10_000_000n
+const weeklyWindowSeconds = 7 * 24 * 60 * 60
 const rows = computed(() =>
-  sortedQuotaWindows(
-    props.windows.filter(
-      (window) => window.scope === 'account' && quotaWindowRange(window) !== undefined,
-    ),
-  ).map((window) => ({ window, estimate: estimate(window) })),
+  sortedQuotaWindows(props.windows.filter(includeWindow)).map((window) => ({
+    window,
+    estimate: estimate(window),
+  })),
 )
+function includeWindow(window: CredentialQuota): boolean {
+  if (quotaWindowRange(window) === undefined) return false
+  if (window.scope === 'account') return true
+  return (
+    props.channelId === 'antigravity' &&
+    window.scope === 'model' &&
+    window.windowSeconds === weeklyWindowSeconds
+  )
+}
 function usedPercent(window: CredentialQuota): string {
   const value = quotaRemaining(window)
   return value === undefined ? '—' : `${n(100 - value, { maximumFractionDigits: 1 })}%`

@@ -47,7 +47,8 @@ func (s *Service) RefreshGroupCredential(
 	if _, err := s.recoverStoredSubscriptionCredential(ctx, group, credential); err != nil {
 		return CredentialItemResponse{}, err
 	}
-	return s.loadCredentialItem(ctx, groupID, credentialID)
+	item, _, err := s.loadCredentialItem(ctx, groupID, credentialID)
+	return item, err
 }
 
 // DownloadGroupCredential returns the provider canonical JSON for a

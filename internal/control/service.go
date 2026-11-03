@@ -105,6 +105,10 @@ type credentialWindowUsageReader interface {
 		context.Context,
 		requestlog.CredentialWindowUsageQuery,
 	) (requestlog.CredentialWindowUsage, error)
+	QueryCredentialWindowUsageByModel(
+		context.Context,
+		requestlog.CredentialWindowUsageQuery,
+	) (requestlog.CredentialWindowUsageByModel, error)
 }
 
 type credentialActivityReader interface {

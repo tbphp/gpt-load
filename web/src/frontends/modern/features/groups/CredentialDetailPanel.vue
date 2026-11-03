@@ -240,6 +240,7 @@ useMessageSource(() =>
         v-if="item.observation?.windows.length"
         v-show="!isMobile || mobileSection === 'usage'"
         :windows="item.observation.windows"
+        :channel-id="channel?.id ?? group.channelID"
       />
       <RPMTrend
         v-show="!isMobile || mobileSection === 'usage'"

@@ -242,7 +242,8 @@ func (s *Service) UpdateGroupCredential(
 	if err != nil {
 		return CredentialItemResponse{}, err
 	}
-	return s.loadCredentialItem(ctx, groupID, credentialID)
+	item, _, err := s.loadCredentialItem(ctx, groupID, credentialID)
+	return item, err
 }
 
 func (s *Service) DeleteGroupCredential(ctx context.Context, groupID, credentialID uint) error {
@@ -453,22 +454,23 @@ func validateCredentialRuntimeRow(
 	return nil
 }
 
-func (s *Service) loadCredentialItem(ctx context.Context, groupID, credentialID uint) (CredentialItemResponse, error) {
+func (s *Service) loadCredentialItem(ctx context.Context, groupID, credentialID uint) (CredentialItemResponse, channel.ID, error) {
 	capture, err := s.captureCredentials(ctx, groupID)
 	if err != nil {
-		return CredentialItemResponse{}, err
+		return CredentialItemResponse{}, "", err
 	}
 	observation, err := validateCredentialCapture(capture)
 	if err != nil {
-		return CredentialItemResponse{}, err
+		return CredentialItemResponse{}, "", err
 	}
 	for _, row := range observation.rows {
 		if row.ID == credentialID {
-			return s.mapCredentialItem(ctx, row, observation.runtime[credentialID], observation.group,
+			item, err := s.mapCredentialItem(ctx, row, observation.runtime[credentialID], observation.group,
 				s.stats.Snapshot(credentialID, observation.observedAt), observation.observedAt)
+			return item, channel.ID(observation.group.ChannelID), err
 		}
 	}
-	return CredentialItemResponse{}, credentialNotFoundError()
+	return CredentialItemResponse{}, "", credentialNotFoundError()
 }
 
 func (s *Service) mapCredentialItem(

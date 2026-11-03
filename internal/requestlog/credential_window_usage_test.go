@@ -220,6 +220,42 @@ func TestQueryCredentialWindowUsageUsesOneReadSnapshot(t *testing.T) {
 	}
 }
 
+func TestQueryCredentialWindowUsageByModelSplitsHourlyStats(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.August, 14, 12, 25, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	credentialID := uint(51)
+	gemini := usageStat(now.Add(-2*time.Hour).Truncate(time.Hour), 17, "gemini-3-pro", 4)
+	gemini.CredentialID = credentialID
+	argon := usageStat(now.Add(-time.Hour).Truncate(time.Hour), 17, "gemini-argon", 2)
+	argon.CredentialID = credentialID
+	other := usageStat(now.Add(-time.Hour).Truncate(time.Hour), 17, "gemini-3-pro", 9)
+	other.CredentialID = credentialID + 1
+	createUsageStats(t, db, gemini, argon, other)
+
+	from := now.Add(-7 * 24 * time.Hour)
+	split, err := service.QueryCredentialWindowUsageByModel(t.Context(), CredentialWindowUsageQuery{
+		CredentialID: credentialID,
+		FromMS:       from.UnixMilli(),
+		ToMS:         now.UnixMilli(),
+		Source:       CredentialWindowUsageSourceHourlyStats,
+	})
+	if err != nil {
+		t.Fatalf("QueryCredentialWindowUsageByModel() error = %v", err)
+	}
+	if split.Source != CredentialWindowUsageSourceHourlyStats || len(split.Models) != 2 {
+		t.Fatalf("by-model usage = %#v", split)
+	}
+	got := map[string]int64{}
+	for _, row := range split.Models {
+		got[row.Model] = row.RequestCount
+	}
+	if got["gemini-3-pro"] != 4 || got["gemini-argon"] != 2 {
+		t.Fatalf("by-model request counts = %#v", got)
+	}
+}
+
 func requestLogWindowRow(id string, credentialID uint, completedAt time.Time, input int64) models.RequestLog {
 	return models.RequestLog{
 		ID: id, CompletedAtMS: completedAt.UnixMilli(), AccessKeyID: 1, GroupID: 17,
