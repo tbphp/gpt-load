@@ -370,6 +370,29 @@ func TestParseManualOAuthCallbackURLUsesDriverCallback(t *testing.T) {
 	}
 }
 
+func TestParseManualOAuthCallbackURLMatchesDeclaredLoopbackHost(t *testing.T) {
+	t.Parallel()
+	devinCallback := subscriptionruntime.LocalCallbackSpec{
+		RedirectURI: "http://127.0.0.1:17326/callback",
+	}
+	parsed, err := parseManualOAuthCallbackURL(
+		"http://127.0.0.1:17326/callback?code=authorization-code&state=state-one",
+		devinCallback,
+	)
+	if err != nil || parsed.Code != "authorization-code" || parsed.State != "state-one" {
+		t.Fatalf("Devin callback = %#v, %v", parsed, err)
+	}
+	for _, callbackURL := range []string{
+		"http://localhost:17326/callback?code=authorization-code&state=state-one",
+		"http://127.0.0.1:17327/callback?code=authorization-code&state=state-one",
+		"http://127.0.0.1:17326/other?code=authorization-code&state=state-one",
+	} {
+		if _, err := parseManualOAuthCallbackURL(callbackURL, devinCallback); err == nil {
+			t.Fatalf("parseManualOAuthCallbackURL(%q) succeeded against Devin callback", callbackURL)
+		}
+	}
+}
+
 func TestOAuthCallbackServerStartsIndependentDriverEndpoints(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)

@@ -19,7 +19,7 @@ import (
 )
 
 const ProviderDevin = "devin"
-const DevinRedirectURI = "http://localhost:17326/callback"
+const DevinRedirectURI = "http://127.0.0.1:17326/callback"
 
 var ErrDevinCredentialIdentityChanged = errors.New("Devin account identity changed")
 
