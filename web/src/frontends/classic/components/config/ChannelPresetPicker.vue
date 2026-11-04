@@ -88,12 +88,13 @@ function featuredChannelsForType(type: ChannelConnectionType): ChannelDto[] {
   const channels = channelsForType(type)
   const byID = new Map(channels.map((channel) => [channel.channel_id, channel]))
   const preferredIDs = new Set(FEATURED_CHANNEL_IDS[type])
-  return [
+  const orderedChannels = [
     ...FEATURED_CHANNEL_IDS[type]
       .map((channelID) => byID.get(channelID))
       .filter((channel): channel is ChannelDto => channel !== undefined),
     ...channels.filter((channel) => !preferredIDs.has(channel.channel_id)),
-  ].slice(0, MAX_FEATURED_CHANNELS)
+  ]
+  return type === 'subscription' ? orderedChannels : orderedChannels.slice(0, MAX_FEATURED_CHANNELS)
 }
 
 const connectionTypeOptions = computed<SegmentedControlOption[]>(() => [
