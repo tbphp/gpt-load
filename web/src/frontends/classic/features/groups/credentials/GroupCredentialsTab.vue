@@ -312,6 +312,7 @@ const credentialTestDialogResult = computed(() => {
     protocol: result.protocol,
     latency_ms: result.latency_ms,
     reason: result.reason,
+    error_detail: result.error_detail,
     can_restore: result.can_restore,
     tested_at_ms: result.tested_at_ms,
   }
@@ -1605,7 +1606,12 @@ async function startBatchTest(
         selected.model,
         signal,
       )
-      return { outcome: result.outcome, latency: result.latency_ms, reason: result.reason }
+      return {
+        outcome: result.outcome,
+        latency: result.latency_ms,
+        reason: result.reason,
+        errorDetail: result.error_detail,
+      }
     },
     retry,
   )

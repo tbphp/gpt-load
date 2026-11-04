@@ -62,9 +62,8 @@ const testLabel = computed(() => {
       : t('credentialBatchTest.latency', { value: n(result.latency) }),
     result.reason === 'request_failed'
       ? t('credentialBatchTest.requestFailed')
-      : result.reason
-        ? t('credentialCards.testReason.' + result.reason)
-        : '',
+      : result.errorDetail ||
+        (result.reason ? t('credentialCards.testReason.' + result.reason) : ''),
   ]
     .filter(Boolean)
     .join(' · ')

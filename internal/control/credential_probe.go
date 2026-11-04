@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -20,6 +21,7 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -53,6 +55,7 @@ type CredentialProbeResponse struct {
 	Protocol     protocol.Protocol      `json:"protocol"`
 	LatencyMS    int64                  `json:"latency_ms"`
 	Reason       *CredentialProbeReason `json:"reason"`
+	ErrorDetail  string                 `json:"error_detail,omitempty"`
 	CanRestore   bool                   `json:"can_restore"`
 	RestoreProof *string                `json:"restore_proof"`
 	TestedAtMS   int64                  `json:"tested_at_ms"`
@@ -90,6 +93,7 @@ type credentialProbeCredential struct {
 
 type credentialProbeExecution struct {
 	result   execution.AttemptResult
+	detail   string
 	latency  time.Duration
 	protocol protocol.Protocol
 }
@@ -237,7 +241,8 @@ func (probe *credentialProbeExecutor) Probe(
 		}
 		latency := max(probe.now().Sub(startedAt), 0)
 		executed := credentialProbeExecution{
-			result: result, latency: latency, protocol: probeProtocol,
+			result: result, detail: credentialProbeErrorDetail(result, apiKey),
+			latency: latency, protocol: probeProtocol,
 		}
 		if credentialProbePassed(result) || index+1 == len(probeProtocols) ||
 			!validationProbeNeedsProtocolFallback(result) {
@@ -248,6 +253,36 @@ func (probe *credentialProbeExecutor) Probe(
 		"probe",
 		app_errors.ErrInternalServer,
 	)
+}
+
+// 手动测试只返回执行层的安全错误证据，不返回上游原始响应体或响应头。
+func credentialProbeErrorDetail(result execution.AttemptResult, apiKey string) string {
+	if result.Validate() != nil || result.Error == nil {
+		return ""
+	}
+	var metadata []string
+	if result.Error.StatusCode != 0 {
+		metadata = append(metadata, fmt.Sprintf("HTTP %d", result.Error.StatusCode))
+	}
+	if result.Error.Code != "" {
+		metadata = append(metadata, result.Error.Code)
+	}
+	if result.Error.RequestID != "" {
+		metadata = append(metadata, "request_id="+result.Error.RequestID)
+	}
+	detail := strings.Join(metadata, " · ")
+	if message := redact.SanitizeErrorMessageText(result.Error.Summary); message != "" {
+		if detail != "" {
+			detail += "\n"
+		}
+		detail += message
+	}
+	detail = redact.New().String(detail, apiKey)
+	if utf8.RuneCountInString(detail) > execution.MaxErrorSummaryLength {
+		const marker = "...[truncated]"
+		detail = string([]rune(detail)[:execution.MaxErrorSummaryLength-len(marker)]) + marker
+	}
+	return detail
 }
 
 func newCredentialProbeFailure(stage string, cause error) error {
@@ -392,9 +427,10 @@ func (s *Service) TestGroupCredential(
 	}
 	response := CredentialProbeResponse{
 		Outcome: outcome, Model: target.model, Protocol: executed.protocol,
-		LatencyMS:  max(executed.latency.Milliseconds(), 0),
-		Reason:     reason,
-		TestedAtMS: testedAt,
+		LatencyMS:   max(executed.latency.Milliseconds(), 0),
+		Reason:      reason,
+		ErrorDetail: executed.detail,
+		TestedAtMS:  testedAt,
 	}
 	if outcome == CredentialProbeOutcomePassed {
 		response.RestoreProof = s.currentCredentialProbeRestoreProof(credential, target.signature)

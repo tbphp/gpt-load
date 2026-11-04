@@ -78,6 +78,30 @@ func TestRedactorDoesNotTreatAuthenticationTextAsCredentials(t *testing.T) {
 	}
 }
 
+func TestSanitizeErrorMessageTextPreservesDiagnosticPrefixes(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "redacted prefix", value: "[REDACTED] is invalid", want: "[REDACTED] is invalid"},
+		{name: "provider prefix", value: "  [provider] request failed  ", want: "[provider] request failed"},
+		{name: "JSON object", value: `{"message":"private diagnostic"}`},
+		{name: "JSON array", value: `["private diagnostic"]`},
+		{name: "HTML", value: " <html>private diagnostic</html>"},
+		{name: "null byte", value: "private\x00diagnostic"},
+		{name: "escape sequence", value: "private\x1b[31mdiagnostic"},
+		{name: "C1 control", value: "private\u0085diagnostic"},
+		{name: "invalid UTF-8", value: "private\xffdiagnostic"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := SanitizeErrorMessageText(test.value); got != test.want {
+				t.Fatalf("SanitizeErrorMessageText() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRedactorStringRedactsEntireAuthorizationValue(t *testing.T) {
 	tests := []struct {
 		name  string
