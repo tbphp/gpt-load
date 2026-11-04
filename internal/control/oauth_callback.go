@@ -250,11 +250,12 @@ func parseLocalCallbackEndpoint(spec subscriptionruntime.LocalCallbackSpec) (str
 	parsed, err := url.Parse(strings.TrimSpace(spec.RedirectURI))
 	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" ||
 		parsed.RawQuery != "" || parsed.ForceQuery || !strings.EqualFold(parsed.Scheme, "http") ||
-		!strings.EqualFold(parsed.Hostname(), "localhost") || parsed.Port() == "" ||
+		!subscriptionruntime.IsFixedLoopbackOAuthHost(parsed.Hostname()) || parsed.Port() == "" ||
 		parsed.Path == "" || parsed.EscapedPath() != parsed.Path {
 		return "", "", errors.New("invalid OAuth callback endpoint")
 	}
-	canonical := "http://localhost:" + parsed.Port() + parsed.Path
+	host := strings.ToLower(parsed.Hostname())
+	canonical := "http://" + host + ":" + parsed.Port() + parsed.Path
 	if spec.RedirectURI != canonical {
 		return "", "", errors.New("invalid OAuth callback endpoint")
 	}
@@ -272,7 +273,8 @@ func parseManualOAuthCallbackURL(raw string, spec subscriptionruntime.LocalCallb
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || !parsed.IsAbs() || !strings.EqualFold(parsed.Scheme, "http") ||
-		parsed.User != nil || parsed.Fragment != "" || !strings.EqualFold(parsed.Hostname(), "localhost") ||
+		parsed.User != nil || parsed.Fragment != "" ||
+		!strings.EqualFold(parsed.Hostname(), expected.Hostname()) ||
 		parsed.Port() != expected.Port() || parsed.EscapedPath() != expected.EscapedPath() {
 		return oauthCallbackParameters{}, errors.New("invalid OAuth callback URL")
 	}

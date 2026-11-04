@@ -458,20 +458,30 @@ func compileRuntime(
 	return result, nil
 }
 
+func IsFixedLoopbackOAuthHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "localhost", "127.0.0.1":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateLocalCallbackSpec(spec LocalCallbackSpec) (LocalCallbackSpec, error) {
 	raw := strings.TrimSpace(spec.RedirectURI)
 	parsed, err := url.Parse(raw)
 	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" ||
 		parsed.RawQuery != "" || parsed.ForceQuery || !strings.EqualFold(parsed.Scheme, "http") ||
-		!strings.EqualFold(parsed.Hostname(), "localhost") || parsed.Port() == "" ||
+		!IsFixedLoopbackOAuthHost(parsed.Hostname()) || parsed.Port() == "" ||
 		parsed.Path == "" || !strings.HasPrefix(parsed.Path, "/") || parsed.EscapedPath() != parsed.Path {
-		return LocalCallbackSpec{}, errors.New("redirect URI must be a fixed http://localhost endpoint")
+		return LocalCallbackSpec{}, errors.New("redirect URI must be a fixed http://localhost or http://127.0.0.1 endpoint")
 	}
 	port, err := strconv.Atoi(parsed.Port())
 	if err != nil || port < 1 || port > 65535 {
 		return LocalCallbackSpec{}, errors.New("redirect URI has an invalid port")
 	}
-	canonical := "http://localhost:" + strconv.Itoa(port) + parsed.Path
+	host := strings.ToLower(parsed.Hostname())
+	canonical := "http://" + host + ":" + strconv.Itoa(port) + parsed.Path
 	if raw != canonical {
 		return LocalCallbackSpec{}, errors.New("redirect URI is not canonical")
 	}
