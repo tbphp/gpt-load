@@ -312,6 +312,7 @@ const credentialTestDialogResult = computed(() => {
     protocol: result.protocol,
     latency_ms: result.latency_ms,
     reason: result.reason,
+    error_detail: result.error_detail,
     can_restore: result.can_restore,
     tested_at_ms: result.tested_at_ms,
   }
