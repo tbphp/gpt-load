@@ -138,7 +138,6 @@ func TestRuntimeRejectsDuplicateImplementationIDs(t *testing.T) {
 	}
 }
 
-
 func TestValidateLocalCallbackSpecAllowsDeclaredLoopbackHosts(t *testing.T) {
 	t.Parallel()
 	for _, uri := range []string{
