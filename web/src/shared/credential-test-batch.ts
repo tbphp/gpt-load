@@ -9,6 +9,7 @@ export interface CredentialBatchTestResult {
   outcome: 'passed' | 'failed' | 'inconclusive'
   latency: number
   reason: string | null
+  errorDetail?: string
 }
 
 export interface CredentialBatchTestItem {
@@ -16,6 +17,7 @@ export interface CredentialBatchTestItem {
   state: 'queued' | 'running' | 'cancelled' | CredentialBatchTestResult['outcome']
   latency?: number
   reason?: string | null
+  errorDetail?: string
 }
 
 type Probe = (
@@ -113,6 +115,7 @@ export function useCredentialTestBatch() {
             state: result.outcome,
             latency: result.latency,
             reason: result.reason,
+            errorDetail: result.errorDetail,
           })
         } catch {
           // 请求失败不代表密钥无效；取消由 stop 统一标记。

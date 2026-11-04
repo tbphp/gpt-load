@@ -94,9 +94,8 @@ const testDetail = computed(() => {
       : t('credentialBatchTest.latency', { value: n(result.latency) }),
     result.reason === 'request_failed'
       ? t('credentialBatchTest.requestFailed')
-      : result.reason
-        ? t('group.credentials.test.reason.' + result.reason)
-        : '',
+      : result.errorDetail ||
+        (result.reason ? t('group.credentials.test.reason.' + result.reason) : ''),
   ]
     .filter(Boolean)
     .join(' · ')

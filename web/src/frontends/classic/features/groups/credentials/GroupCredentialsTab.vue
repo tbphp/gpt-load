@@ -1605,7 +1605,12 @@ async function startBatchTest(
         selected.model,
         signal,
       )
-      return { outcome: result.outcome, latency: result.latency_ms, reason: result.reason }
+      return {
+        outcome: result.outcome,
+        latency: result.latency_ms,
+        reason: result.reason,
+        errorDetail: result.error_detail,
+      }
     },
     retry,
   )
