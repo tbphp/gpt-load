@@ -272,6 +272,26 @@ func TestGroupCredentialProbeReturnsBoundedSafeErrorDetail(t *testing.T) {
 			want:    "HTTP 400 · request_id=probe-request-id\nRejected [REDACTED] and [REDACTED]",
 		},
 		{
+			name: "redacted prefix", status: http.StatusUnauthorized,
+			summary: "[REDACTED] is invalid for this model",
+			want:    "HTTP 401 · request_id=probe-request-id\n[REDACTED] is invalid for this model",
+		},
+		{
+			name: "provider prefix", status: http.StatusBadGateway,
+			summary: "[provider] Model temporarily unavailable",
+			want:    "HTTP 502 · request_id=probe-request-id\n[provider] Model temporarily unavailable",
+		},
+		{
+			name: "raw JSON array", status: http.StatusBadGateway,
+			summary: `["private upstream diagnostic"]`,
+			want:    "HTTP 502 · request_id=probe-request-id",
+		},
+		{
+			name: "raw JSON object", status: http.StatusBadGateway,
+			summary: `{"unexpected":"private upstream diagnostic"}`,
+			want:    "HTTP 502 · request_id=probe-request-id",
+		},
+		{
 			name: "long unicode message", status: http.StatusBadGateway,
 			summary: strings.Repeat("额度不足", 1024), truncated: true,
 		},

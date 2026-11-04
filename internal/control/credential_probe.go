@@ -271,7 +271,7 @@ func credentialProbeErrorDetail(result execution.AttemptResult, apiKey string) s
 		metadata = append(metadata, "request_id="+result.Error.RequestID)
 	}
 	detail := strings.Join(metadata, " · ")
-	if message := redact.ExtractErrorMessage([]byte(result.Error.Summary)); message != "" {
+	if message := redact.SanitizeErrorMessageText(result.Error.Summary); message != "" {
 		if detail != "" {
 			detail += "\n"
 		}

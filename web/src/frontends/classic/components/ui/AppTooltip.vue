@@ -47,6 +47,9 @@ withDefaults(
 .app-tooltip__content {
   z-index: var(--z-popover);
   max-width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--radius-control);
   background: var(--color-text);
   color: var(--color-text-inverse);
@@ -55,6 +58,7 @@ withDefaults(
   font-size: var(--text-label-xs);
   line-height: 1.45;
   transform-origin: var(--reka-tooltip-content-transform-origin);
+  overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
