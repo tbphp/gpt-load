@@ -64,6 +64,8 @@ func TestCodexCapabilityPreservesUpdatesAcrossTurns(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		// 调用结束后释放请求体，结果和后续轮次仍需保留独立的档位值。
+		clear(raw)
 		want := "high"
 		if i > 0 && i < 3 {
 			want = "max"

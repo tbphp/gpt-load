@@ -194,7 +194,8 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	hasReasoningOverride := false
 	// 支持更新的原生 Responses 路径由 CPA 原样保留配置。
 	if modelcatalog.SupportsReasoningUpdates(model) {
-		result.AppliedReasoningEffort = thinking.ExtractTranslatedReasoningEffort(payload, ProviderCodex)
+		// 档位会跨轮次保存，不能引用调用者随后可能清理或复用的请求体。
+		result.AppliedReasoningEffort = strings.Clone(thinking.ExtractTranslatedReasoningEffort(payload, ProviderCodex))
 		result.AppliedReasoningMode, result.AppliedReasoningBudgetTokens = extractReasoningDetails(payload, ProviderCodex)
 		gjson.GetBytes(payload, "input").ForEach(func(_, item gjson.Result) bool {
 			if item.Get("type").String() == "configuration_update" {
