@@ -56,6 +56,17 @@ func TestMergeModelCatalogKeepsAntigravityExcludedModelsOut(t *testing.T) {
 	}
 }
 
+func TestMergeModelCatalogIncludesCodexImage26Models(t *testing.T) {
+	t.Parallel()
+
+	got := MergeModelCatalog(ProviderCodex, []string{"upstream-only"})
+	for _, model := range []string{"gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+		if !containsModelID(got, model) {
+			t.Errorf("Codex catalog is missing %q", model)
+		}
+	}
+}
+
 func containsModelID(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
