@@ -1,6 +1,8 @@
 package embedded
 
 import (
+	"bytes"
+
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -23,18 +25,40 @@ func stripCodexReasoningStatus(raw []byte) []byte {
 	if !input.Exists() {
 		return raw
 	}
-	result := raw
 	if input.IsArray() {
-		input.ForEach(func(index, item gjson.Result) bool {
-			result = deleteCodexReasoningStatus(result, "input."+index.String()+".status", item)
-			return true
-		})
-		return result
+		return stripCodexReasoningStatusArray(raw, input)
 	}
 	if input.IsObject() {
-		return deleteCodexReasoningStatus(result, "input.status", input)
+		return deleteCodexReasoningStatus(raw, "input.status", input)
 	}
-	return result
+	return raw
+}
+
+func stripCodexReasoningStatusArray(raw []byte, input gjson.Result) []byte {
+	changed := false
+	parts := make([][]byte, 0, int(input.Get("#").Int()))
+	input.ForEach(func(_, item gjson.Result) bool {
+		itemRaw := []byte(item.Raw)
+		updated := deleteCodexReasoningStatus(itemRaw, "status", item)
+		if !changed && !bytes.Equal(updated, itemRaw) {
+			changed = true
+		}
+		parts = append(parts, updated)
+		return true
+	})
+	if !changed {
+		return raw
+	}
+	joined := bytes.Join(parts, []byte{','})
+	rebuilt := make([]byte, 0, len(joined)+2)
+	rebuilt = append(rebuilt, '[')
+	rebuilt = append(rebuilt, joined...)
+	rebuilt = append(rebuilt, ']')
+	updated, err := sjson.SetRawBytes(raw, "input", rebuilt)
+	if err != nil {
+		return raw
+	}
+	return updated
 }
 
 func deleteCodexReasoningStatus(raw []byte, path string, item gjson.Result) []byte {
