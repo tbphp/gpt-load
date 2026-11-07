@@ -928,6 +928,8 @@ func (o *executionObservation) observe(request *http.Request) {
 	if o.provider == ProviderDevin {
 		effort = devinWireReasoningEffort(body)
 	}
+	// CPA 的零拷贝解析结果可能引用 body，清理请求体前保留独立副本。
+	effort = strings.Clone(effort)
 	mode, budget := extractReasoningDetails(body, o.provider)
 	clear(body)
 	if effort == "" && mode == "" && budget == nil {
