@@ -69,7 +69,7 @@ func TestPrepareCodexExecutionRequestStripsReasoningStatusOnly(t *testing.T) {
 }
 
 func TestPrepareCodexExecutionRequestStripsLongHistory(t *testing.T) {
-	source := codexReasoningStatusHistory(codexReasoningStatusHistoryItems)
+	source := validCodexReasoningStatusHistory(t, codexReasoningStatusHistoryItems)
 	t.Logf("input_bytes=%d reasoning_items=%d", len(source), codexReasoningStatusHistoryItems)
 	original := bytes.Clone(source)
 	originalRequest := bytes.Clone(source)
@@ -152,7 +152,7 @@ func TestCodexWSSessionStripsReasoningStatus(t *testing.T) {
 }
 
 func BenchmarkStripCodexReasoningStatus(b *testing.B) {
-	body := codexReasoningStatusHistory(codexReasoningStatusHistoryItems)
+	body := validCodexReasoningStatusHistory(b, codexReasoningStatusHistoryItems)
 	b.SetBytes(int64(len(body)))
 	b.ReportMetric(float64(len(body)), "input_bytes")
 	b.ReportMetric(float64(codexReasoningStatusHistoryItems), "reasoning_items")
@@ -167,7 +167,7 @@ func BenchmarkStripCodexReasoningStatus(b *testing.B) {
 }
 
 func BenchmarkPrepareCodexExecutionRequest(b *testing.B) {
-	body := codexReasoningStatusHistory(codexReasoningStatusHistoryItems)
+	body := validCodexReasoningStatusHistory(b, codexReasoningStatusHistoryItems)
 	b.SetBytes(int64(len(body) * 2))
 	b.ReportMetric(float64(len(body)), "input_bytes")
 	b.ReportMetric(float64(codexReasoningStatusHistoryItems), "reasoning_items")
@@ -232,8 +232,8 @@ func assertOutboundCodexReasoningStatus(t *testing.T, raw []byte) {
 
 func assertCodexReasoningStatusHistory(t *testing.T, raw []byte, want int) {
 	t.Helper()
-	if !bytes.Contains(raw, []byte("9007199254740993")) {
-		t.Fatalf("unrelated integer rewritten: %s", raw)
+	if !bytes.Contains(raw, []byte(`"metadata":{"n":9007199254740993}`)) {
+		t.Fatalf("root metadata.n literal rewritten: %s", raw)
 	}
 	input := gjson.GetBytes(raw, "input")
 	if !input.IsArray() {
@@ -263,6 +263,18 @@ func assertCodexReasoningStatusHistory(t *testing.T, raw []byte, want int) {
 	}
 }
 
+func validCodexReasoningStatusHistory(tb testing.TB, n int) []byte {
+	tb.Helper()
+	body := codexReasoningStatusHistory(n)
+	if !json.Valid(body) {
+		tb.Fatalf("history JSON is invalid (%d bytes)", len(body))
+	}
+	if !bytes.Contains(body, []byte(`"metadata":{"n":9007199254740993}`)) {
+		tb.Fatalf("root metadata.n literal missing (%d bytes)", len(body))
+	}
+	return body
+}
+
 func codexReasoningStatusHistory(n int) []byte {
 	var b strings.Builder
 	b.WriteString(`{"model":"gpt-5","store":false,"input":[`)
@@ -283,7 +295,7 @@ func codexReasoningStatusHistory(n int) []byte {
 	if n > 0 {
 		b.WriteByte(',')
 	}
-	b.WriteString(`{"type":"message","id":"msg_keep","status":"completed","role":"assistant","content":[{"type":"output_text","text":"history"}]}]}`)
-	b.WriteString(`,"metadata":{"n":9007199254740993}}`)
+	b.WriteString(`{"type":"message","id":"msg_keep","status":"completed","role":"assistant","content":[{"type":"output_text","text":"history"}]}`)
+	b.WriteString(`],"metadata":{"n":9007199254740993}}`)
 	return []byte(b.String())
 }
