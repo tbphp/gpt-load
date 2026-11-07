@@ -60,12 +60,22 @@ func (iterator *Iterator) selectCredential(candidates []weightedCredential, pref
 			return
 		}
 		// 同批成员共用已有成员的领先进度，不能继承落后成员的历史欠额。
+		// 入场对齐本组在轮转成员的最前进度，不受其他分组或本次缺席同组成员影响；
+		// 整组都待入场时才沿用候选池基线。
+		var frontiers map[uint]state.SchedulingProgress
 		for _, candidate := range eligible {
 			member := ledger.Members[candidate.meta.ID]
 			// 旧请求可以继续记账，但不能用过期候选池完成新配置的入场校准。
 			if member.Pending && (!ledger.GroupsKnown || ledger.Groups[member.GroupID]) &&
 				iterator.snapshot != nil && iterator.snapshot.Revision >= ledger.GroupRevision {
-				member.Admit(baseline)
+				if frontiers == nil {
+					frontiers = groupFrontiers(ledger)
+				}
+				if frontier, ok := frontiers[member.GroupID]; ok {
+					member.Admit(frontier)
+				} else {
+					member.Admit(baseline)
+				}
 			}
 		}
 		less := func(left, right weightedCredential) bool {
@@ -124,4 +134,18 @@ func (iterator *Iterator) selectCredential(candidates []weightedCredential, pref
 		selected, found = first.meta, true
 	})
 	return selected, found
+}
+
+// groupFrontiers 只在有成员入场时扫描账本，返回各分组在轮转成员的最前进度。
+func groupFrontiers(ledger *state.SchedulingLedger) map[uint]state.SchedulingProgress {
+	frontiers := make(map[uint]state.SchedulingProgress)
+	for _, member := range ledger.Members {
+		if member.Pending {
+			continue
+		}
+		if current, ok := frontiers[member.GroupID]; !ok || member.Progress.Compare(current) > 0 {
+			frontiers[member.GroupID] = member.Progress
+		}
+	}
+	return frontiers
 }
