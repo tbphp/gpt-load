@@ -1430,7 +1430,7 @@ func (handler *Handler) executeAttempts(
 			RedactionCipher: restoreCipher,
 			Group:           selection.Group, APIKey: normalizedCredential.apiKey,
 			CredentialSecrets:        normalizedCredential.secrets,
-			Request:                  codexResponsesRequest(prepared.request, selectedDialect.Protocol(), selection.ResolvedTarget.ProviderKind),
+			Request:                  prepared.request,
 			ExternalModel:            externalModel,
 			UpstreamModelID:          optionalModelValue(selection.UpstreamModelID),
 			RequestID:                executionRequestID,

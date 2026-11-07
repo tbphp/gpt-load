@@ -63,7 +63,7 @@ func TestCodexGatewayReasoningStatusOutbound(t *testing.T) {
 			t.Fatalf("CPA should drop only the overlong encrypted reasoning: %s", sent)
 		}
 		// CPA v8.0.51 在 store=false 时另行移除空密文和因此失去密文的 reasoning id。
-		// Gateway 的 status 清理测试单独断言在 CPA 之前这些字段都保留。
+		// 嵌入层在 CPA 之前只删 reasoning.status；其余字段由本断言核对出站结果。
 		wantSummary := map[string]any{"type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": "Devin summary"}}}
 		if !reflect.DeepEqual(items[0], wantSummary) {
 			t.Fatalf("short-id reasoning was dropped or still has status: %#v", items[0])
