@@ -335,6 +335,7 @@ func newProviderAdapterRegistry(
 		{ProviderKind: channel.ProviderJev, Adapter: bifrost},
 		{ProviderKind: channel.ProviderGroq, Adapter: bifrost},
 		{ProviderKind: channel.ProviderXAI, Adapter: bifrost},
+		{ProviderKind: channel.ProviderAlibaba, Adapter: bifrost},
 		{ProviderKind: channel.ProviderCodex, Adapter: cpa},
 		{ProviderKind: channel.ProviderClaude, Adapter: cpa},
 		{ProviderKind: channel.ProviderAntigravity, Adapter: cpa},

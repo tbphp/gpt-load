@@ -29,21 +29,21 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 		providerKind == channel.ProviderAWSBedrock || (providerKind == channel.ProviderGoogleVertex && !vertexChat) {
 		preserveResponsesGlobalInstructions(prepared.responsesRequest)
 	}
-	chatFallback := providerKind == channel.ProviderOpenAICompatible || providerKind == channel.ProviderCline || providerKind == channel.ProviderGroq ||
+	chatFallback := openAICompatibleBase(providerKind) || providerKind == channel.ProviderCline || providerKind == channel.ProviderGroq ||
 		providerKind == channel.ProviderDeepSeek || vertexChat
 	if chatFallback {
 		dropsTools, newlyAllowed := chatFallbackToolCompatibility(prepared.responsesRequest)
 		needsToolHistoryCheck = needsToolHistoryCheck || newlyAllowed
 		// Compatible 保持 SDK 的尽力转换行为：不支持的工具及选择可被过滤，
 		// 不因此拒绝整个请求；普通函数白名单仍由前面的准备阶段适配。
-		if dropsTools && providerKind != channel.ProviderOpenAICompatible {
+		if dropsTools && !openAICompatibleBase(providerKind) {
 			failure := notSentConversionFailure(execution.ErrorCodeCriticalSemanticLoss, "Chat conversion cannot preserve requested tools or tool choice")
 			return preparedAttempt{}, &failure
 		}
 		// Responses 的 reasoning.effort 会被 Chat Completions 序列化成
 		// reasoning_effort。OpenAI Compatible 上游常把它当成大额 reasoning budget，
 		// 小输出上限模型会直接 400。兼容目标不转发这个字段。
-		if providerKind == channel.ProviderOpenAICompatible {
+		if openAICompatibleBase(providerKind) {
 			dropCompatibleResponsesReasoning(prepared.responsesRequest)
 			flattenCompatibleToolOutputs(prepared.responsesRequest)
 		}

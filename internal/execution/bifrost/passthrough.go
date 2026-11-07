@@ -31,8 +31,18 @@ type passthroughStreamSDKResult struct {
 
 // nativeMessageProvider 为缺少透传接口的渠道复用相同 wire 协议，保留原有渠道身份。
 func nativeMessageProvider(providerKind channel.ProviderKind, spec execution.AttemptSpec) (schemas.ModelProvider, bool) {
-	if spec.RouteMode != execution.RouteNative ||
-		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate) {
+	if spec.RouteMode != execution.RouteNative {
+		return "", false
+	}
+	if providerKind == channel.ProviderAlibaba {
+		// 百炼 Anthropic 端点不在 OpenAI 兼容前缀下，凭据测试也要走同一端点。
+		if spec.ClientProtocol == protocol.Anthropic &&
+			(spec.Operation == execution.OperationChatCompletion || spec.Operation == execution.OperationProbe) {
+			return schemas.Anthropic, true
+		}
+		return "", false
+	}
+	if spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate {
 		return "", false
 	}
 	switch providerKind {

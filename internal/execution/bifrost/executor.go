@@ -77,7 +77,8 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
 		normalizeDecisionsAttemptResult(spec, &result)
-		if r.providerKind(spec) == channel.ProviderMultiProtocolGateway || spec.ClientProtocol == protocol.GeminiEmbeddings {
+		if providerKind := r.providerKind(spec); providerKind == channel.ProviderMultiProtocolGateway ||
+			providerKind == channel.ProviderAlibaba || spec.ClientProtocol == protocol.GeminiEmbeddings {
 			normalizeGatewayProtocolProbeResult(spec, &result)
 		}
 	}()
@@ -600,6 +601,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		if providerKind == channel.ProviderMultiProtocolGateway && spec.ClientProtocol != protocol.OpenAICompletions {
 			return prepareGatewayProtocolProbe(spec, resolved, provider, directKey, secrets)
 		}
+		if providerKind == channel.ProviderAlibaba && mode == channel.RouteNative && spec.ClientProtocol != protocol.OpenAICompletions {
+			return prepareAlibabaProtocolProbe(spec, provider, directKey, secrets, r.fixedConfig.targetBaseURL)
+		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
 		if providerKind == channel.ProviderMultiProtocolGateway {
 			baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
@@ -735,7 +739,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		if nativeMessagePassthrough && spec.ClientProtocol != protocol.Anthropic {
 			passthroughUpstreamURL = r.fixedConfig.targetBaseURL
 		}
-		if providerKind == channel.ProviderOpenAICompatible &&
+		if openAICompatibleBase(providerKind) &&
 			(spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.OpenAIResponses) {
 			passthroughUpstreamURL = r.fixedConfig.targetBaseURL
 			passthroughPath = strings.TrimPrefix(passthroughPath, "/v1")
@@ -960,7 +964,7 @@ func newProbeRequest(
 ) *schemas.BifrostChatRequest {
 	content := "ping"
 	params := &schemas.ChatParameters{MaxCompletionTokens: schemas.Ptr(1)}
-	if providerKind == channel.ProviderOpenAICompatible {
+	if openAICompatibleBase(providerKind) {
 		params.MaxCompletionTokens = nil
 		params.ExtraParams = map[string]any{"max_tokens": 1}
 	}
@@ -983,7 +987,7 @@ func providerSupportsPassthrough(providerKind channel.ProviderKind) bool {
 		return true
 	case channel.ProviderMultiProtocolGateway:
 		return true
-	case channel.ProviderOpenAICompatible:
+	case channel.ProviderOpenAICompatible, channel.ProviderAlibaba:
 		return true
 	default:
 		return false
@@ -1013,6 +1017,9 @@ func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtoc
 		return clientProtocol == protocol.Decisions
 	case channel.ProviderDeepSeek, channel.ProviderGroq, channel.ProviderXAI:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses
+	case channel.ProviderAlibaba:
+		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
+			clientProtocol == protocol.Anthropic
 	default:
 		return false
 	}
@@ -1185,7 +1192,7 @@ func validGeminiGeneratePath(path, action string) bool {
 
 func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.ProviderKind) (string, error) {
 	switch providerKind {
-	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible:
+	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderAlibaba:
 		return spec.Path, nil
 	case channel.ProviderMultiProtocolGateway:
 		if spec.ClientProtocol != protocol.Gemini && spec.ClientProtocol != protocol.GeminiEmbeddings {
@@ -1298,7 +1305,7 @@ func directKeyForAttempt(
 	switch providerKind {
 	case channel.ProviderOpenAI, channel.ProviderAnthropic, channel.ProviderGemini, channel.ProviderMultiProtocolGateway,
 		channel.ProviderDeepSeek, channel.ProviderOpenRouter, channel.ProviderGroq, channel.ProviderXAI,
-		channel.ProviderOpenAICompatible, channel.ProviderJev, channel.ProviderCline:
+		channel.ProviderOpenAICompatible, channel.ProviderJev, channel.ProviderCline, channel.ProviderAlibaba:
 		if apiKey == "" {
 			return schemas.Key{}, nil, fmt.Errorf("api_key is required")
 		}
@@ -1485,7 +1492,7 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
 	}
 	if spec.Operation == execution.OperationProbe &&
-		r.providerKind(spec) == channel.ProviderOpenAICompatible {
+		openAICompatibleBase(r.providerKind(spec)) {
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
 	}
 	if spec.Timeouts.StreamIdle > 0 {

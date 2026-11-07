@@ -251,6 +251,7 @@ const (
 	ProviderJev                  = spec.ProviderJev
 	ProviderGroq                 = spec.ProviderGroq
 	ProviderXAI                  = spec.ProviderXAI
+	ProviderAlibaba              = spec.ProviderAlibaba
 )
 
 // ResolvedTarget is the provider-neutral execution target derived from a channel preset.

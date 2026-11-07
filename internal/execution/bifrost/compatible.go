@@ -6,12 +6,11 @@ import (
 	providerUtils "github.com/maximhq/bifrost/core/providers/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 
-	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 )
 
 func (r *Runtime) usesCompatibleChat(spec execution.AttemptSpec) bool {
-	return spec.RouteMode == execution.RouteConverted && r.providerKind(spec) == channel.ProviderOpenAICompatible &&
+	return spec.RouteMode == execution.RouteConverted && openAICompatibleBase(r.providerKind(spec)) &&
 		(spec.Operation == execution.OperationChatCompletion || spec.Operation == execution.OperationResponsesCreate)
 }
 

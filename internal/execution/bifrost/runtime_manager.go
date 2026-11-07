@@ -126,9 +126,13 @@ func buildEffectiveProviderConfigForAttempt(
 		return applyAttemptProxy(base, spec.Proxy)
 	}
 	if nativeProvider, ok := nativeMessageProvider(resolved.ProviderKind, spec); ok {
-		provider := customProviderKey(nativeProvider, base.targetBaseURL)
-		config := buildProviderConfig(provider, base.targetBaseURL, true, nativeProvider, allowPrivateNetwork)
-		base, err = newEffectiveProviderConfig(provider, base.targetBaseURL, true, config)
+		baseURL := base.targetBaseURL
+		if resolved.ProviderKind == channel.ProviderAlibaba && spec.ClientProtocol == protocol.Anthropic {
+			baseURL = alibabaAnthropicBaseURL(baseURL)
+		}
+		provider := customProviderKey(nativeProvider, baseURL)
+		config := buildProviderConfig(provider, baseURL, true, nativeProvider, allowPrivateNetwork)
+		base, err = newEffectiveProviderConfig(provider, baseURL, true, config)
 		if err != nil {
 			return effectiveProviderConfig{}, err
 		}
@@ -281,7 +285,7 @@ func resolveSDKProviderConfig(resolved channel.ResolvedTarget) (schemas.ModelPro
 		}
 		return customProviderKey(schemas.OpenAI, baseURL), baseURL, true, nil
 	}
-	if resolved.ProviderKind != channel.ProviderOpenAICompatible && resolved.ProviderKind != channel.ProviderCline {
+	if !openAICompatibleBase(resolved.ProviderKind) && resolved.ProviderKind != channel.ProviderCline {
 		return "", "", false, fmt.Errorf("unsupported provider kind %q", resolved.ProviderKind)
 	}
 	baseURL, configured, err := targetBaseURL(resolved.TargetConfig)
