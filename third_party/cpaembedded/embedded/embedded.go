@@ -407,7 +407,7 @@ func (e *CodexHTTPExecutor) ExecuteCanonical(ctx context.Context, credentialID s
 	if request.RequestPath == "/v1/alpha/search" {
 		return e.executeSearchCanonical(ctx, credentialID, credential, request)
 	}
-	request.Headers = normalizedCodexHeaders(request.Headers)
+	request = prepareCodexExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	endpoints, err := ResolveCodexAPIEndpoints(request.BaseURL)
 	if err != nil {
@@ -512,7 +512,7 @@ func normalizeCodexResponsesTokenCount(payload []byte) ([]byte, error) {
 // ExecuteStreamCanonical runs one streaming Codex request and forwards copied
 // chunks while retaining handshake and passive quota observations.
 func (e *CodexHTTPExecutor) ExecuteStreamCanonical(ctx context.Context, credentialID string, credential CodexCredential, request ExecuteRequest) (*ExecuteStreamResponse, error) {
-	request.Headers = normalizedCodexHeaders(request.Headers)
+	request = prepareCodexExecutionRequest(request)
 	format := sdktranslator.FromString(request.Format)
 	endpoints, err := ResolveCodexAPIEndpoints(request.BaseURL)
 	if err != nil {

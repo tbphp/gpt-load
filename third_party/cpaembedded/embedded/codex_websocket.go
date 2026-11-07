@@ -164,6 +164,7 @@ func (s *CodexWSSession) ExecuteTurn(ctx context.Context, payload json.RawMessag
 	if err != nil {
 		return result, err
 	}
+	payload = stripCodexReasoningStatus(payload)
 	if ctx == nil {
 		ctx = context.Background()
 	}
