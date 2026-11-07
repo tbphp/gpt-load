@@ -390,3 +390,89 @@ func TestFairnessChargesRetriesButKeepsTriedRequestLocal(t *testing.T) {
 		}
 	})
 }
+
+// 分组 1、2 共享 shared，各有独占模型；分组 3 只有独占模型，用于推高全局水位。
+func admissionFixture(t *testing.T, credentials ...state.CredentialEntry) (*state.ConfigSnapshot, *state.CredentialRegistry) {
+	t.Helper()
+	snapshot, err := state.Compile(state.CompileInput{ChannelRegistry: channel.NewRegistry(), Groups: []state.GroupConfig{
+		{ID: 1, Name: "one", ChannelID: channel.OpenAI, ConnectionType: "api_key", Enabled: true,
+			Models: []state.ModelConfig{{ID: "shared"}, {ID: "only-one"}}},
+		{ID: 2, Name: "two", ChannelID: channel.OpenAI, ConnectionType: "api_key", Enabled: true,
+			Models: []state.ModelConfig{{ID: "shared"}, {ID: "only-two"}}},
+		{ID: 3, Name: "three", ChannelID: channel.OpenAI, ConnectionType: "api_key", Enabled: true,
+			Models: []state.ModelConfig{{ID: "only-three"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := state.NewCredentialRegistry()
+	if err := registry.ReplaceCredentials(credentials); err != nil {
+		t.Fatal(err)
+	}
+	return snapshot, registry
+}
+
+func admissionEntry(id, groupID uint) state.CredentialEntry {
+	return state.CredentialEntry{ID: id, GroupID: groupID, Version: 1, IdentityGeneration: 1,
+		Status: state.CredentialStatusActive, Fingerprint: "fixture", EncryptedValue: "cipher"}
+}
+
+func admissionPick(t *testing.T, snapshot *state.ConfigSnapshot, registry *state.CredentialRegistry, model string) uint {
+	t.Helper()
+	selection, err := New(snapshot, registry, Query{ClientProtocol: protocol.OpenAICompletions,
+		Operation: execution.OperationChatCompletion, ExternalModel: modelPointer(model)}).Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return selection.CredentialID
+}
+
+func admissionDistribution(t *testing.T, snapshot *state.ConfigSnapshot, registry *state.CredentialRegistry, model string, requests int) map[uint]int {
+	t.Helper()
+	counts := make(map[uint]int)
+	for range requests {
+		counts[admissionPick(t, snapshot, registry, model)]++
+	}
+	return counts
+}
+
+func TestFairnessAdmissionIgnoresOtherGroupsProgress(t *testing.T) {
+	snapshot, registry := admissionFixture(t, admissionEntry(11, 1), admissionEntry(12, 1), admissionEntry(21, 2))
+	admissionDistribution(t, snapshot, registry, "only-two", 1000)
+	admissionDistribution(t, snapshot, registry, "only-one", 100)
+	if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{admissionEntry(13, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	// 新凭据首次出现在跨分组候选池，不能继承分组 2 更靠前的进度。
+	admissionPick(t, snapshot, registry, "shared")
+	counts := admissionDistribution(t, snapshot, registry, "only-one", 300)
+	if counts[11] != 100 || counts[12] != 100 || counts[13] != 100 {
+		t.Fatalf("group-only distribution = %v, want 100 each", counts)
+	}
+}
+
+func TestFairnessAdmissionUsesGroupFrontierWhenPeersAreAbsent(t *testing.T) {
+	snapshot, registry := admissionFixture(t, admissionEntry(11, 1), admissionEntry(21, 2), admissionEntry(31, 3))
+	admissionDistribution(t, snapshot, registry, "only-three", 1000)
+	admissionDistribution(t, snapshot, registry, "only-two", 500)
+	admissionDistribution(t, snapshot, registry, "only-one", 100)
+	// 11 只对 shared 冷却，仍在分组 1 轮转，但不在下一次 shared 候选池里。
+	now := time.Now()
+	ref, ok := registry.CredentialRef(11)
+	if !ok {
+		t.Fatal("credential 11 missing")
+	}
+	if accepted, _ := registry.SetModelCooldown(ref, "shared", now.Add(time.Hour), now); !accepted {
+		t.Fatal("model cooldown rejected")
+	}
+	if err := registry.ApplyCredentialImport(1, []state.CredentialEntry{admissionEntry(13, 1)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := admissionPick(t, snapshot, registry, "shared"); got != 13 && got != 21 {
+		t.Fatalf("shared selected %d, want a credential outside the cooldown", got)
+	}
+	counts := admissionDistribution(t, snapshot, registry, "only-one", 200)
+	if counts[11] != 100 || counts[13] != 100 {
+		t.Fatalf("group-only distribution = %v, want 100 each", counts)
+	}
+}
