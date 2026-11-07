@@ -80,6 +80,12 @@ func TestAlibabaPresetSendsNativeProtocolRequests(t *testing.T) {
 			body:     `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`,
 			response: `{"id":"chat_1","object":"chat.completion","created":1,"model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
 		},
+		{
+			// 转换路由的凭据测试拿到的是 Chat 响应，不能按原生 Gemini 格式校验。
+			name: "gemini probe", protocol: protocol.Gemini, operation: execution.OperationProbe,
+			upstreamPath: "/compatible-mode/v1/chat/completions", upstream: protocol.OpenAICompletions,
+			response: `{"id":"chat_1","object":"chat.completion","created":1,"model":"upstream-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

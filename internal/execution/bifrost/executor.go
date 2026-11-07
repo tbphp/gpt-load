@@ -77,8 +77,10 @@ func (r *Runtime) Execute(parent context.Context, spec execution.AttemptSpec) (r
 		normalizeEmbeddingsAttemptResult(spec, &result)
 		normalizeRerankAttemptResult(spec, &result)
 		normalizeDecisionsAttemptResult(spec, &result)
+		// 百炼只有原生凭据测试返回所选协议的格式；转换路由返回的是 Chat 响应。
 		if providerKind := r.providerKind(spec); providerKind == channel.ProviderMultiProtocolGateway ||
-			providerKind == channel.ProviderAlibaba || spec.ClientProtocol == protocol.GeminiEmbeddings {
+			providerKind == channel.ProviderAlibaba && spec.RouteMode == execution.RouteNative ||
+			spec.ClientProtocol == protocol.GeminiEmbeddings {
 			normalizeGatewayProtocolProbeResult(spec, &result)
 		}
 	}()
