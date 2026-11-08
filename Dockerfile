@@ -41,10 +41,10 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 # runtime 是两条打包路径共用的唯一 runtime 定义：默认的源码自包含构建，
 # 以及发布流程复用 build-binaries 预编译产物的 prebuilt。两者只有二进制来源
 # 不同，其余 runtime 配置全部在这里定义一次，避免出现两套配置各自漂移。
-FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS runtime
 
 WORKDIR /app
-RUN apk add --no-cache libcrypto3=3.5.9-r0 libssl3=3.5.9-r0 \
+RUN apk add --no-cache libcrypto3=3.5.9-r0 libssl3=3.5.9-r0 zlib=1.4-r0 \
     && apk add --no-cache ca-certificates tzdata \
     && update-ca-certificates \
     && addgroup -S -g 10001 gpt-load \
