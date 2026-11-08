@@ -10,7 +10,7 @@ func TestSnapshot(t *testing.T) {
 	if fmt.Sprintf("%x", sha256.Sum256(JSON())) != SHA256 {
 		t.Fatal("snapshot digest mismatch")
 	}
-	for _, m := range []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"} {
+	for _, m := range []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-chat-thinking"} {
 		if !SupportsReasoningUpdates(m) {
 			t.Errorf("missing %s", m)
 		}

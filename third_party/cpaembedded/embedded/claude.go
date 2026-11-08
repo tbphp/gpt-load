@@ -13,7 +13,6 @@ import (
 
 	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 )
 
 const (
@@ -146,7 +145,8 @@ func BeginClaudeBrowserAuthorization() (BrowserAuthorization, error) {
 	if err != nil {
 		return BrowserAuthorization{}, fmt.Errorf("generate Claude PKCE: %w", err)
 	}
-	state, err := misc.GenerateRandomState()
+	// 与原生 Claude Code 一致使用 43 位 base64url state，32 位 hex 可能被授权页拒绝。
+	state, err := claudeauth.GenerateState()
 	if err != nil {
 		return BrowserAuthorization{}, fmt.Errorf("generate Claude OAuth state: %w", err)
 	}
