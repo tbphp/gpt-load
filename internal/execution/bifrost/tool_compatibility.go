@@ -249,7 +249,7 @@ func cloneResponsesRequestParams(
 
 func responsesTargetNeedsAllowlistFallback(providerKind channel.ProviderKind, model string) bool {
 	switch providerKind {
-	case channel.ProviderOpenAICompatible, channel.ProviderCline, channel.ProviderAnthropic, channel.ProviderDeepSeek,
+	case channel.ProviderOpenAICompatible, channel.ProviderAlibaba, channel.ProviderCline, channel.ProviderAnthropic, channel.ProviderDeepSeek,
 		channel.ProviderGroq, channel.ProviderAWSBedrock:
 		return true
 	case channel.ProviderGoogleVertex:
@@ -275,7 +275,7 @@ func vertexUsesGeminiResponses(model string) bool {
 }
 
 func targetUsesChatFallback(providerKind channel.ProviderKind, model string) bool {
-	return providerKind == channel.ProviderOpenAICompatible || providerKind == channel.ProviderCline || providerKind == channel.ProviderGroq ||
+	return openAICompatibleBase(providerKind) || providerKind == channel.ProviderCline || providerKind == channel.ProviderGroq ||
 		providerKind == channel.ProviderDeepSeek || providerKind == channel.ProviderGoogleVertex && vertexUsesChatFallback(model)
 }
 

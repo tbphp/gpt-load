@@ -77,6 +77,7 @@ const (
 	ProviderJev                  ProviderKind = "jev"
 	ProviderGroq                 ProviderKind = "groq"
 	ProviderXAI                  ProviderKind = "xai"
+	ProviderAlibaba              ProviderKind = "alibaba"
 )
 
 // NoticeID identifies one code-owned, frontend-localized channel notice.
@@ -152,7 +153,8 @@ func (kind ProviderKind) Valid() bool {
 		ProviderOpenRouter,
 		ProviderJev,
 		ProviderGroq,
-		ProviderXAI:
+		ProviderXAI,
+		ProviderAlibaba:
 		return true
 	default:
 		return false
