@@ -3,6 +3,7 @@ package embedded
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -730,6 +731,26 @@ func TestBeginClaudeBrowserAuthorizationUsesFixedPKCECallback(t *testing.T) {
 		query.Get("redirect_uri") != ClaudeRedirectURI || query.Get("code_challenge") != authorization.CodeChallenge ||
 		query.Get("code_challenge_method") != "S256" {
 		t.Fatalf("authorization = %#v URL=%s", authorization, authorization.AuthorizationURL)
+	}
+}
+
+func TestBeginClaudeBrowserAuthorizationMatchesNativeClaudeCodeParameters(t *testing.T) {
+	authorization, err := BeginClaudeBrowserAuthorization()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(authorization.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 原生 Claude Code 使用 32 字节随机数的无填充 base64url state，授权时额外申请 Console scope。
+	decoded, err := base64.RawURLEncoding.DecodeString(authorization.State)
+	if len(authorization.State) != 43 || err != nil || len(decoded) != 32 {
+		t.Fatalf("state = %q, decode error = %v", authorization.State, err)
+	}
+	const wantScope = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+	if got := parsed.Query().Get("scope"); got != wantScope {
+		t.Fatalf("scope = %q, want %q", got, wantScope)
 	}
 }
 
