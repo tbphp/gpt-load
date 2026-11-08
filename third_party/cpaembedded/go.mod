@@ -3,15 +3,15 @@ module github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded
 go 1.26.10
 
 require (
-	github.com/andybalholm/brotli v1.2.7
+	github.com/andybalholm/brotli v1.2.8
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/router-for-me/CLIProxyAPI/v8 v8.0.56-0.20261105035157-585f97deac9a
+	github.com/router-for-me/CLIProxyAPI/v8 v8.0.60
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.20.0
 	github.com/tidwall/sjson v1.2.5
 	golang.org/x/net v0.62.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
