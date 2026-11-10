@@ -53,14 +53,14 @@ func prepareAudioSpeech(
 }
 
 // audioSpeechTarget maps the speech path onto the channel base URL.
-// OpenRouter bases follow its SDK and omit /v1; OpenAI-compatible bases such
-// as Mistral already end in /v1.
+// OpenAI and OpenRouter bases follow their SDKs and omit /v1;
+// OpenAI-compatible bases such as Mistral already include that prefix.
 func audioSpeechTarget(resolved channel.ResolvedTarget, clientPath string) (string, string, error) {
 	baseURL, configured, err := targetBaseURL(resolved.TargetConfig)
 	if err != nil {
 		return "", "", err
 	}
-	if resolved.ProviderKind == channel.ProviderOpenRouter {
+	if resolved.ProviderKind == channel.ProviderOpenRouter || resolved.ProviderKind == channel.ProviderOpenAI {
 		if !configured {
 			baseURL, _, err = sdkDefaultBaseURL(resolved.ProviderKind)
 			if err != nil {

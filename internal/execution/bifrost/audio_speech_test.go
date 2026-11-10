@@ -31,6 +31,12 @@ func TestAudioSpeechKeepsEachChannelNativeFormat(t *testing.T) {
 		response    []byte
 	}{
 		{
+			name: "openai binary", channelID: channel.OpenAI, basePath: "/tenant", wantPath: "/tenant/v1/audio/speech",
+			body:  `{"model":"public","input":"hello","voice":"alloy","response_format":"mp3","instructions":"Speak slowly."}`,
+			model: "gpt-4o-mini-tts", wantFields: []string{`"model":"gpt-4o-mini-tts"`, `"voice":"alloy"`, `"instructions":"Speak slowly."`},
+			contentType: "audio/mpeg", response: []byte("ID3\x04\x00\x00binary-audio"),
+		},
+		{
 			name: "mistral json", channelID: channel.Mistral, basePath: "/v1", wantPath: "/v1/audio/speech",
 			body:  `{"model":"public","input":"hello","voice_id":"gb_jane_neutral"}`,
 			model: "voxtral-mini-tts-2603", wantFields: []string{`"model":"voxtral-mini-tts-2603"`, `"voice_id":"gb_jane_neutral"`},
@@ -153,6 +159,7 @@ func TestAudioSpeechTargetsUseChannelDefaults(t *testing.T) {
 		path      string
 	}{
 		{channelID: channel.Mistral, baseURL: "https://api.mistral.ai/v1", path: "/audio/speech"},
+		{channelID: channel.OpenAI, baseURL: "https://api.openai.com", path: "/v1/audio/speech"},
 		{channelID: channel.OpenRouter, baseURL: "https://openrouter.ai/api", path: "/v1/audio/speech"},
 	} {
 		resolved, err := registry.Resolve(test.channelID, nil)
