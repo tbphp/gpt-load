@@ -10,6 +10,39 @@ import (
 	"gpt-load/internal/platform/encryption"
 )
 
+func TestLoadUpstreamUserAgentFallback(t *testing.T) {
+	for _, test := range []struct {
+		name, value, want string
+		invalid           bool
+	}{
+		{name: "unset"},
+		{name: "explicit", value: "Go-http-client/1.1", want: "Go-http-client/1.1"},
+		{name: "trim whitespace", value: " custom/1.0\t", want: "custom/1.0"},
+		{name: "blank uses default", value: " \t "},
+		{name: "header injection", value: "agent\r\nX-Injected: yes", invalid: true},
+		{name: "trailing newline", value: "agent\n", invalid: true},
+		{name: "control character", value: "agent\x01", invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clearEnvironment(t)
+			t.Setenv("UPSTREAM_USER_AGENT_FALLBACK", test.value)
+			cfg, err := Load()
+			if test.invalid {
+				if err == nil || !strings.Contains(err.Error(), "UPSTREAM_USER_AGENT_FALLBACK") {
+					t.Fatalf("expected configuration error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.UpstreamUserAgentFallback != test.want {
+				t.Fatalf("fallback = %q, want %q", cfg.UpstreamUserAgentFallback, test.want)
+			}
+		})
+	}
+}
+
 func TestLoadUsesDefaultConfiguration(t *testing.T) {
 	clearEnvironment(t)
 	t.Setenv("AUTH_KEY", "test-auth-key")
@@ -524,6 +557,7 @@ func clearEnvironment(t *testing.T) {
 		"CODEX_LIVE_PUBLIC_IP", "CODEX_LIVE_UDP_PORT_MIN", "CODEX_LIVE_UDP_PORT_MAX",
 		"CODEX_LIVE_MAX_SESSIONS", "CODEX_LIVE_ICE_SERVERS",
 		"CLIENT_IP_HEADER", "TRUSTED_PROXIES",
+		"UPSTREAM_USER_AGENT_FALLBACK",
 	} {
 		t.Setenv(key, "")
 	}
