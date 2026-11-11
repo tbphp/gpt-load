@@ -86,6 +86,9 @@ func nativeRouteImplemented(
 		if clientProtocol == protocol.OpenAIImages {
 			return operation == execution.OperationImagesGenerate || operation == execution.OperationImagesEdit
 		}
+		if clientProtocol == protocol.OpenAIVideos {
+			return videoOperation(operation)
+		}
 		return nativeOpenAIProtocolOperation(clientProtocol, operation, true)
 	case channel.ProviderAnthropic:
 		return clientProtocol == protocol.Anthropic && standardProtocolOperation(clientProtocol, operation)
@@ -108,6 +111,8 @@ func nativeRouteImplemented(
 		case protocol.OpenAIImages:
 			return operation == execution.OperationImagesGenerate ||
 				operation == execution.OperationImagesEdit
+		case protocol.OpenAIVideos:
+			return videoOperation(operation)
 		case protocol.OpenAIEmbeddings, protocol.GeminiEmbeddings:
 			return operation == execution.OperationEmbeddingsCreate ||
 				operation == execution.OperationProbe
@@ -131,6 +136,9 @@ func nativeRouteImplemented(
 		}
 		if clientProtocol == protocol.OpenAIImages {
 			return operation == execution.OperationImagesGenerate || operation == execution.OperationImagesEdit
+		}
+		if clientProtocol == protocol.OpenAIVideos {
+			return videoOperation(operation)
 		}
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderDeepSeek, channel.ProviderAlibaba:
@@ -157,6 +165,18 @@ func nativeRouteImplemented(
 	case channel.ProviderGoogleVertex:
 		return clientProtocol == protocol.Gemini &&
 			(operation == execution.OperationChatCompletion || operation == execution.OperationProbe)
+	default:
+		return false
+	}
+}
+
+func videoOperation(operation execution.Operation) bool {
+	switch operation {
+	case execution.OperationVideosCreate,
+		execution.OperationVideosRetrieve,
+		execution.OperationVideosContent,
+		execution.OperationVideosDelete:
+		return true
 	default:
 		return false
 	}

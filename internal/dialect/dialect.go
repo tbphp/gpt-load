@@ -8,6 +8,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
+	"gpt-load/internal/video"
 )
 
 type ParsedRequest struct {
@@ -27,10 +28,16 @@ type RequestMetadata struct {
 	RouteRequirement         execution.RouteRequirement
 	ResponsesStorePreference execution.ResponsesStorePreference
 	PreviousResponseID       string
-	ObserveUsage             bool
-	PricingMode              pricing.Mode
-	UsageDiagnostics         usage.Diagnostics
-	Reasoning                reasoning.Config
+	// VideoTaskID is the client-visible gateway video task identifier parsed
+	// from one video resource path. Create requests leave it empty.
+	VideoTaskID string
+	// VideoCreate carries the validated creation shape for the openai-videos
+	// protocol so the gateway can reserve an idempotent task before dispatch.
+	VideoCreate      *video.CreateRequest
+	ObserveUsage     bool
+	PricingMode      pricing.Mode
+	UsageDiagnostics usage.Diagnostics
+	Reasoning        reasoning.Config
 	// AdvisorModels 是请求里 advisor 工具声明的模型，上游会按这些模型执行并计费。
 	AdvisorModels []string
 }

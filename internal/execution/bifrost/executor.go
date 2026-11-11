@@ -542,6 +542,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if spec.ClientProtocol == protocol.AudioSpeech {
 		return prepareAudioSpeech(spec, resolved, provider, directKey, secrets)
 	}
+	if spec.ClientProtocol == protocol.OpenAIVideos {
+		return prepareVideos(spec, resolved, provider, directKey, secrets)
+	}
 	if spec.ClientProtocol == protocol.Mistral {
 		return prepareMistral(spec, resolved, provider, directKey, secrets)
 	}
@@ -1002,7 +1005,8 @@ func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtoc
 		return clientProtocol == protocol.OpenAICompletions
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderMultiProtocolGateway:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
-			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIEmbeddings ||
+			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIVideos ||
+			clientProtocol == protocol.OpenAIEmbeddings ||
 			(providerKind == channel.ProviderMultiProtocolGateway &&
 				(clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini ||
 					clientProtocol == protocol.GeminiEmbeddings))
@@ -1094,6 +1098,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		default:
 			return false
 		}
+	case protocol.OpenAIVideos:
+		return validVideoRequestShape(spec, stream)
 	case protocol.Rerank:
 		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationRerank && spec.Method == http.MethodPost && spec.Path == "/v1/rerank"
 	case protocol.Decisions:
@@ -1131,6 +1137,42 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return validGeminiGeneratePath(spec.Path, action)
 	}
 	return false
+}
+
+func validVideoRequestShape(spec execution.AttemptSpec, stream bool) bool {
+	if stream || spec.RouteMode != execution.RouteNative {
+		return false
+	}
+	switch spec.Operation {
+	case execution.OperationVideosCreate:
+		return spec.Method == http.MethodPost && spec.Path == "/v1/videos" && len(spec.Body) > 0
+	case execution.OperationVideosRetrieve:
+		return spec.Method == http.MethodGet && validVideoResourcePath(spec.Path, "")
+	case execution.OperationVideosContent:
+		return spec.Method == http.MethodGet && validVideoResourcePath(spec.Path, "content")
+	case execution.OperationVideosDelete:
+		return spec.Method == http.MethodDelete && validVideoResourcePath(spec.Path, "")
+	default:
+		return false
+	}
+}
+
+func validVideoResourcePath(path, suffix string) bool {
+	remainder, ok := strings.CutPrefix(path, "/v1/videos/")
+	if !ok || remainder == "" {
+		return false
+	}
+	if suffix != "" {
+		var found bool
+		remainder, found = strings.CutSuffix(remainder, "/"+suffix)
+		if !found {
+			return false
+		}
+	}
+	if remainder == "" || strings.Contains(remainder, "/") {
+		return false
+	}
+	return validResourceID(remainder)
 }
 
 func openAIImagesPrefixPath(path string) (string, error) {

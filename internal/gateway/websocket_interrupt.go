@@ -8,7 +8,7 @@ import (
 	"gpt-load/internal/execution"
 )
 
-var reasonWebsocketResponseNotActive = reason{400, "websocket_response_not_active", "The WebSocket response is not active."}
+var reasonWebsocketResponseNotActive = reason{Status: 400, Code: "websocket_response_not_active", Message: "The WebSocket response is not active."}
 
 func (s *websocketConnection) handleInterrupt(turn websocketTurn, fields map[string]json.RawMessage) {
 	var responseID string

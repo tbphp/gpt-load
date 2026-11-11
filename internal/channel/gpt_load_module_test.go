@@ -81,6 +81,12 @@ func TestGPTLoadChannelContract(t *testing.T) {
 			execution.OperationImagesGenerate: RouteNative,
 			execution.OperationImagesEdit:     RouteNative,
 		},
+		protocol.OpenAIVideos: {
+			execution.OperationVideosCreate:   RouteNative,
+			execution.OperationVideosRetrieve: RouteNative,
+			execution.OperationVideosContent:  RouteNative,
+			execution.OperationVideosDelete:   RouteNative,
+		},
 		protocol.Rerank: {execution.OperationRerank: RouteNative, execution.OperationProbe: RouteNative},
 		protocol.OpenAIEmbeddings: {
 			execution.OperationEmbeddingsCreate: RouteNative,

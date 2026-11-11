@@ -79,6 +79,21 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			path:    "/v1/images/edits",
 		},
 		{
+			name:    "data.openai.videos",
+			methods: []string{http.MethodPost},
+			path:    "/v1/videos",
+		},
+		{
+			name:    "data.openai.videos.content",
+			methods: []string{http.MethodGet},
+			path:    "/v1/videos/:video_id/content",
+		},
+		{
+			name:    "data.openai.videos.resource",
+			methods: []string{http.MethodGet, http.MethodDelete},
+			path:    "/v1/videos/:video_id",
+		},
+		{
 			name:    "data.openai.embeddings",
 			methods: []string{http.MethodPost},
 			path:    "/v1/embeddings",

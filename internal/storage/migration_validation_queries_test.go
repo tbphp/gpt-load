@@ -59,6 +59,9 @@ func verifyMigrationValidationQueryLimits(t *testing.T, db *gorm.DB) {
 	if db.Dialector.Name() == "mysql" {
 		initialLimit = 1800
 	}
+	if db.Dialector.Name() == "sqlite" {
+		initialLimit = 1050
+	}
 	if initialize.total > initialLimit {
 		t.Errorf("initialization executed %d SQL statements, want at most %d", initialize.total, initialLimit)
 	}

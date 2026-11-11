@@ -157,6 +157,7 @@ func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
 			protocol.OpenAICompletions,
 			protocol.OpenAIResponses,
 			protocol.OpenAIImages,
+			protocol.OpenAIVideos,
 			protocol.OpenAIEmbeddings,
 			protocol.CodexLive,
 			protocol.Rerank,

@@ -43,6 +43,7 @@ import (
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/videostore"
 	"gpt-load/internal/webui"
 )
 
@@ -167,6 +168,7 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 		dialect.NewOpenAI,
 		dialect.NewOpenAIResponses,
 		dialect.NewOpenAIImages,
+		dialect.NewOpenAIVideos,
 		dialect.NewOpenAIEmbeddings,
 		dialect.NewRerank,
 		dialect.NewDecisions,
@@ -179,6 +181,7 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 			openAI *dialect.OpenAI,
 			openAIResponses *dialect.OpenAIResponses,
 			openAIImages *dialect.OpenAIImages,
+			openAIVideos *dialect.OpenAIVideos,
 			openAIEmbeddings *dialect.OpenAIEmbeddings,
 			rerank *dialect.Rerank,
 			decisions *dialect.Decisions,
@@ -189,7 +192,7 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 			mistral *dialect.Mistral,
 		) dialect.Set {
 			return dialect.NewSet(
-				openAI, openAIResponses, openAIImages, openAIEmbeddings, rerank, decisions, anthropic, gemini, geminiEmbeddings,
+				openAI, openAIResponses, openAIImages, openAIVideos, openAIEmbeddings, rerank, decisions, anthropic, gemini, geminiEmbeddings,
 				audioSpeech, mistral,
 			)
 		},
@@ -210,6 +213,8 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 		subscriptionproviders.NewModelCatalogUpdater,
 		newProviderAdapterRegistry,
 		func(registry *provideradapter.Registry) execution.Executor { return registry },
+		func(db *gorm.DB) *videostore.Store { return videostore.NewStore(db) },
+		func(store *videostore.Store) control.VideoTaskCleaner { return store },
 		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
 		func(executor execution.Executor, store *rpm.Store) *gateway.ExecutionForwarder {
 			forwarder := gateway.NewExecutionForwarder(executor)
@@ -266,10 +271,12 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 	if err := dependencyContainer.Decorate(func(
 		handler *gateway.Handler,
 		adapter *cpaexecutor.Adapter,
+		videoTasks *videostore.Store,
 		cfg *config.Config,
 		memory memlimit.Memory,
 	) *gateway.Handler {
 		handler.ConfigureCodexLive(adapter, cfg.CodexLive)
+		handler.ConfigureVideoTasks(videoTasks)
 		handler.ConfigureRequestBodyLimit(memory)
 		return handler
 	}); err != nil {

@@ -218,7 +218,7 @@ func websocketOriginAllowed(request *http.Request, snapshot *state.ConfigSnapsho
 	return err == nil && parsed.User == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && strings.EqualFold(parsed.Host, request.Host)
 }
 
-var reasonWebsocketDisabled = reason{403, "websocket_disabled", "Responses WebSocket is disabled for the available groups."}
+var reasonWebsocketDisabled = reason{Status: 403, Code: "websocket_disabled", Message: "Responses WebSocket is disabled for the available groups."}
 
 func websocketGroupEnabled(snapshot *state.ConfigSnapshot, key state.AccessKeyView, groupID uint) bool {
 	if snapshot == nil {
@@ -255,7 +255,7 @@ func (h *Handler) handleWebsocket(c *gin.Context, requestContext *dataPlaneReque
 	}
 	limits := h.websocketLimits
 	if !h.websocketBudget.connection(requestContext.accessKey.ID, limits, 1) {
-		_ = h.writeReason(c, reason{503, "websocket_connection_limit", "WebSocket connection limit reached."})
+		_ = h.writeReason(c, reason{Status: 503, Code: "websocket_connection_limit", Message: "WebSocket connection limit reached."})
 		return
 	}
 	defer h.websocketBudget.connection(requestContext.accessKey.ID, limits, -1)
@@ -529,7 +529,7 @@ func (s *websocketConnection) run() {
 					s.reserveInput(-len(turn.body))
 					turn.body = nil
 					// 新流尚无活动轮，拒绝可直接归属，不占用新的历史流名。
-					value := reason{400, "websocket_stream_limit_reached", "WebSocket stream limit reached. Reuse an existing stream_id or open a new connection."}
+					value := reason{Status: 400, Code: "websocket_stream_limit_reached", Message: "WebSocket stream limit reached. Reuse an existing stream_id or open a new connection."}
 					key, authorized := s.authorized(s.handler.manager.Current())
 					if !authorized {
 						value = reasonInvalidAccessKey

@@ -180,6 +180,7 @@ type requestLogItemResponse struct {
 	CacheWriteUnknownTokens   string                       `json:"cache_write_unknown_tokens"`
 	OutputTokens              string                       `json:"output_tokens"`
 	EstimatedCostNanoUSD      string                       `json:"estimated_cost_nano_usd"`
+	VideoMetadata             *telemetry.VideoObservation  `json:"video_metadata,omitempty"`
 }
 
 type autoDecisionResponse struct {
@@ -1307,6 +1308,7 @@ func mapRequestLogItemResponse(
 		CacheWriteUnknownTokens: strconv.FormatInt(record.CacheWriteUnknownTokens, 10),
 		OutputTokens:            strconv.FormatInt(record.OutputTokens, 10),
 		EstimatedCostNanoUSD:    usageCost.estimatedCostNanoUSD,
+		VideoMetadata:           record.VideoMetadata,
 	}, nil
 }
 

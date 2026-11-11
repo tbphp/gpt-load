@@ -45,6 +45,7 @@ func TestFinalRegistryContainsOnlyApprovedChannels(t *testing.T) {
 		OpenCodeGo,
 		OpenCodeZen,
 		Modelflare,
+		Agnes,
 		GPTLoad,
 		NewAPI,
 		CLIProxyAPI,

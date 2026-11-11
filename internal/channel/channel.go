@@ -61,6 +61,7 @@ const (
 	OpenCodeGo       = spec.OpenCodeGo
 	OpenCodeZen      = spec.OpenCodeZen
 	Modelflare       = spec.Modelflare
+	Agnes            = spec.Agnes
 )
 
 // InputKind describes how a field is collected without exposing its value.

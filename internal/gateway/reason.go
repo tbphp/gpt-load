@@ -13,12 +13,15 @@ import (
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/video"
 )
 
 type reason struct {
 	Status  int
 	Code    string
 	Message string
+	Param   string
+	Type    string
 }
 
 func providerErrorReason(result UpstreamResult) reason {
@@ -88,6 +91,34 @@ var (
 		Status:  http.StatusServiceUnavailable,
 		Code:    "parameter_override_unavailable",
 		Message: "No upstream candidate could apply the configured parameter overrides.",
+	}
+	reasonVideoProtocolNotAllowed = reason{
+		Status: http.StatusForbidden, Code: "protocol_not_allowed", Type: "invalid_request_error",
+		Message: "This access key is not allowed to use the openai-videos protocol. Enable it in the access key protocol filters.",
+	}
+	reasonVideoModelNotFound = reason{
+		Status: http.StatusNotFound, Code: "model_not_found", Type: "invalid_request_error",
+		Message: "The requested video model is not available in any permitted group.",
+	}
+	reasonVideoTaskNotFound = reason{
+		Status: http.StatusNotFound, Code: "task_not_found", Type: "invalid_request_error",
+		Message: "Video task was not found or has expired.",
+	}
+	reasonVideoCredentialUnavailable = reason{
+		Status: http.StatusServiceUnavailable, Code: "task_credential_unavailable", Type: "server_error",
+		Message: "The credential that created this video task is temporarily unavailable.",
+	}
+	reasonVideoCancelNotSupported = reason{
+		Status: http.StatusNotImplemented, Code: "cancel_not_supported", Type: "invalid_request_error",
+		Message: "The upstream channel does not support cancelling video tasks.",
+	}
+	reasonVideoContentNotSupported = reason{
+		Status: http.StatusNotImplemented, Code: "content_not_supported", Type: "invalid_request_error",
+		Message: "The upstream channel does not support video content downloads.",
+	}
+	reasonVideoInternal = reason{
+		Status: http.StatusInternalServerError, Code: "internal_error", Type: "server_error",
+		Message: "The video task could not be recorded.",
 	}
 )
 
@@ -232,6 +263,10 @@ func (handler *Handler) completeConfigurationChanged(
 }
 
 func (handler *Handler) writeReason(context *gin.Context, value reason) error {
+	if context != nil && context.Request != nil && context.Request.URL != nil &&
+		isVideoDataPlanePath(context.Request.URL.Path) {
+		return handler.writeVideoReason(context, value)
+	}
 	body, err := json.Marshal(struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
@@ -245,4 +280,68 @@ func (handler *Handler) writeReason(context *gin.Context, value reason) error {
 		http.Header{"Content-Type": {"application/json; charset=utf-8"}},
 		body,
 	)
+}
+
+func isVideoDataPlanePath(path string) bool {
+	return path == "/v1/videos" || strings.HasPrefix(path, "/v1/videos/")
+}
+
+func (handler *Handler) writeVideoReason(context *gin.Context, value reason) error {
+	code, errorType, message := videoErrorCode(value)
+	if value.Param != "" || value.Code == "invalid_protocol_request" {
+		message = value.Message
+	}
+	if stored, ok := context.Get(videoUpstreamMessageKey); ok {
+		if text, valid := stored.(string); valid && text != "" {
+			message = text
+		}
+	}
+	return handler.writeVideoError(context, value.Status, code, errorType, value.Param, message)
+}
+
+func (handler *Handler) writeVideoError(
+	context *gin.Context,
+	status int,
+	code, errorType, param, message string,
+) error {
+	if errorType == "" {
+		if status >= http.StatusInternalServerError {
+			errorType = "server_error"
+		} else {
+			errorType = "invalid_request_error"
+		}
+	}
+	body, err := json.Marshal(video.ErrorEnvelope{Error: video.APIError{
+		Message: message, Type: errorType, Param: param, Code: code,
+	}})
+	if err != nil {
+		return err
+	}
+	return handler.writeBufferedResponse(
+		context,
+		status,
+		http.Header{"Content-Type": {"application/json; charset=utf-8"}},
+		body,
+	)
+}
+
+func videoErrorCode(value reason) (code, errorType, message string) {
+	code, errorType, message = value.Code, value.Type, value.Message
+	switch value.Code {
+	case "invalid_access_key":
+		code, errorType = "invalid_api_key", "authentication_error"
+	case "protocol_filtered":
+		code, errorType = "protocol_not_allowed", "invalid_request_error"
+	case "invalid_protocol_request":
+		errorType = "invalid_request_error"
+	case "access_key_rate_limited", "upstream_rate_limited":
+		code, errorType = "rate_limit_exceeded", "rate_limit_error"
+	case "upstream_protocol_error", "upstream_connect_failed", "upstream_response_incomplete":
+		code, errorType = "upstream_error", "upstream_error"
+	case "upstream_timeout", "upstream_stream_idle_timeout":
+		code, errorType = "task_timeout", "upstream_error"
+	case "no_available_candidate":
+		errorType = "server_error"
+	}
+	return code, errorType, message
 }

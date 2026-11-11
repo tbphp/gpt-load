@@ -324,6 +324,10 @@ func operationRequiresModel(operation Operation) bool {
 		operation == OperationCountTokens ||
 		operation == OperationImagesGenerate ||
 		operation == OperationImagesEdit ||
+		operation == OperationVideosCreate ||
+		operation == OperationVideosRetrieve ||
+		operation == OperationVideosContent ||
+		operation == OperationVideosDelete ||
 		operation == OperationEmbeddingsCreate ||
 		operation == OperationLiveCall ||
 		operation == OperationRerank ||

@@ -11,7 +11,7 @@ import (
 	"gpt-load/internal/state"
 )
 
-var reasonAuditBlocked = reason{http.StatusForbidden, "request_audit_blocked", "Request blocked by a guardrail rule."}
+var reasonAuditBlocked = reason{Status: http.StatusForbidden, Code: "request_audit_blocked", Message: "Request blocked by a guardrail rule."}
 
 // 在业务外发前审查最终内容。自动模型的沿用/预热不构成护栏通过证明。
 func (h *Handler) checkRequestAudit(ctx context.Context, snapshot *state.ConfigSnapshot, key state.AccessKeyView, body []byte, recorder *requestRecorder, admit func() *reason) *reason {

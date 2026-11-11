@@ -43,6 +43,10 @@ const (
 	OperationWebSearch                    Operation = "web_search"
 	OperationImagesGenerate               Operation = "images_generate"
 	OperationImagesEdit                   Operation = "images_edit"
+	OperationVideosCreate                 Operation = "videos_create"
+	OperationVideosRetrieve               Operation = "videos_retrieve"
+	OperationVideosContent                Operation = "videos_content"
+	OperationVideosDelete                 Operation = "videos_delete"
 	OperationEmbeddingsCreate             Operation = "embeddings_create"
 	OperationLiveCall                     Operation = "live_call"
 	OperationRerank                       Operation = "rerank"
@@ -76,6 +80,10 @@ func (o Operation) Valid() bool {
 		OperationWebSearch,
 		OperationImagesGenerate,
 		OperationImagesEdit,
+		OperationVideosCreate,
+		OperationVideosRetrieve,
+		OperationVideosContent,
+		OperationVideosDelete,
 		OperationEmbeddingsCreate,
 		OperationLiveCall,
 		OperationRerank,
@@ -114,7 +122,7 @@ const (
 // ReplayPolicy returns the operation-level replay contract.
 func (o Operation) ReplayPolicy() ReplayPolicy {
 	switch o {
-	case OperationImagesGenerate, OperationImagesEdit, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall,
+	case OperationImagesGenerate, OperationImagesEdit, OperationVideosCreate, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall,
 		OperationAudioSpeech, OperationMistralOCR, OperationMistralFIM, OperationMistralAudioTranscription,
 		OperationMistralModeration, OperationMistralChatModeration, OperationMistralClassification,
 		OperationMistralRealtimeTranscription:

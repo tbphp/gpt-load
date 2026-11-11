@@ -29,7 +29,7 @@ import (
 	"gpt-load/internal/telemetry"
 )
 
-var reasonWebsocketCapability = reason{400, "websocket_capability_unavailable", "The selected upstream does not support this WebSocket capability."}
+var reasonWebsocketCapability = reason{Status: 400, Code: "websocket_capability_unavailable", Message: "The selected upstream does not support this WebSocket capability."}
 
 const maxWebsocketPayloadBytes = 10 << 20
 
@@ -38,7 +38,7 @@ func websocketFailureReason(result UpstreamResult) reason {
 		return reasonResponseRedactionFailed
 	}
 	if result.ExecutionError != nil && result.ExecutionError.Kind == execution.ErrorKindHTTP && result.ExecutionError.StatusCode >= 400 {
-		return reason{result.ExecutionError.StatusCode, result.ExecutionError.Code, "Upstream WebSocket request failed."}
+		return reason{Status: result.ExecutionError.StatusCode, Code: result.ExecutionError.Code, Message: "Upstream WebSocket request failed."}
 	}
 	return transportReason(result)
 }
@@ -460,7 +460,7 @@ func (s *websocketConnection) executeTurn(turn websocketTurn) {
 		}
 		extraBytes := max(0, len(payload)-len(turn.body))
 		if !s.reserveInput(extraBytes) {
-			reject(reason{503, "websocket_input_limit", "WebSocket input limit reached."})
+			reject(reason{Status: 503, Code: "websocket_input_limit", Message: "WebSocket input limit reached."})
 			return
 		}
 		var releaseOnce sync.Once

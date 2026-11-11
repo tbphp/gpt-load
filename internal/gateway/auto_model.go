@@ -16,9 +16,9 @@ import (
 	"gpt-load/internal/telemetry"
 )
 
-var reasonAutoModelUnavailable = reason{http.StatusServiceUnavailable, "auto_model_unavailable", "Automatic model selection is unavailable."}
-var reasonAutoModelForbidden = reason{http.StatusForbidden, "auto_model_target_forbidden", "Automatic model entry or fallback target is not permitted for this request."}
-var reasonAutoModelUnsupported = reason{http.StatusBadRequest, "auto_model_operation_unsupported", "Automatic model selection is unsupported for this operation."}
+var reasonAutoModelUnavailable = reason{Status: http.StatusServiceUnavailable, Code: "auto_model_unavailable", Message: "Automatic model selection is unavailable."}
+var reasonAutoModelForbidden = reason{Status: http.StatusForbidden, Code: "auto_model_target_forbidden", Message: "Automatic model entry or fallback target is not permitted for this request."}
+var reasonAutoModelUnsupported = reason{Status: http.StatusBadRequest, Code: "auto_model_operation_unsupported", Message: "Automatic model selection is unsupported for this operation."}
 
 type autoDecisionRunner interface {
 	Decide(

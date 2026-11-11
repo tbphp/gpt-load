@@ -155,6 +155,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 				protocol.GeminiEmbeddings,
 				protocol.Gemini,
 				protocol.OpenAIImages,
+				protocol.OpenAIVideos,
 				protocol.OpenAIEmbeddings,
 				protocol.CodexLive,
 				protocol.Rerank,

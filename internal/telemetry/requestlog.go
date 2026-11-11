@@ -133,6 +133,20 @@ type UsageObservation struct {
 	Pricing         PricingObservation
 }
 
+// VideoObservation records the gateway-owned task identity and generation
+// metadata for one openai-videos request.
+type VideoObservation struct {
+	GatewayTaskID  string `json:"gateway_task_id,omitempty"`
+	UpstreamTaskID string `json:"upstream_task_id,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	Seconds        string `json:"seconds,omitempty"`
+	Size           string `json:"size,omitempty"`
+	AspectRatio    string `json:"aspect_ratio,omitempty"`
+	Phase          string `json:"phase,omitempty"`
+	Status         string `json:"status,omitempty"`
+}
+
 type RequestEvent struct {
 	RequestAudit          *requestaudit.Result
 	AutoDecision          *automodel.Decision
@@ -158,6 +172,7 @@ type RequestEvent struct {
 	Reasoning             reasoning.Config
 	Attempts              []Attempt
 	Usage                 UsageObservation
+	Video                 *VideoObservation
 	// RequestBody 只在访问密钥开启请求内容记录时携带，是网关收到并解码后的客户端原始请求体。
 	RequestBody []byte
 }

@@ -85,6 +85,7 @@ type requestRecorder struct {
 	pricingPending       bool
 	outcome              requestOutcome
 	usage                telemetry.UsageObservation
+	video                *telemetry.VideoObservation
 	now                  func() time.Time
 	redactor             *redact.Redactor
 	emitted              bool
@@ -172,8 +173,36 @@ func (recorder *requestRecorder) emit() {
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
+		Video:                 cloneVideoObservation(recorder.video),
 		RequestBody:           recorder.requestBody,
 	})
+}
+
+func cloneVideoObservation(value *telemetry.VideoObservation) *telemetry.VideoObservation {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
+}
+
+func (recorder *requestRecorder) setVideoMetadata(value *telemetry.VideoObservation) {
+	if recorder == nil || value == nil {
+		return
+	}
+	recorder.video = cloneVideoObservation(value)
+}
+
+func (recorder *requestRecorder) updateVideoMetadata(status, upstreamTaskID string) {
+	if recorder == nil || recorder.video == nil {
+		return
+	}
+	if status != "" {
+		recorder.video.Status = status
+	}
+	if upstreamTaskID != "" {
+		recorder.video.UpstreamTaskID = upstreamTaskID
+	}
 }
 
 // recordRequestBody 为开启请求内容记录的访问密钥保留客户端原始请求体。

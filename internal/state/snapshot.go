@@ -494,7 +494,10 @@ func appendExecutionTargets(
 			case execution.OperationResponsesRetrieve,
 				execution.OperationResponsesDelete,
 				execution.OperationResponsesCancel,
-				execution.OperationResponsesInputItems:
+				execution.OperationResponsesInputItems,
+				execution.OperationVideosRetrieve,
+				execution.OperationVideosContent,
+				execution.OperationVideosDelete:
 				appendExecutionTarget(index, clientProtocol, operation, NoModelRouteKey, RouteTarget{
 					GroupID: group.ID, Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
 				})
@@ -512,6 +515,7 @@ func appendExecutionTargets(
 				execution.OperationCountTokens,
 				execution.OperationImagesGenerate,
 				execution.OperationImagesEdit,
+				execution.OperationVideosCreate,
 				execution.OperationEmbeddingsCreate, execution.OperationRerank,
 				execution.OperationDecisionsCreate,
 				execution.OperationAudioSpeech,

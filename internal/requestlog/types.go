@@ -158,6 +158,7 @@ type Record struct {
 	CostState               pricing.CostState
 	PricingCompleteness     pricing.Completeness
 	PricingMode             pricing.Mode
+	VideoMetadata           *telemetry.VideoObservation
 	ContextThresholdTokens  *int64
 	UncachedInputTokens     int64
 	CacheReadTokens         int64

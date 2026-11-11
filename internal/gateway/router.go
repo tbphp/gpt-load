@@ -17,6 +17,9 @@ const (
 	responsesResourcePattern    = openAIResponsesPath + "/*resource_path"
 	openAIImagesGenerationsPath = "/v1/images/generations"
 	openAIImagesEditsPath       = "/v1/images/edits"
+	openAIVideosPath            = "/v1/videos"
+	openAIVideosContentPattern  = openAIVideosPath + "/:video_id/content"
+	openAIVideosResourcePattern = openAIVideosPath + "/:video_id"
 	openAIEmbeddingsPath        = "/v1/embeddings"
 	decisionsPath               = "/v1/systemone"
 )
@@ -113,6 +116,24 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			methods: []string{http.MethodPost},
 			path:    openAIImagesEditsPath,
 			resolve: staticRoute(protocol.OpenAIImages, endpointForward),
+		},
+		{
+			name:    "data.openai.videos",
+			methods: []string{http.MethodPost},
+			path:    openAIVideosPath,
+			resolve: staticRoute(protocol.OpenAIVideos, endpointForward),
+		},
+		{
+			name:    "data.openai.videos.content",
+			methods: []string{http.MethodGet},
+			path:    openAIVideosContentPattern,
+			resolve: staticRoute(protocol.OpenAIVideos, endpointForward),
+		},
+		{
+			name:    "data.openai.videos.resource",
+			methods: []string{http.MethodGet, http.MethodDelete},
+			path:    openAIVideosResourcePattern,
+			resolve: staticRoute(protocol.OpenAIVideos, endpointForward),
 		},
 		{
 			name:    "data.openai.embeddings",

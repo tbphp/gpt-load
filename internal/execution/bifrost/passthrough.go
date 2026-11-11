@@ -214,6 +214,19 @@ func sanitizeNativePassthroughRequest(
 		}
 		return bytes.Clone(request.Body), request.Header.Clone(), nil
 	}
+	if spec.ClientProtocol == protocol.OpenAIVideos {
+		if spec.Operation != execution.OperationVideosCreate {
+			return nil, spec.Header.Clone(), nil
+		}
+		request, err := dialect.NewOpenAIVideos().SanitizeRequestForAttempt(&dialect.ParsedRequest{
+			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
+			Header: spec.Header.Clone(), Body: bytes.Clone(spec.Body),
+		}, spec.UpstreamModel, stream)
+		if err != nil {
+			return nil, nil, err
+		}
+		return bytes.Clone(request.Body), request.Header.Clone(), nil
+	}
 	if spec.ClientProtocol == protocol.GeminiEmbeddings && spec.Operation == execution.OperationEmbeddingsCreate {
 		request, err := dialect.NewGeminiEmbeddings().SanitizeRequestForAttempt(&dialect.ParsedRequest{
 			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,

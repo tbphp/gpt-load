@@ -17,7 +17,7 @@ import (
 	"gpt-load/internal/requestredact"
 )
 
-var reasonRedactionFailed = reason{http.StatusBadRequest, "request_redaction_failed", "Request content could not be redacted safely."}
+var reasonRedactionFailed = reason{Status: http.StatusBadRequest, Code: "request_redaction_failed", Message: "Request content could not be redacted safely."}
 
 func redactionBusinessProtocol(value protocol.Protocol) bool {
 	switch value {

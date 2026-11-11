@@ -42,6 +42,7 @@ func builtInModules() []spec.Module {
 		modules.OpenCodeGo(),
 		modules.OpenCodeZen(),
 		modules.Modelflare(),
+		modules.Agnes(),
 		modules.GPTLoad(),
 		modules.NewAPI(),
 		modules.CLIProxyAPI(),
