@@ -651,7 +651,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		}
 		var validation *video.ValidationError
 		if errors.As(err, &validation) {
-			handler.completeReason(ginContext, recorder, *invalidVideoRequestReason(err))
+			recorder.completeReason(reason{Status: http.StatusBadRequest, Code: "invalid_request_error", Message: validation.Message})
+			_ = handler.writeVideoError(ginContext, http.StatusBadRequest, "invalid_request_error", "invalid_request_error", validation.Param, validation.Message)
 			return
 		}
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)

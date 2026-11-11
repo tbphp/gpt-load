@@ -20,8 +20,6 @@ type reason struct {
 	Status  int
 	Code    string
 	Message string
-	Param   string
-	Type    string
 }
 
 func providerErrorReason(result UpstreamResult) reason {
@@ -93,32 +91,25 @@ var (
 		Message: "No upstream candidate could apply the configured parameter overrides.",
 	}
 	reasonVideoProtocolNotAllowed = reason{
-		Status: http.StatusForbidden, Code: "protocol_not_allowed", Type: "invalid_request_error",
-		Message: "This access key is not allowed to use the openai-videos protocol. Enable it in the access key protocol filters.",
+		Status: http.StatusForbidden, Code: "protocol_not_allowed", Message: "This access key is not allowed to use the openai-videos protocol. Enable it in the access key protocol filters.",
 	}
 	reasonVideoModelNotFound = reason{
-		Status: http.StatusNotFound, Code: "model_not_found", Type: "invalid_request_error",
-		Message: "The requested video model is not available in any permitted group.",
+		Status: http.StatusNotFound, Code: "model_not_found", Message: "The requested video model is not available in any permitted group.",
 	}
 	reasonVideoTaskNotFound = reason{
-		Status: http.StatusNotFound, Code: "task_not_found", Type: "invalid_request_error",
-		Message: "Video task was not found or has expired.",
+		Status: http.StatusNotFound, Code: "task_not_found", Message: "Video task was not found or has expired.",
 	}
 	reasonVideoCredentialUnavailable = reason{
-		Status: http.StatusServiceUnavailable, Code: "task_credential_unavailable", Type: "server_error",
-		Message: "The credential that created this video task is temporarily unavailable.",
+		Status: http.StatusServiceUnavailable, Code: "task_credential_unavailable", Message: "The credential that created this video task is temporarily unavailable.",
 	}
 	reasonVideoCancelNotSupported = reason{
-		Status: http.StatusNotImplemented, Code: "cancel_not_supported", Type: "invalid_request_error",
-		Message: "The upstream channel does not support cancelling video tasks.",
+		Status: http.StatusNotImplemented, Code: "cancel_not_supported", Message: "The upstream channel does not support cancelling video tasks.",
 	}
 	reasonVideoContentNotSupported = reason{
-		Status: http.StatusNotImplemented, Code: "content_not_supported", Type: "invalid_request_error",
-		Message: "The upstream channel does not support video content downloads.",
+		Status: http.StatusNotImplemented, Code: "content_not_supported", Message: "The upstream channel does not support video content downloads.",
 	}
 	reasonVideoInternal = reason{
-		Status: http.StatusInternalServerError, Code: "internal_error", Type: "server_error",
-		Message: "The video task could not be recorded.",
+		Status: http.StatusInternalServerError, Code: "internal_error", Message: "The video task could not be recorded.",
 	}
 )
 
@@ -288,7 +279,7 @@ func isVideoDataPlanePath(path string) bool {
 
 func (handler *Handler) writeVideoReason(context *gin.Context, value reason) error {
 	code, errorType, message := videoErrorCode(value)
-	if value.Param != "" || value.Code == "invalid_protocol_request" {
+	if value.Code == "invalid_protocol_request" {
 		message = value.Message
 	}
 	if stored, ok := context.Get(videoUpstreamMessageKey); ok {
@@ -296,7 +287,7 @@ func (handler *Handler) writeVideoReason(context *gin.Context, value reason) err
 			message = text
 		}
 	}
-	return handler.writeVideoError(context, value.Status, code, errorType, value.Param, message)
+	return handler.writeVideoError(context, value.Status, code, errorType, "", message)
 }
 
 func (handler *Handler) writeVideoError(
@@ -326,7 +317,11 @@ func (handler *Handler) writeVideoError(
 }
 
 func videoErrorCode(value reason) (code, errorType, message string) {
-	code, errorType, message = value.Code, value.Type, value.Message
+	code, message = value.Code, value.Message
+	errorType = "invalid_request_error"
+	if value.Status >= http.StatusInternalServerError {
+		errorType = "server_error"
+	}
 	switch value.Code {
 	case "invalid_access_key":
 		code, errorType = "invalid_api_key", "authentication_error"

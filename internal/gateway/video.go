@@ -175,11 +175,10 @@ func (handler *Handler) prepareVideoRequest(
 func invalidVideoRequestReason(err error) *reason {
 	value := reason{
 		Status: http.StatusBadRequest, Code: "invalid_request_error",
-		Type: "invalid_request_error", Message: "Invalid video request.",
+		Message: "Invalid video request.",
 	}
 	var validation *video.ValidationError
 	if errors.As(err, &validation) {
-		value.Param = validation.Param
 		value.Message = validation.Message
 	}
 	return &value
