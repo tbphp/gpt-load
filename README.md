@@ -243,6 +243,7 @@ At startup, the application reads `.env` in the current directory; existing proc
 | `LOG_LEVEL` | `info` | Supports `panic`, `fatal`, `error`, `warn`, `warning`, `info`, `debug`, and `trace`; invalid values warn and fall back to `info`. |
 | `LOG_FORMAT` | `text` | Supports `text` and `json`; any other value fails startup. |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | Unset, initial default `true` | When unset, uses the persisted management UI setting; when set, forces Models.dev auto-sync on or off and makes the same UI option read-only. |
+| `VIDEO_TASK_TTL` | `24h` | Lifetime of a gateway video task binding; Go duration such as `12h` or `30m`. Expired tasks return `task_not_found` and are cleaned hourly. |
 
 Environment proxies apply only when no proxy is specified on the credential, group, or global settings.
 

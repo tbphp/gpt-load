@@ -243,6 +243,7 @@ Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确�
 | `LOG_LEVEL`                     | `info`                                      | 支持 `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace`；无效值会告警并回退到 `info`。                                               |
 | `LOG_FORMAT`                    | `text`                                      | 支持 `text`、`json`；其他值会导致启动失败。                                                                                                              |
 | `MODELS_DEV_AUTO_SYNC_ENABLED`  | 未设置，初始默认 `true`                     | 未设置时使用管理界面的持久化设置；设置后强制开启或关闭 Models.dev 自动同步，并使管理界面中的同名选项变为只读。                                           |
+| `VIDEO_TASK_TTL` | `24h` | 网关视频任务绑定的有效期，Go duration，如 `12h`、`30m`；过期任务返回 `task_not_found`，并由后台每小时清理。 |
 
 环境代理仅在凭据、Group 和全局设置都未指定代理时生效。
 
