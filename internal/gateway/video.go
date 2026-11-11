@@ -270,7 +270,7 @@ func (handler *Handler) finalizeVideoCreate(
 	task.LastErrorCode = response.ErrorCode
 	task.LastErrorMessage = response.ErrorMessage
 	if err := state.store.UpdateCreateResult(ctx, task); err != nil {
-		_ = state.store.Delete(ctx, task.ID)
+		_ = state.store.MarkFailed(ctx, task.ID, "storage_error", "The video task binding could not be persisted.")
 		return result, &reasonVideoInternal
 	}
 	state.reservation = task
