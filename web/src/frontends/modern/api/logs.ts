@@ -19,6 +19,10 @@ export const logOperations = [
   'web_search',
   'images_generate',
   'images_edit',
+  'videos_create',
+  'videos_retrieve',
+  'videos_content',
+  'videos_delete',
   'embeddings_create',
   'rerank',
   'decisions_create',
@@ -146,6 +150,19 @@ export interface LogEntry {
   cache_write_unknown_tokens: string
   output_tokens: string
   estimated_cost_nano_usd: string
+  video_metadata?: LogVideoMetadata
+}
+
+export interface LogVideoMetadata {
+  gateway_task_id: string | null
+  upstream_task_id: string | null
+  model: string | null
+  mode: string | null
+  seconds: string | null
+  size: string | null
+  aspect_ratio: string | null
+  phase: string | null
+  status: string | null
 }
 
 export interface LogAutoDecision {
@@ -381,6 +398,25 @@ function entry(value: unknown): LogEntry {
     estimated_cost_nano_usd: count(
       row.total_estimated_cost_nano_usd ?? row.estimated_cost_nano_usd,
     ),
+    video_metadata:
+      row.video_metadata === undefined || row.video_metadata === null
+        ? undefined
+        : videoMetadata(row.video_metadata),
+  }
+}
+
+function videoMetadata(value: unknown): LogVideoMetadata {
+  const row = record(value)
+  return {
+    gateway_task_id: optionalText(row.gateway_task_id),
+    upstream_task_id: optionalText(row.upstream_task_id),
+    model: optionalText(row.model),
+    mode: optionalText(row.mode),
+    seconds: optionalText(row.seconds),
+    size: optionalText(row.size),
+    aspect_ratio: optionalText(row.aspect_ratio),
+    phase: optionalText(row.phase),
+    status: optionalText(row.status),
   }
 }
 

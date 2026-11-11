@@ -148,6 +148,7 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | OpenAI Chat Completions | `POST /v1/chat/completions`                                        |
 | OpenAI Responses        | `/v1/responses` 及其资源路径                                       |
 | OpenAI Images           | `POST /v1/images/...`                                              |
+| OpenAI Videos           | `POST /v1/videos`、`/v1/videos/{id}`、`/v1/videos/{id}/content`      |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
 | Audio Speech            | `POST /v1/audio/speech`                                            |

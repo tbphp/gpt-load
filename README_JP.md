@@ -148,6 +148,7 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 | OpenAI Chat Completions | `POST /v1/chat/completions`                                        |
 | OpenAI Responses        | `/v1/responses` およびそのリソースパス                             |
 | OpenAI Images           | `POST /v1/images/...`                                              |
+| OpenAI Videos           | `POST /v1/videos`、`/v1/videos/{id}`、`/v1/videos/{id}/content`      |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
 | Audio Speech            | `POST /v1/audio/speech`                                            |

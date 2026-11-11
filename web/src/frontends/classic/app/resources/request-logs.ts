@@ -58,6 +58,10 @@ export type RequestLogOperation =
   | 'responses_passthrough'
   | 'images_generate'
   | 'images_edit'
+  | 'videos_create'
+  | 'videos_retrieve'
+  | 'videos_content'
+  | 'videos_delete'
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
@@ -232,6 +236,19 @@ export interface RequestLogItemDto {
   cache_write_unknown_tokens: string
   output_tokens: string
   estimated_cost_nano_usd: string
+  video_metadata?: RequestLogVideoMetadataDto
+}
+
+export interface RequestLogVideoMetadataDto {
+  gateway_task_id?: string
+  upstream_task_id?: string
+  model?: string
+  mode?: string
+  seconds?: string
+  size?: string
+  aspect_ratio?: string
+  phase?: string
+  status?: string
 }
 
 export interface AutoDecisionDto {
@@ -315,6 +332,10 @@ const operations = [
   'responses_passthrough',
   'images_generate',
   'images_edit',
+  'videos_create',
+  'videos_retrieve',
+  'videos_content',
+  'videos_delete',
   'embeddings_create',
   'rerank',
   'decisions_create',
@@ -399,6 +420,7 @@ const itemFields = [
   'cache_write_unknown_tokens',
   'output_tokens',
   'estimated_cost_nano_usd',
+  'video_metadata',
 ] as const
 
 function invalidResponse(): never {
@@ -689,6 +711,26 @@ function projectUsageCost(record: Record<string, unknown>) {
   }
 }
 
+function projectVideoMetadata(value: unknown): RequestLogVideoMetadataDto | undefined {
+  if (value === undefined || value === null) return undefined
+  const record = projectRecord(value)
+  const text = (key: string): string | undefined => {
+    const field = record[key]
+    return field === undefined ? undefined : projectString(field, { allowEmpty: true })
+  }
+  return {
+    gateway_task_id: text('gateway_task_id'),
+    upstream_task_id: text('upstream_task_id'),
+    model: text('model'),
+    mode: text('mode'),
+    seconds: text('seconds'),
+    size: text('size'),
+    aspect_ratio: text('aspect_ratio'),
+    phase: text('phase'),
+    status: text('status'),
+  }
+}
+
 function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
   const status = projectEnum(record.status, statuses)
   const upstreamModel = projectNullableModel(record.upstream_model)
@@ -767,7 +809,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     estimated_cost_nano_usd: projectNonNegativeInt64String(
       record.total_estimated_cost_nano_usd ?? record.estimated_cost_nano_usd,
     ),
-    cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
+    video_metadata: projectVideoMetadata(record.video_metadata),    cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
     pricing_completeness: projectEnum(
       record.total_pricing_completeness ?? record.pricing_completeness,
       pricingCompletenessValues,

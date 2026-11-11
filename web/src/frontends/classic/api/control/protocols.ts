@@ -12,6 +12,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'openai-videos',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'openai-embeddings',
     supportsProtocolOnlyRouting: false,
   },

@@ -67,6 +67,10 @@ export type ChannelOperation =
   | 'responses_passthrough'
   | 'images_generate'
   | 'images_edit'
+  | 'videos_create'
+  | 'videos_retrieve'
+  | 'videos_content'
+  | 'videos_delete'
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
@@ -188,6 +192,10 @@ const operations = [
   'responses_passthrough',
   'images_generate',
   'images_edit',
+  'videos_create',
+  'videos_retrieve',
+  'videos_content',
+  'videos_delete',
   'embeddings_create',
   'rerank',
   'decisions_create',
