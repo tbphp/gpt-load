@@ -17,9 +17,9 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/sqlitetest"
@@ -526,48 +526,75 @@ func TestVideoDeleteFailureDoesNotMarkTaskCancelled(t *testing.T) {
 	}
 }
 
-func TestVideoFinalizePersistsBindingAfterParentCancellation(t *testing.T) {
-	_, handler, store, _, _, _ := newVideoGatewayFixture(t)
-	create := video.CreateRequest{Model: "sora-2", Mode: "text", Seconds: "5", Size: "720P", AspectRatio: "16:9"}
-	task, err := store.NewTask(1, create, "")
+type cancelAfterForward struct {
+	*scriptedForwarder
+	cancel context.CancelFunc
+}
+
+func (forwarder *cancelAfterForward) Forward(ctx context.Context, input ForwardInput) UpstreamResult {
+	result := forwarder.scriptedForwarder.Forward(ctx, input)
+	forwarder.cancel()
+	return result
+}
+
+func TestVideoBindingSurvivesClientDisconnect(t *testing.T) {
+	engine, handler, store, _, _, forwarder := newVideoGatewayFixture(t)
+	forwarder.results = []UpstreamResult{videoUpstreamSuccess("task_up_disconnect")}
+	ctx, cancel := context.WithCancel(context.Background())
+	handler.forwarder = &cancelAfterForward{scriptedForwarder: forwarder, cancel: cancel}
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"sora-2","prompt":"fox"}`)).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer gl-video")
+	request.Header.Set("Idempotency-Key", "disconnect-key")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	replay := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"sora-2","prompt":"fox"}`))
+	replay.Header.Set("Authorization", "Bearer gl-video")
+	replay.Header.Set("Idempotency-Key", "disconnect-key")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, replay)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("replay status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	id, _ := videoJSONResponse(t, recorder)["id"].(string)
+	task, err := store.Get(context.Background(), 1, id)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("binding was not persisted after disconnect: %v", err)
 	}
-	task, _, err = store.Reserve(context.Background(), task)
-	if err != nil {
-		t.Fatal(err)
+	if task.UpstreamTaskID != "task_up_disconnect" {
+		t.Fatalf("binding = %#v", task)
 	}
-	state := &videoRequestState{
-		store: store, create: &create, reservation: task, reserved: true,
-	}
-	parent, cancel := context.WithCancel(context.Background())
-	cancel()
-	writeCtx, cancelWrite := videoWriteContext(parent)
-	defer cancelWrite()
-	normalized, failure := handler.finalizeVideoCreate(
-		writeCtx, state,
-		scheduler.Selection{GroupID: 1, ChannelID: channel.OpenAI},
-		stateAccessCredentialRef(),
-		videoUpstreamSuccess("task_up_disconnect"), "sora-2", "sora-2",
-	)
-	if failure != nil {
-		t.Fatalf("finalize failed after parent cancellation: %#v", failure)
-	}
-	if normalized.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", normalized.StatusCode)
-	}
-	persisted, err := store.Get(context.Background(), 1, task.ID)
-	if err != nil {
-		t.Fatalf("binding was not persisted: %v", err)
-	}
-	if persisted.UpstreamTaskID != "task_up_disconnect" || persisted.CredentialID != 1 {
-		t.Fatalf("binding = %#v", persisted)
-	}
-	if !state.finalized {
-		t.Fatal("state was not marked finalized")
+	if len(forwarder.inputs) != 1 {
+		t.Fatalf("upstream calls = %d, want 1", len(forwarder.inputs))
 	}
 }
 
-func stateAccessCredentialRef() state.CredentialRef {
-	return state.CredentialRef{ID: 1, GroupID: 1}
+func TestValidatePublicVideoURLRejectsPrivateTargets(t *testing.T) {
+	for _, raw := range []string{
+		"http://127.0.0.1/x", "http://127.1.2.3/x", "http://169.254.169.254/latest/meta-data",
+		"http://10.0.0.1/x", "http://192.168.1.1/x", "http://100.64.0.1/x", "http://[::1]/x",
+		"http://0.0.0.0/x", "http://localhost/x", "ftp://1.1.1.1/x", "http://user:pass@1.1.1.1/x",
+	} {
+		if err := validatePublicVideoURL(context.Background(), raw); err == nil {
+			t.Fatalf("validatePublicVideoURL(%q) accepted a private/invalid target", raw)
+		}
+	}
+	if err := validatePublicVideoURL(context.Background(), "http://1.1.1.1/x"); err != nil {
+		t.Fatalf("public literal rejected: %v", err)
+	}
+}
+
+func TestVideoHTTPClientRedirectRejectsPrivateTarget(t *testing.T) {
+	client, err := newVideoHTTPClient(outboundproxy.Effective{}, state.TimeoutConfig{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := httptest.NewRequest(http.MethodGet, "http://1.1.1.1/first", nil)
+	redirect := httptest.NewRequest(http.MethodGet, "http://169.254.169.254/latest/meta-data", nil)
+	if err := client.CheckRedirect(redirect, []*http.Request{original}); err == nil {
+		t.Fatal("private redirect target was accepted")
+	}
+	public := httptest.NewRequest(http.MethodGet, "http://1.1.1.1/second", nil)
+	if err := client.CheckRedirect(public, []*http.Request{original}); err != nil {
+		t.Fatalf("public redirect target rejected: %v", err)
+	}
 }
