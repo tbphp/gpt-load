@@ -809,7 +809,8 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     estimated_cost_nano_usd: projectNonNegativeInt64String(
       record.total_estimated_cost_nano_usd ?? record.estimated_cost_nano_usd,
     ),
-    video_metadata: projectVideoMetadata(record.video_metadata),    cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
+    video_metadata: projectVideoMetadata(record.video_metadata),
+    cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
     pricing_completeness: projectEnum(
       record.total_pricing_completeness ?? record.pricing_completeness,
       pricingCompletenessValues,
