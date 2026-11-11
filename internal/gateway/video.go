@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -464,6 +463,13 @@ func (handler *Handler) handleVideoContent(
 	mediaClient := client
 	if !authenticated {
 		blockPrivate := !handler.allowPrivateVideoURLs
+		if blockPrivate {
+			if err := validatePublicVideoURL(ctx, sourceURL); err != nil {
+				value := reasonUpstreamConnect
+				handler.recordVideoContentAttempt(recorder, group, ref, task, 0, "", started, &value)
+				return &value
+			}
+		}
 		mediaClient, err = newVideoHTTPClient(effectiveProxy, group.Timeouts, blockPrivate)
 		if err != nil {
 			return &reasonVideoCredentialUnavailable
@@ -644,9 +650,6 @@ func newVideoHTTPClient(
 		return nil, fmt.Errorf("normalize video proxy: %w", err)
 	}
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
-	if blockPrivate {
-		dialer.Control = blockPrivateVideoDial
-	}
 	transport := &http.Transport{
 		DialContext:           dialer.DialContext,
 		ForceAttemptHTTP2:     true,
@@ -697,7 +700,10 @@ func newVideoHTTPClient(
 			if request.URL.Scheme != "http" && request.URL.Scheme != "https" {
 				return errors.New("invalid video redirect scheme")
 			}
-			if !blockPrivate && len(via) > 0 && !strings.EqualFold(request.URL.Host, via[0].URL.Host) {
+			if blockPrivate {
+				return validatePublicVideoURL(request.Context(), request.URL.String())
+			}
+			if len(via) > 0 && !strings.EqualFold(request.URL.Host, via[0].URL.Host) {
 				return errors.New("video content redirect changed host")
 			}
 			return nil
@@ -705,20 +711,36 @@ func newVideoHTTPClient(
 	}, nil
 }
 
-func blockPrivateVideoDial(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
+func validatePublicVideoURL(ctx context.Context, rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errors.New("video result URL is not a public http or https URL")
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return errors.New("video result address did not resolve to an IP")
+	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, parsed.Hostname())
+	if err != nil || len(addresses) == 0 {
+		return errors.New("video result URL could not be resolved")
 	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast() {
-		return errors.New("video result address is not public")
+	for _, address := range addresses {
+		if blockedVideoIP(address.IP) {
+			return errors.New("video result URL resolves to a private address")
+		}
 	}
 	return nil
+}
+
+func blockedVideoIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			return true // RFC 6598 carrier-grade NAT
+		}
+		ip = ip4
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast()
 }
 
 func applyVideoHeaderRules(headers http.Header, rules state.HeaderRules, apiKey string) {

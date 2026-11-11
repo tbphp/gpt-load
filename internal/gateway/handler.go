@@ -1544,9 +1544,11 @@ func (handler *Handler) executeAttempts(
 				if result.HasResponse() && !result.ProviderErrorBeforeCommit &&
 					result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
 					upstreamModel := optionalModelValue(selection.UpstreamModelID)
+					writeCtx, cancelWrite := videoWriteContext(ginContext.Request.Context())
 					normalized, failure := handler.finalizeVideoCreate(
-						ginContext.Request.Context(), videoState, selection, ref, result, externalModel, upstreamModel,
+						writeCtx, videoState, selection, ref, result, externalModel, upstreamModel,
 					)
+					cancelWrite()
 					if failure != nil {
 						handler.rememberVideoUpstreamError(ginContext, result)
 						handler.completeReason(ginContext, recorder, *failure)
@@ -1558,9 +1560,11 @@ func (handler *Handler) executeAttempts(
 					}
 				}
 			} else if videoState.pinned && result.HasResponse() {
+				writeCtx, cancelWrite := videoWriteContext(ginContext.Request.Context())
 				normalized, failure := handler.finalizeVideoResource(
-					ginContext.Request.Context(), videoState, result,
+					writeCtx, videoState, result,
 				)
+				cancelWrite()
 				if failure != nil {
 					handler.rememberVideoUpstreamError(ginContext, result)
 					handler.completeReason(ginContext, recorder, *failure)

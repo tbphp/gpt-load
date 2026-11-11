@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,7 +17,9 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/sqlitetest"
@@ -42,7 +45,9 @@ func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *videostore.St
 			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
 			{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
 			{ID: 3, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 3, Fingerprint: "credential-3"},
+			{ID: 4, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 4, Fingerprint: "credential-4"},
 		},
+		SystemSettings: config.Settings{state.SettingRetryCount: 4},
 		AccessKeys: []state.AccessKeyConfig{
 			{
 				ID: 1, Name: "video-client", KeyHash: keyService.Hash("gl-video"), Status: state.AccessKeyStatusActive,
@@ -57,8 +62,8 @@ func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *videostore.St
 		t.Fatalf("Publish() error = %v", err)
 	}
 	registry := state.NewCredentialRegistry()
-	entries := make([]state.CredentialEntry, 0, 3)
-	for index, secret := range []string{"key-one", "key-two", "key-three"} {
+	entries := make([]state.CredentialEntry, 0, 4)
+	for index, secret := range []string{"key-one", "key-two", "key-three", "key-four"} {
 		encrypted, err := keyService.Encrypt(`{"api_key":"` + secret + `"}`)
 		if err != nil {
 			t.Fatalf("Encrypt() error = %v", err)
@@ -519,4 +524,50 @@ func TestVideoDeleteFailureDoesNotMarkTaskCancelled(t *testing.T) {
 	if task.Status == video.StatusCancelled {
 		t.Fatal("failed delete was persisted as cancelled")
 	}
+}
+
+func TestVideoFinalizePersistsBindingAfterParentCancellation(t *testing.T) {
+	_, handler, store, _, _, _ := newVideoGatewayFixture(t)
+	create := video.CreateRequest{Model: "sora-2", Mode: "text", Seconds: "5", Size: "720P", AspectRatio: "16:9"}
+	task, err := store.NewTask(1, create, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _, err = store.Reserve(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &videoRequestState{
+		store: store, create: &create, reservation: task, reserved: true,
+	}
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	writeCtx, cancelWrite := videoWriteContext(parent)
+	defer cancelWrite()
+	normalized, failure := handler.finalizeVideoCreate(
+		writeCtx, state,
+		scheduler.Selection{GroupID: 1, ChannelID: channel.OpenAI},
+		stateAccessCredentialRef(),
+		videoUpstreamSuccess("task_up_disconnect"), "sora-2", "sora-2",
+	)
+	if failure != nil {
+		t.Fatalf("finalize failed after parent cancellation: %#v", failure)
+	}
+	if normalized.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", normalized.StatusCode)
+	}
+	persisted, err := store.Get(context.Background(), 1, task.ID)
+	if err != nil {
+		t.Fatalf("binding was not persisted: %v", err)
+	}
+	if persisted.UpstreamTaskID != "task_up_disconnect" || persisted.CredentialID != 1 {
+		t.Fatalf("binding = %#v", persisted)
+	}
+	if !state.finalized {
+		t.Fatal("state was not marked finalized")
+	}
+}
+
+func stateAccessCredentialRef() state.CredentialRef {
+	return state.CredentialRef{ID: 1, GroupID: 1}
 }

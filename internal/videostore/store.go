@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/video"
@@ -26,6 +27,8 @@ func NewStore(db *gorm.DB) *Store {
 	if raw := strings.TrimSpace(os.Getenv("VIDEO_TASK_TTL")); raw != "" {
 		if ttl, err := time.ParseDuration(raw); err == nil && ttl > 0 {
 			store.ttl = ttl
+		} else {
+			logrus.WithField("value", raw).Warn("ignoring invalid VIDEO_TASK_TTL")
 		}
 	}
 	return store
