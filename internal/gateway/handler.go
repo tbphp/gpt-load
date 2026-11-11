@@ -1641,6 +1641,9 @@ func (handler *Handler) executeAttempts(
 				if forwardAttempts < forwardAttemptLimit &&
 					(result.StatusCode == http.StatusUnauthorized || result.StatusCode == http.StatusForbidden || result.StatusCode == http.StatusTooManyRequests) {
 					decision.Retry = health.RetryNextCandidate
+					if decision.Effect == health.EffectSkipGroup {
+						decision.Effect = health.EffectNone
+					}
 				}
 			}
 		}

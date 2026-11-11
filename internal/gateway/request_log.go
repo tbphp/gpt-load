@@ -494,6 +494,16 @@ func (recorder *requestRecorder) retryIfAnotherForward(index int) {
 	}
 }
 
+func (recorder *requestRecorder) completeLocalSuccess(statusCode int, upstreamModel string) {
+	if recorder == nil {
+		return
+	}
+	recorder.finishTiming()
+	recorder.outcome = requestOutcome{
+		status: telemetry.RequestStatusSuccess, statusCode: statusCode, upstreamModel: upstreamModel,
+	}
+}
+
 func (recorder *requestRecorder) completeReason(value reason) {
 	if recorder == nil {
 		return

@@ -96,6 +96,7 @@ func (handler *Handler) prepareVideoRequest(
 		if !created {
 			if recorder != nil {
 				recorder.setVideoMetadata(observationForExistingTask(task, "create"))
+				recorder.completeLocalSuccess(http.StatusOK, task.UpstreamModel)
 			}
 			handler.writeVideoJSON(ginContext, http.StatusOK, video.CreateResponse(task))
 			state.handled = true
