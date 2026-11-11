@@ -283,6 +283,10 @@ func buildCredentialAttemptStatDeltas(
 		if attempt.CredentialID == 0 {
 			return nil, fmt.Errorf("aggregate credential attempt: credential ID is zero")
 		}
+		// 手动测试不是数据面流量，不计入凭据活跃度统计。
+		if attempt.Operation == string(execution.OperationProbe) {
+			continue
+		}
 		if attempt.DispatchState == string(execution.DispatchLocal) {
 			continue
 		}
@@ -419,8 +423,10 @@ func buildUsageAggregationJournals(
 ) ([]models.UsageAggregationJournal, error) {
 	journals := make([]models.UsageAggregationJournal, 0, len(rows))
 	for _, row := range rows {
-		// 未转发请求和独立搜索只保留日志明细，不参与模型用量聚合。
-		if row.AttemptCount == 0 || row.Operation == string(execution.OperationWebSearch) {
+		// 未转发请求、独立搜索和手动测试只保留日志明细，不参与模型用量聚合。
+		if row.AttemptCount == 0 ||
+			row.Operation == string(execution.OperationWebSearch) ||
+			row.Operation == string(execution.OperationProbe) {
 			continue
 		}
 		deltas, err := buildUsageStatDeltas([]models.RequestLog{row})

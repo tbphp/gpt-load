@@ -32,6 +32,7 @@ import (
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/subscription"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+	"gpt-load/internal/telemetry"
 )
 
 const (
@@ -63,6 +64,7 @@ type Service struct {
 	stats                             *health.StatsStore
 	mutations                         credentialMutationCoordinator
 	requestLogStats                   RequestLogStatsReader
+	requestLogSink                    telemetry.RequestLogSink
 	accessQuota                       *accessquota.Runtime
 	modelDiscoveryTimeout             time.Duration
 	random                            io.Reader
@@ -166,6 +168,7 @@ func NewService(
 	mutations *health.MutationCoordinator,
 	requestLogStats RequestLogStatsReader,
 	accessQuota *accessquota.Runtime,
+	requestLogSink telemetry.RequestLogSink,
 	channelRegistries ...*channel.Registry,
 ) *Service {
 	channelRegistry := channel.NewRegistry()
@@ -187,6 +190,7 @@ func NewService(
 		encryption:      encryptionService, executor: executor, subscriptions: subscriptions, requestLogs: requestLogs,
 		usageStats: usageStats, homeStatistics: homeStatistics,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats, accessQuota: accessQuota,
+		requestLogSink:        requestLogSink,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader,
 		operationRandom:       rand.Reader,

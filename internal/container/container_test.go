@@ -419,6 +419,34 @@ func TestBuildContainerWiresUsageReaderToSingletonRequestLogService(t *testing.T
 	}
 }
 
+func TestBuildContainerWiresRequestLogSinkToControlService(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		sink telemetry.RequestLogSink,
+		db *gorm.DB,
+	) {
+		sqlDB, dbErr := db.DB()
+		if dbErr == nil {
+			t.Cleanup(func() { _ = sqlDB.Close() })
+		}
+		if sink != service {
+			t.Fatalf("RequestLogSink = %T, want singleton %p", sink, service)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve request log sink graph: %v", err)
+	}
+}
+
 func TestBuildContainerWiresHomeStatisticsReaderToSingletonRequestLogService(
 	t *testing.T,
 ) {

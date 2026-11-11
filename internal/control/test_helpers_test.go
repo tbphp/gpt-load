@@ -31,6 +31,7 @@ import (
 	"gpt-load/internal/subscription"
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
+	"gpt-load/internal/telemetry"
 	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/sqlitetest"
 )
@@ -126,6 +127,7 @@ type serviceFixture struct {
 	mutations       *health.MutationCoordinator
 	requestLogStats *staticRequestLogStatsReader
 	accessQuota     *accessquota.Runtime
+	requestLogSink  *recordingRequestLogSink
 	service         *Service
 }
 
@@ -208,6 +210,7 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 	requestLogStats := &staticRequestLogStatsReader{}
 	priceRuntime := NewPriceRuntime()
 	catalogRuntime := &catalog.Runtime{}
+	requestLogSink := &recordingRequestLogSink{}
 	service := NewService(
 		db,
 		manager,
@@ -225,6 +228,7 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 		mutations,
 		requestLogStats,
 		accessQuota,
+		requestLogSink,
 		channelRegistry,
 	)
 	installCodexControlTestHooks(service)
@@ -235,8 +239,33 @@ func newServiceFixtureWithDatabase(t *testing.T, db *gorm.DB) serviceFixture {
 		db: db, manager: manager, registry: registry, channelRegistry: channelRegistry, encryption: keyService,
 		priceRuntime: priceRuntime, catalogRuntime: catalogRuntime,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats, accessQuota: accessQuota,
-		service: service,
+		requestLogSink: requestLogSink,
+		service:        service,
 	}
+}
+
+// recordingRequestLogSink 收集请求日志事件，供控制面测试断言。
+type recordingRequestLogSink struct {
+	mu     sync.Mutex
+	events []telemetry.RequestEvent
+}
+
+func (sink *recordingRequestLogSink) Emit(event telemetry.RequestEvent) {
+	if sink == nil {
+		return
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	sink.events = append(sink.events, event)
+}
+
+func (sink *recordingRequestLogSink) Events() []telemetry.RequestEvent {
+	if sink == nil {
+		return nil
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	return append([]telemetry.RequestEvent(nil), sink.events...)
 }
 
 type controlAccessQuotaReconciler struct {

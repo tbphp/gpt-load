@@ -768,43 +768,11 @@ func (recorder *requestRecorder) completeMissingOutcome(written bool, statusCode
 }
 
 func telemetryFailureCategory(value health.FailureCategory) telemetry.FailureCategory {
-	switch value {
-	case health.FailureCategoryOK:
-		return telemetry.FailureCategoryOK
-	case health.FailureCategoryRateLimited:
-		return telemetry.FailureCategoryRateLimited
-	case health.FailureCategoryModelUnavailable:
-		return telemetry.FailureCategoryModelUnavailable
-	case health.FailureCategoryInvalidKey:
-		return telemetry.FailureCategoryInvalidKey
-	case health.FailureCategoryUpstreamHostError:
-		return telemetry.FailureCategoryUpstreamHost
-	case health.FailureCategoryClientError:
-		return telemetry.FailureCategoryClientError
-	case health.FailureCategoryConversionUnsupported:
-		return telemetry.FailureCategoryConversionUnsupported
-	case health.FailureCategoryDownstreamCancel:
-		return telemetry.FailureCategoryDownstreamCancel
-	case health.FailureCategoryAuthenticationRequired:
-		return telemetry.FailureCategoryAuthenticationRequired
-	default:
-		return telemetry.FailureCategoryAmbiguous
-	}
+	return telemetry.FailureCategoryOf(value)
 }
 
 func telemetryAction(decision health.Decision) telemetry.Action {
-	switch decision.LegacyAction() {
-	case health.ActionRetry:
-		return telemetry.ActionRetry
-	case health.ActionCooldownCredential:
-		return telemetry.ActionCooldownCredential
-	case health.ActionFailCredential:
-		return telemetry.ActionFailCredential
-	case health.ActionSkipGroup:
-		return telemetry.ActionSkipGroup
-	default:
-		return telemetry.ActionTerminate
-	}
+	return telemetry.ActionOf(decision)
 }
 
 func upstreamErrorCode(result UpstreamResult, category health.FailureCategory) string {

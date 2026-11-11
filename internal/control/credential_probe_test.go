@@ -25,6 +25,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
 )
 
 type credentialProbeTestExecutor struct {
@@ -857,6 +858,73 @@ func TestClassifyCredentialProbeResultUsesStableSafeOutcomes(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), secret) {
 		t.Fatalf("probe response leaked sensitive upstream content: %s", encoded)
+	}
+}
+
+func TestGroupCredentialProbeRecordsRequestLogEntry(t *testing.T) {
+	t.Parallel()
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupWithCredentials(t, fixture, "probe-request-log-secret")
+	var credential models.Credential
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").First(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	fixture.service.executor = &credentialProbeTestExecutor{
+		result: failedCredentialProbeResult(0, execution.ErrorKindInternal, ""),
+	}
+	response, err := fixture.service.TestGroupCredential(t.Context(), groupID, credential.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != CredentialProbeOutcomeInconclusive {
+		t.Fatalf("outcome = %q, want inconclusive", response.Outcome)
+	}
+	events := fixture.requestLogSink.Events()
+	if len(events) != 1 {
+		t.Fatalf("request log events = %d, want 1", len(events))
+	}
+	event := events[0]
+	if event.Operation != execution.OperationProbe {
+		t.Fatalf("operation = %q, want %q", event.Operation, execution.OperationProbe)
+	}
+	if event.Usage.GroupID != groupID || event.Usage.CredentialID != credential.ID {
+		t.Fatalf("usage attribution = group %d credential %d, want group %d credential %d",
+			event.Usage.GroupID, event.Usage.CredentialID, groupID, credential.ID)
+	}
+	if event.AccessKeyID != 0 {
+		t.Fatalf("access key id = %d, want 0", event.AccessKeyID)
+	}
+	if event.Status != telemetry.RequestStatusError {
+		t.Fatalf("status = %q, want error", event.Status)
+	}
+	if event.ErrorCode != string(CredentialProbeReasonInternalError) {
+		t.Fatalf("error code = %q, want %q", event.ErrorCode, CredentialProbeReasonInternalError)
+	}
+	if event.ErrorSummary != response.ErrorDetail {
+		t.Fatalf("error summary = %q, want %q", event.ErrorSummary, response.ErrorDetail)
+	}
+	if event.UpstreamModel != response.Model {
+		t.Fatalf("upstream model = %q, want %q", event.UpstreamModel, response.Model)
+	}
+	if len(event.Attempts) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(event.Attempts))
+	}
+	attempt := event.Attempts[0]
+	if attempt.Operation != execution.OperationProbe || attempt.CredentialID != credential.ID {
+		t.Fatalf("attempt = %+v, want a probe attempt for the tested credential", attempt)
+	}
+	if attempt.GroupID != groupID {
+		t.Fatalf("attempt group = %d, want %d", attempt.GroupID, groupID)
+	}
+	if attempt.FailureOrigin != execution.ErrorOriginInternal {
+		t.Fatalf("failure origin = %q, want %q", attempt.FailureOrigin, execution.ErrorOriginInternal)
+	}
+	if attempt.DispatchState != execution.DispatchMaybeSent {
+		t.Fatalf("dispatch state = %q, want %q", attempt.DispatchState, execution.DispatchMaybeSent)
+	}
+	if attempt.RuleID == "" {
+		t.Fatal("attempt has no rule id")
 	}
 }
 

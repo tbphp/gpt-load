@@ -23,10 +23,13 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 type CredentialProbeOutcome string
@@ -94,10 +97,13 @@ type credentialProbeCredential struct {
 }
 
 type credentialProbeExecution struct {
-	result   execution.AttemptResult
-	detail   string
-	latency  time.Duration
-	protocol protocol.Protocol
+	result           execution.AttemptResult
+	detail           string
+	latency          time.Duration
+	protocol         protocol.Protocol
+	requestID        string
+	routeMode        channel.RouteMode
+	upstreamProtocol protocol.Protocol
 }
 
 type credentialProbeExecutor struct {
@@ -245,6 +251,8 @@ func (probe *credentialProbeExecutor) Probe(
 		executed := credentialProbeExecution{
 			result: result, detail: credentialProbeErrorDetail(result, apiKey),
 			latency: latency, protocol: probeProtocol,
+			requestID: requestID, routeMode: channel.RouteMode(routeMode),
+			upstreamProtocol: result.UpstreamProtocol,
 		}
 		if credentialProbePassed(result) || index+1 == len(probeProtocols) ||
 			!validationProbeNeedsProtocolFallback(result) {
@@ -313,20 +321,41 @@ func classifyCredentialProbeResult(result execution.AttemptResult) (
 	CredentialProbeOutcome,
 	*CredentialProbeReason,
 ) {
+	outcome, reason, _ := evaluateCredentialProbeResult(result)
+	return outcome, reason
+}
+
+// evaluateCredentialProbeResult 判定探测结果，并一并给出健康判定。
+// 请求日志需要失败类别、来源与规则 ID，因此判定不再只用于推导展示文案。
+func evaluateCredentialProbeResult(result execution.AttemptResult) (
+	CredentialProbeOutcome,
+	*CredentialProbeReason,
+	health.Decision,
+) {
 	if result.Validate() != nil {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonInternalError,
 		)
+		return outcome, reason, health.Decision{
+			Category: health.FailureCategoryAmbiguous,
+			Origin:   execution.ErrorOriginInternal,
+			Scope:    execution.ErrorScopeGroup,
+			RuleID:   "probe.invalid_result",
+		}
 	}
 	if credentialProbePassed(result) {
-		return CredentialProbeOutcomePassed, nil
+		return CredentialProbeOutcomePassed, nil, health.Decision{
+			Category: health.FailureCategoryOK,
+			Origin:   execution.ErrorOriginUpstream,
+		}
 	}
 	if result.Error == nil {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonUnknown,
 		)
+		return outcome, reason, health.Decision{Category: health.FailureCategoryAmbiguous}
 	}
 	decision := health.JudgeExecution(health.ExecutionAttempt{
 		DispatchState: result.DispatchState,
@@ -337,60 +366,69 @@ func classifyCredentialProbeResult(result execution.AttemptResult) (
 	}, health.DecisionContext{Operation: execution.OperationProbe})
 	switch decision.Category {
 	case health.FailureCategoryInvalidKey:
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeFailed,
 			CredentialProbeReasonInvalidCredential,
 		)
+		return outcome, reason, decision
 	case health.FailureCategoryModelUnavailable:
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeFailed,
 			CredentialProbeReasonModelUnavailable,
 		)
+		return outcome, reason, decision
 	case health.FailureCategoryRateLimited:
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonRateLimited,
 		)
+		return outcome, reason, decision
 	}
 	if result.Error.Kind == execution.ErrorKindTimeout {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonTimeout,
 		)
+		return outcome, reason, decision
 	}
 	if result.Error.Kind == execution.ErrorKindConversionUnsupported ||
 		result.Error.Kind == execution.ErrorKindInvalidRequest {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonIncompatible,
 		)
+		return outcome, reason, decision
 	}
 	// 本地执行层的失败：请求没有得到上游响应，凭据本身的状态仍然未知。
 	if result.Error.Kind == execution.ErrorKindInternal {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonInternalError,
 		)
+		return outcome, reason, decision
 	}
 	if result.Error.Kind == execution.ErrorKindCanceled {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonCanceled,
 		)
+		return outcome, reason, decision
 	}
 	if decision.Category == health.FailureCategoryUpstreamHostError ||
 		result.Error.Kind == execution.ErrorKindTransport ||
 		result.Error.Kind == execution.ErrorKindHTTP ||
 		result.Error.Kind == execution.ErrorKindProvider {
-		return credentialProbeOutcomeWithReason(
+		outcome, reason := credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonUpstreamError,
 		)
+		return outcome, reason, decision
 	}
-	return credentialProbeOutcomeWithReason(
+	outcome, reason := credentialProbeOutcomeWithReason(
 		CredentialProbeOutcomeInconclusive,
 		CredentialProbeReasonUnknown,
 	)
+	return outcome, reason, decision
 }
 
 func credentialProbeOutcomeWithReason(
@@ -436,7 +474,7 @@ func (s *Service) TestGroupCredential(
 	if err != nil {
 		return CredentialProbeResponse{}, err
 	}
-	outcome, reason := classifyCredentialProbeResult(executed.result)
+	outcome, reason, decision := evaluateCredentialProbeResult(executed.result)
 	testedAt, err := epochms.FromTime(s.now().UTC())
 	if err != nil {
 		return CredentialProbeResponse{}, fmt.Errorf(
@@ -456,7 +494,90 @@ func (s *Service) TestGroupCredential(
 		response.CanRestore = response.RestoreProof != nil
 	}
 	logCredentialProbe(credential.ref, response)
+	s.recordCredentialProbeRequestLog(group, target, credential.ref, executed, outcome, reason, decision)
 	return response, nil
+}
+
+// recordCredentialProbeRequestLog 把一次凭据测试写入请求日志。
+// 测试绕过数据面直接调用执行层，不落库时管理界面的请求日志里看不到这次上游交互，
+// 也就无法区分「上游没响应」和「上游响应了但解析失败」。
+func (s *Service) recordCredentialProbeRequestLog(
+	group state.GroupView,
+	target groupValidationTarget,
+	ref state.CredentialRef,
+	executed credentialProbeExecution,
+	outcome CredentialProbeOutcome,
+	reason *CredentialProbeReason,
+	decision health.Decision,
+) {
+	if s == nil || s.requestLogSink == nil {
+		return
+	}
+	completedAt := s.now().UTC()
+	status := telemetry.RequestStatusSuccess
+	if outcome != CredentialProbeOutcomePassed {
+		status = telemetry.RequestStatusError
+	}
+	errorCode := ""
+	if reason != nil {
+		errorCode = string(*reason)
+	}
+	durationMS := max(executed.latency.Milliseconds(), 0)
+	result := executed.result
+	s.requestLogSink.Emit(telemetry.RequestEvent{
+		RequestID:     executed.requestID,
+		CompletedAt:   completedAt,
+		Protocol:      executed.protocol,
+		Operation:     execution.OperationProbe,
+		ClientModel:   target.model,
+		UpstreamModel: target.model,
+		Status:        status,
+		StatusCode:    result.StatusCode,
+		ErrorCode:     errorCode,
+		ErrorSummary:  executed.detail,
+		DurationMs:    durationMS,
+		Usage: telemetry.UsageObservation{
+			// 探测本身没有可计费的用量，但必须绑定到这次尝试，
+			// 否则请求日志行拿不到分组与凭据归属。
+			GroupID:         group.ID,
+			ChannelID:       group.ChannelID,
+			CredentialID:    ref.ID,
+			AttemptSequence: 1,
+			Result:          usage.Result{State: usage.StateNotApplicable},
+			Pricing: telemetry.PricingObservation{
+				UpstreamModel:       target.model,
+				CostState:           string(pricing.CostStateNotApplicable),
+				PricingCompleteness: string(pricing.CompletenessNotApplicable),
+			},
+		},
+		Attempts: []telemetry.Attempt{{
+			Sequence:          1,
+			CompletedAt:       completedAt,
+			GroupID:           group.ID,
+			GroupName:         group.Name,
+			ChannelID:         group.ChannelID,
+			CredentialID:      ref.ID,
+			Operation:         execution.OperationProbe,
+			RouteMode:         executed.routeMode,
+			UpstreamModel:     target.model,
+			UpstreamRequestID: result.UpstreamRequestID,
+			DispatchState:     result.DispatchState,
+			ResponseStarted:   result.ResponseStarted,
+			UpstreamProtocol:  executed.upstreamProtocol,
+			StatusCode:        result.StatusCode,
+			DurationMs:        durationMS,
+			FailureCategory:   telemetry.FailureCategoryOf(decision.Category),
+			FailureOrigin:     decision.Origin,
+			FailureScope:      decision.Scope,
+			RetryDirective:    telemetry.RetryDirective(decision.Retry),
+			Effect:            telemetry.Effect(decision.Effect),
+			CooldownUntil:     decision.CooldownUntil,
+			RuleID:            string(decision.RuleID),
+			Action:            telemetry.ActionOf(decision),
+			ErrorCode:         errorCode,
+			ErrorSummary:      executed.detail,
+		}},
+	})
 }
 
 func (s *Service) RestoreTestedGroupCredential(
