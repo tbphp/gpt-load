@@ -498,6 +498,8 @@ export default {
           timeout: 'リクエストがタイムアウトしました',
           upstream_error: '上流サービスでエラーが発生しました',
           probe_incompatible: 'このチャネルまたはモデルではプローブを実行できません',
+          internal_error: 'ローカル実行に失敗しました',
+          canceled: 'リクエストがキャンセルされました',
           unknown: '理由を特定できませんでした',
         },
         restorePrompt:

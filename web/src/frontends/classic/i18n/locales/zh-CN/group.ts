@@ -480,6 +480,8 @@ export default {
           timeout: '请求超时',
           upstream_error: '上游服务异常',
           probe_incompatible: '当前渠道或模型无法完成探测',
+          internal_error: '本地执行失败',
+          canceled: '请求已取消',
           unknown: '无法确定原因',
         },
         restorePrompt: '此密钥当前已被拉黑。恢复后会重新参与调度。',

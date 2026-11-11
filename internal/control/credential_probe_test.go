@@ -303,6 +303,7 @@ func TestGroupCredentialProbeReturnsBoundedSafeErrorDetail(t *testing.T) {
 		{
 			name: "invalid result", status: http.StatusForbidden,
 			summary: "invalid executor result", invalid: true,
+			want: "invalid attempt result: dispatch_state: unsupported value",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -779,13 +780,13 @@ func TestClassifyCredentialProbeResultUsesStableSafeOutcomes(t *testing.T) {
 			wantOutcome: CredentialProbeOutcomeFailed, wantReason: credentialProbeReasonPointer(CredentialProbeReasonInvalidCredential),
 		},
 		{
-			name: "unauthorized without required error evidence is unknown",
+			name: "unauthorized without required error evidence is an internal error",
 			result: execution.AttemptResult{
 				DispatchState:   execution.DispatchMaybeSent,
 				ResponseStarted: true,
 				StatusCode:      http.StatusUnauthorized,
 			},
-			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonUnknown),
+			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonInternalError),
 		},
 		{
 			name:        "model unavailable",
@@ -818,9 +819,19 @@ func TestClassifyCredentialProbeResultUsesStableSafeOutcomes(t *testing.T) {
 			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonUpstreamError),
 		},
 		{
-			name:        "unknown",
+			name:        "internal error kind",
+			result:      failedCredentialProbeResult(0, execution.ErrorKindInternal, ""),
+			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonInternalError),
+		},
+		{
+			name:        "canceled error kind",
+			result:      failedCredentialProbeResult(0, execution.ErrorKindCanceled, ""),
+			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonCanceled),
+		},
+		{
+			name:        "empty attempt result is an internal error",
 			result:      execution.AttemptResult{},
-			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonUnknown),
+			wantOutcome: CredentialProbeOutcomeInconclusive, wantReason: credentialProbeReasonPointer(CredentialProbeReasonInternalError),
 		},
 	}
 
@@ -845,6 +856,22 @@ func TestClassifyCredentialProbeResultUsesStableSafeOutcomes(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), secret) {
 		t.Fatalf("probe response leaked sensitive upstream content: %s", encoded)
+	}
+}
+
+func TestCredentialProbeErrorDetailExplainsInvalidAttemptResult(t *testing.T) {
+	t.Parallel()
+	result := execution.AttemptResult{
+		DispatchState:   execution.DispatchMaybeSent,
+		ResponseStarted: true,
+		StatusCode:      http.StatusUnauthorized,
+	}
+	detail := credentialProbeErrorDetail(result, "probe-sensitive-value")
+	if !strings.Contains(detail, "invalid attempt result") {
+		t.Fatalf("credentialProbeErrorDetail() = %q, want an invalid attempt result explanation", detail)
+	}
+	if strings.Contains(detail, "probe-sensitive-value") {
+		t.Fatalf("credentialProbeErrorDetail() leaked the credential: %q", detail)
 	}
 }
 

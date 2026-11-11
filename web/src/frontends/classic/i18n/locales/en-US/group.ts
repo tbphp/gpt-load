@@ -497,6 +497,8 @@ export default {
           timeout: 'The request timed out',
           upstream_error: 'The upstream service returned an error',
           probe_incompatible: 'This channel or model cannot run the probe',
+          internal_error: 'Local execution failed',
+          canceled: 'The request was canceled',
           unknown: 'The reason could not be determined',
         },
         restorePrompt: 'This API key is blacklisted. Restoring it returns it to scheduling.',

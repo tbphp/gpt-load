@@ -46,6 +46,8 @@ const (
 	CredentialProbeReasonTimeout           CredentialProbeReason = "timeout"
 	CredentialProbeReasonUpstreamError     CredentialProbeReason = "upstream_error"
 	CredentialProbeReasonIncompatible      CredentialProbeReason = "probe_incompatible"
+	CredentialProbeReasonInternalError     CredentialProbeReason = "internal_error"
+	CredentialProbeReasonCanceled          CredentialProbeReason = "canceled"
 	CredentialProbeReasonUnknown           CredentialProbeReason = "unknown"
 )
 
@@ -257,7 +259,11 @@ func (probe *credentialProbeExecutor) Probe(
 
 // 手动测试只返回执行层的安全错误证据，不返回上游原始响应体或响应头。
 func credentialProbeErrorDetail(result execution.AttemptResult, apiKey string) string {
-	if result.Validate() != nil || result.Error == nil {
+	if err := result.Validate(); err != nil {
+		// 结果自身不合法时没有可用的上游证据，必须说明失败原因而不是留空。
+		return redact.New().String("invalid attempt result: "+err.Error(), apiKey)
+	}
+	if result.Error == nil {
 		return ""
 	}
 	var metadata []string
@@ -310,7 +316,7 @@ func classifyCredentialProbeResult(result execution.AttemptResult) (
 	if result.Validate() != nil {
 		return credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
-			CredentialProbeReasonUnknown,
+			CredentialProbeReasonInternalError,
 		)
 	}
 	if credentialProbePassed(result) {
@@ -357,6 +363,19 @@ func classifyCredentialProbeResult(result execution.AttemptResult) (
 		return credentialProbeOutcomeWithReason(
 			CredentialProbeOutcomeInconclusive,
 			CredentialProbeReasonIncompatible,
+		)
+	}
+	// 本地执行层的失败：请求没有得到上游响应，凭据本身的状态仍然未知。
+	if result.Error.Kind == execution.ErrorKindInternal {
+		return credentialProbeOutcomeWithReason(
+			CredentialProbeOutcomeInconclusive,
+			CredentialProbeReasonInternalError,
+		)
+	}
+	if result.Error.Kind == execution.ErrorKindCanceled {
+		return credentialProbeOutcomeWithReason(
+			CredentialProbeOutcomeInconclusive,
+			CredentialProbeReasonCanceled,
 		)
 	}
 	if decision.Category == health.FailureCategoryUpstreamHostError ||

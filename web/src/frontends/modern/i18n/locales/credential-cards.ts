@@ -135,6 +135,8 @@ export const zhCN = {
     timeout: '请求超时',
     upstream_error: '上游错误',
     probe_incompatible: '不支持此测试方式',
+    internal_error: '本地执行失败',
+    canceled: '请求已取消',
     unknown: '未知原因',
   },
   failures: {
@@ -290,6 +292,8 @@ export const enUS: typeof zhCN = {
     timeout: 'Timed out',
     upstream_error: 'Upstream error',
     probe_incompatible: 'Test not supported',
+    internal_error: 'Local execution failed',
+    canceled: 'Request canceled',
     unknown: 'Unknown reason',
   },
   failures: {
@@ -441,6 +445,8 @@ export const jaJP: typeof zhCN = {
     timeout: 'タイムアウト',
     upstream_error: '上流エラー',
     probe_incompatible: 'テスト非対応',
+    internal_error: 'ローカル実行に失敗しました',
+    canceled: 'リクエストがキャンセルされました',
     unknown: '不明な原因',
   },
   failures: {

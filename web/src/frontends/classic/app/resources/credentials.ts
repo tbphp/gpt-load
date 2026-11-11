@@ -153,6 +153,8 @@ const inconclusiveCredentialTestReasons = [
   'timeout',
   'upstream_error',
   'probe_incompatible',
+  'internal_error',
+  'canceled',
   'unknown',
 ] as const
 const configuredStatuses = ['active', 'disabled'] as const

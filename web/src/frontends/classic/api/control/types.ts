@@ -369,6 +369,8 @@ export type CredentialTestReason =
   | 'timeout'
   | 'upstream_error'
   | 'probe_incompatible'
+  | 'internal_error'
+  | 'canceled'
   | 'unknown'
 
 export interface CredentialTestResultDto {
