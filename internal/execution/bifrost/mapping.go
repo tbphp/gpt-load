@@ -657,6 +657,40 @@ func sdkErrorDispatchState(bifrostError *schemas.BifrostError, responseStarted b
 	return execution.DispatchMaybeSent
 }
 
+// providerResponseFailureCodes 是 Bifrost 在「上游响应无法解析」时使用的固定文案。
+// provider 适配层只回传这些文案，真正的失败原因留在 Error.Error 里。
+var providerResponseFailureCodes = map[string]bool{
+	schemas.ErrProviderResponseUnmarshal:  true,
+	schemas.ErrProviderResponseDecode:     true,
+	schemas.ErrProviderResponseEmpty:      true,
+	schemas.ErrProviderResponseHTML:       true,
+	schemas.ErrProviderResponseDecompress: true,
+}
+
+// providerResponseFailureDetail 在上游响应无法解析时补上底层失败原因。
+// "failed to unmarshal response from provider API" 本身不含任何定位信息，
+// 丢掉底层解析错误就无法区分「上游返回了 HTML」「响应字段类型不符」这类问题。
+func providerResponseFailureDetail(bifrostError *schemas.BifrostError, message string) string {
+	if bifrostError == nil || bifrostError.Error == nil || bifrostError.Error.Error == nil {
+		return message
+	}
+	if !providerResponseFailureCodes[message] {
+		return message
+	}
+	detail := strings.TrimSpace(bifrostError.Error.Error.Error())
+	if detail == "" || strings.Contains(message, detail) {
+		return message
+	}
+	// 底层错误可能带上游地址；地址里可能带凭据，这类细节不进入错误证据。
+	if strings.Contains(detail, "://") {
+		return message
+	}
+	if message == "" {
+		return detail
+	}
+	return message + ": " + detail
+}
+
 func errorEvidence(
 	bifrostError *schemas.BifrostError,
 	bifrostContext *schemas.BifrostContext,
@@ -713,7 +747,7 @@ func errorEvidence(
 		StatusCode: evidenceStatus,
 		Type:       typeValue,
 		Code:       codeValue,
-		Summary:    errorMessageSummary([]byte(messageValue), summary, secrets),
+		Summary:    errorMessageSummary([]byte(providerResponseFailureDetail(bifrostError, messageValue)), summary, secrets),
 		RequestID:  requestID,
 		RetryAfter: retryAfter(headers),
 		Header:     evidenceHeaders(headers),

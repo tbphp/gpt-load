@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
@@ -856,6 +857,30 @@ func TestClassifyCredentialProbeResultUsesStableSafeOutcomes(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), secret) {
 		t.Fatalf("probe response leaked sensitive upstream content: %s", encoded)
+	}
+}
+
+func TestCredentialProbeLogRecordsErrorDetail(t *testing.T) {
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+	logCredentialProbe(state.CredentialRef{ID: 7, GroupID: 3}, CredentialProbeResponse{
+		Outcome:     CredentialProbeOutcomeInconclusive,
+		Model:       "gpt-4o",
+		Protocol:    protocol.OpenAICompletions,
+		LatencyMS:   1060,
+		Reason:      credentialProbeReasonPointer(CredentialProbeReasonInternalError),
+		ErrorDetail: "failed to unmarshal response from provider API: invalid character '<'",
+	})
+	entry := hook.LastEntry()
+	if entry == nil {
+		t.Fatal("credential probe produced no log entry")
+	}
+	if entry.Data["event"] != "credential_probe_completed" {
+		t.Fatalf("event = %v, want credential_probe_completed", entry.Data["event"])
+	}
+	detail, _ := entry.Data["error_detail"].(string)
+	if !strings.Contains(detail, "invalid character") {
+		t.Fatalf("error_detail = %q, want the upstream failure detail", detail)
 	}
 }
 

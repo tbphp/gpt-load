@@ -696,9 +696,18 @@ func logCredentialProbe(ref state.CredentialRef, response CredentialProbeRespons
 			"model":         response.Model,
 			"protocol":      response.Protocol,
 			"latency_ms":    response.LatencyMS,
+			"error_detail":  singleLineDetail(response.ErrorDetail),
 		},
 		"Credential probe completed",
 	)
+}
+
+// singleLineDetail 把多行错误详情压成一行；缺省详情不写入日志字段。
+func singleLineDetail(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.Join(strings.Fields(value), " ")
 }
 
 // 禁用分组不进入数据面快照；只为手动测试编译局部视图，不发布或启用分组。

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -15,6 +16,56 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
+
+func TestProviderResponseUnmarshalErrorKeepsUnderlyingParseFailure(t *testing.T) {
+	t.Parallel()
+	bifrostError := &schemas.BifrostError{
+		IsBifrostError: true,
+		Error: &schemas.ErrorField{
+			Message: schemas.ErrProviderResponseUnmarshal,
+			Error:   errors.New("invalid character '<' looking for beginning of value"),
+		},
+	}
+	result := unaryErrorResult(
+		bifrostError,
+		schemas.NewBifrostContext(context.Background(), schemas.NoDeadline),
+		nil,
+	)
+	if result.Error == nil {
+		t.Fatal("result.Error is nil")
+	}
+	if result.Error.Kind != execution.ErrorKindInternal {
+		t.Fatalf("kind = %q, want %q", result.Error.Kind, execution.ErrorKindInternal)
+	}
+	if !strings.Contains(result.Error.Summary, "invalid character") {
+		t.Fatalf("summary = %q, want the underlying parse failure", result.Error.Summary)
+	}
+	if !strings.Contains(result.Error.Summary, schemas.ErrProviderResponseUnmarshal) {
+		t.Fatalf("summary = %q, want the provider failure context", result.Error.Summary)
+	}
+}
+
+func TestProviderResponseUnmarshalErrorKeepsParseFailureWithoutControlCharacters(t *testing.T) {
+	t.Parallel()
+	bifrostError := &schemas.BifrostError{
+		IsBifrostError: true,
+		Error: &schemas.ErrorField{
+			Message: schemas.ErrProviderResponseUnmarshal,
+			Error:   errors.New("unexpected\ntoken\x00 in response"),
+		},
+	}
+	result := unaryErrorResult(
+		bifrostError,
+		schemas.NewBifrostContext(context.Background(), schemas.NoDeadline),
+		nil,
+	)
+	if result.Error == nil {
+		t.Fatal("result.Error is nil")
+	}
+	if err := result.Validate(); err != nil {
+		t.Fatalf("result.Validate() = %v, want a valid attempt result", err)
+	}
+}
 
 func TestSDKStreamIdleTimeoutIsClassifiedAsTimeout(t *testing.T) {
 	bifrostError := &schemas.BifrostError{
