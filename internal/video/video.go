@@ -129,7 +129,7 @@ type Task struct {
 	LastErrorMessage  string  `gorm:"type:text;not null;default:''"`
 	IdempotencyKey    *string `gorm:"type:varchar(64);uniqueIndex:idx_video_tasks_idempotency,priority:2"`
 	Progress          int     `gorm:"not null;default:0"`
-	CreatedAtMS       int64   `gorm:"column:created_at_ms;not null;default:0;index:idx_video_tasks_expires"`
+	CreatedAtMS       int64   `gorm:"column:created_at_ms;not null;default:0"`
 	UpdatedAtMS       int64   `gorm:"column:updated_at_ms;not null;default:0"`
 	ExpiresAtMS       int64   `gorm:"column:expires_at_ms;not null;default:0;index:idx_video_tasks_expires"`
 }
