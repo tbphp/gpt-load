@@ -185,3 +185,14 @@ func TestIdempotencyHashScopesToAccessKey(t *testing.T) {
 		t.Fatal("oversized idempotency key was accepted")
 	}
 }
+
+func TestApplyUpstreamObservationCompletedForcesProgress100(t *testing.T) {
+	t.Parallel()
+	progress := 42
+	updated := ApplyUpstreamObservation(Task{Status: StatusInProgress, Progress: 42}, UpstreamResponse{
+		Status: "completed", Progress: &progress,
+	})
+	if updated.Status != StatusCompleted || updated.Progress != 100 {
+		t.Fatalf("updated = %#v", updated)
+	}
+}

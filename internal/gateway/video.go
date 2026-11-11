@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,7 @@ import (
 
 const (
 	videoUpstreamMessageKey   = "gpt-load.video.upstream-message"
+	videoTaskIDKey            = "gpt-load.video.task-id"
 	openAIVideoDefaultBaseURL = "https://api.openai.com/v1"
 	maxVideoErrorBodyBytes    = int64(64 << 10)
 )
@@ -109,6 +111,7 @@ func (handler *Handler) prepareVideoRequest(
 	if metadata.VideoTaskID == "" {
 		return nil, metadata, parsed, &reasonVideoTaskNotFound
 	}
+	ginContext.Set(videoTaskIDKey, metadata.VideoTaskID)
 	task, err := handler.videoTasks.Get(ginContext.Request.Context(), accessKey.ID, metadata.VideoTaskID)
 	if errors.Is(err, video.ErrNotFound) {
 		return nil, metadata, parsed, &reasonVideoTaskNotFound
@@ -173,6 +176,10 @@ func (handler *Handler) prepareVideoRequest(
 	return state, metadata, parsed, nil
 }
 
+func videoWriteContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
 func invalidVideoRequestReason(err error) *reason {
 	value := reason{
 		Status: http.StatusBadRequest, Code: "invalid_request_error",
@@ -203,10 +210,12 @@ func (handler *Handler) cleanupVideoReservation(state *videoRequestState) {
 		!state.reserved || state.finalized || state.reservation.ID == "" {
 		return
 	}
-	if err := handler.videoTasks.Delete(context.Background(), state.reservation.ID); err != nil {
+	// Keep the gateway ID resolvable for idempotent retries instead of leaving
+	// a dangling identifier that later turns into a 404.
+	if err := handler.videoTasks.MarkFailed(context.Background(), state.reservation.ID, "create_failed", "The video task was not created."); err != nil {
 		utilsLogVideo(handler.logger, logrus.WarnLevel, map[string]any{
 			"event": "video_task_reservation_cleanup_failed", "video_task_id": state.reservation.ID, "error": err.Error(),
-		}, "Failed to remove an incomplete video task reservation")
+		}, "Failed to mark an incomplete video task reservation as failed")
 	}
 }
 
@@ -290,15 +299,16 @@ func (handler *Handler) finalizeVideoResource(
 	if state == nil || state.store == nil {
 		return result, &reasonVideoInternal
 	}
+	if result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
+		return result, nil
+	}
 	task := state.binding
-	if result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
-		if !state.delete && len(bytes.TrimSpace(result.Body)) > 0 {
-			response, err := video.ParseUpstreamResponse(result.Body)
-			if err != nil {
-				return result, &reasonUpstreamProtocol
-			}
-			task = video.ApplyUpstreamObservation(task, response)
+	if !state.delete && len(bytes.TrimSpace(result.Body)) > 0 {
+		response, err := video.ParseUpstreamResponse(result.Body)
+		if err != nil {
+			return result, &reasonUpstreamProtocol
 		}
+		task = video.ApplyUpstreamObservation(task, response)
 	}
 	var body []byte
 	var err error
@@ -319,9 +329,6 @@ func (handler *Handler) finalizeVideoResource(
 		return result, &reasonVideoInternal
 	}
 	state.binding = task
-	if result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
-		return result, nil
-	}
 	if state.delete {
 		result.StatusCode = http.StatusOK
 	}
@@ -442,7 +449,7 @@ func (handler *Handler) handleVideoContent(
 	if err != nil {
 		return &reasonVideoCredentialUnavailable
 	}
-	client, err := newVideoHTTPClient(effectiveProxy, group.Timeouts)
+	client, err := newVideoHTTPClient(effectiveProxy, group.Timeouts, false)
 	if err != nil {
 		return &reasonVideoCredentialUnavailable
 	}
@@ -453,6 +460,15 @@ func (handler *Handler) handleVideoContent(
 	if failure != nil {
 		handler.recordVideoContentAttempt(recorder, group, ref, task, 0, "", started, failure)
 		return failure
+	}
+	mediaClient := client
+	if !authenticated {
+		blockPrivate := !handler.allowPrivateVideoURLs
+		mediaClient, err = newVideoHTTPClient(effectiveProxy, group.Timeouts, blockPrivate)
+		if err != nil {
+			return &reasonVideoCredentialUnavailable
+		}
+		defer mediaClient.CloseIdleConnections()
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
 	if err != nil {
@@ -466,7 +482,7 @@ func (handler *Handler) handleVideoContent(
 	}
 	copyVideoRangeHeaders(request.Header, ginContext.Request.Header)
 	request.Header.Set("Accept-Encoding", "identity")
-	response, err := client.Do(request)
+	response, err := mediaClient.Do(request)
 	if err != nil {
 		value := reasonUpstreamConnect
 		if isTimeoutError(err) {
@@ -621,13 +637,18 @@ func (handler *Handler) recordVideoContentAttempt(
 func newVideoHTTPClient(
 	effective outboundproxy.Effective,
 	timeouts state.TimeoutConfig,
+	blockPrivate bool,
 ) (*http.Client, error) {
 	normalized, err := outboundproxy.NormalizeEffective(effective)
 	if err != nil {
 		return nil, fmt.Errorf("normalize video proxy: %w", err)
 	}
+	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	if blockPrivate {
+		dialer.Control = blockPrivateVideoDial
+	}
 	transport := &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		DialContext:           dialer.DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          20,
 		MaxIdleConnsPerHost:   4,
@@ -667,7 +688,37 @@ func newVideoHTTPClient(
 	if timeout <= 0 {
 		timeout = 30 * time.Minute
 	}
-	return &http.Client{Transport: transport, Timeout: timeout}, nil
+	return &http.Client{
+		Transport: transport, Timeout: timeout,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return errors.New("too many video redirects")
+			}
+			if request.URL.Scheme != "http" && request.URL.Scheme != "https" {
+				return errors.New("invalid video redirect scheme")
+			}
+			if !blockPrivate && len(via) > 0 && !strings.EqualFold(request.URL.Host, via[0].URL.Host) {
+				return errors.New("video content redirect changed host")
+			}
+			return nil
+		},
+	}, nil
+}
+
+func blockPrivateVideoDial(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return errors.New("video result address did not resolve to an IP")
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast() {
+		return errors.New("video result address is not public")
+	}
+	return nil
 }
 
 func applyVideoHeaderRules(headers http.Header, rules state.HeaderRules, apiKey string) {
@@ -726,6 +777,9 @@ func openAIVideoContentURL(group state.GroupView, task video.Task) (string, erro
 	resourceID := url.PathEscape(task.UpstreamTaskID)
 	switch group.ResolvedTarget.ProviderKind {
 	case channel.ProviderOpenAI:
+		if base, err := groupBaseURL(group); err == nil {
+			return base + "/videos/" + resourceID + "/content", nil
+		}
 		return openAIVideoDefaultBaseURL + "/videos/" + resourceID + "/content", nil
 	case channel.ProviderOpenAICompatible:
 		base, err := groupBaseURL(group)

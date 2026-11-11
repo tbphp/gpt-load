@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -22,7 +23,7 @@ import (
 	"gpt-load/internal/videostore"
 )
 
-func newVideoContentFixture(t *testing.T, channelID channel.ID, upstreamURL string) (*gin.Engine, *videostore.Store) {
+func newVideoContentFixture(t *testing.T, channelID channel.ID, upstreamURL string) (*gin.Engine, *videostore.Store, *Handler) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService := encryptiontest.Service(t, "video-content-test-master-key")
@@ -63,7 +64,7 @@ func newVideoContentFixture(t *testing.T, channelID channel.ID, upstreamURL stri
 	handler.ConfigureVideoTasks(store)
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
-	return engine, store
+	return engine, store, handler
 }
 
 func seedVideoTask(t *testing.T, store *videostore.Store) video.Task {
@@ -106,7 +107,7 @@ func TestVideoContentProxiesBinaryRangeWithPinnedCredential(t *testing.T) {
 		_, _ = io.WriteString(writer, "abcd")
 	}))
 	defer upstream.Close()
-	engine, store := newVideoContentFixture(t, channel.OpenAICompatible, upstream.URL)
+	engine, store, _ := newVideoContentFixture(t, channel.OpenAICompatible, upstream.URL)
 	task := seedVideoTask(t, store)
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/videos/"+task.ID+"/content", nil)
@@ -137,7 +138,8 @@ func TestVideoContentUsesResultURLWithoutCredential(t *testing.T) {
 		_, _ = io.WriteString(writer, "signed")
 	}))
 	defer media.Close()
-	engine, store := newVideoContentFixture(t, channel.Agnes, "http://127.0.0.1:1")
+	engine, store, handler := newVideoContentFixture(t, channel.Agnes, "http://127.0.0.1:1")
+	handler.allowPrivateVideoURLs = true
 	task := seedVideoTask(t, store)
 	task.Status, task.Progress, task.ResultURL = video.StatusCompleted, 100, media.URL
 	if err := store.UpdateObservation(context.Background(), task); err != nil {
@@ -153,5 +155,25 @@ func TestVideoContentUsesResultURLWithoutCredential(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("media calls = %d", calls.Load())
+	}
+}
+
+func TestVideoContentBlocksPrivateResultURL(t *testing.T) {
+	engine, store, _ := newVideoContentFixture(t, channel.Agnes, "http://127.0.0.1:1")
+	task := seedVideoTask(t, store)
+	task.Status, task.Progress = video.StatusCompleted, 100
+	task.ResultURL = "http://169.254.169.254/latest/meta-data"
+	if err := store.UpdateObservation(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/v1/videos/"+task.ID+"/content", nil)
+	request.Header.Set("Authorization", "Bearer gl-video")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "meta-data") {
+		t.Fatalf("private metadata leaked: %s", recorder.Body.String())
 	}
 }

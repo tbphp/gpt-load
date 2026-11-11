@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -21,7 +22,13 @@ type Store struct {
 }
 
 func NewStore(db *gorm.DB) *Store {
-	return &Store{db: db, now: time.Now, ttl: video.DefaultTTL}
+	store := &Store{db: db, now: time.Now, ttl: video.DefaultTTL}
+	if raw := strings.TrimSpace(os.Getenv("VIDEO_TASK_TTL")); raw != "" {
+		if ttl, err := time.ParseDuration(raw); err == nil && ttl > 0 {
+			store.ttl = ttl
+		}
+	}
+	return store
 }
 
 func (store *Store) SetClock(now func() time.Time) {
@@ -161,6 +168,18 @@ func (store *Store) UpdateObservation(ctx context.Context, task video.Task) erro
 		"last_error_code":    task.LastErrorCode,
 		"last_error_message": task.LastErrorMessage,
 		"updated_at_ms":      task.UpdatedAtMS,
+	}).Error
+}
+
+func (store *Store) MarkFailed(ctx context.Context, id, code, message string) error {
+	if store == nil || store.db == nil {
+		return fmt.Errorf("video task store is unavailable")
+	}
+	return store.db.WithContext(ctx).Model(&video.Task{}).Where("id = ?", id).Updates(map[string]any{
+		"status":             video.StatusFailed,
+		"last_error_code":    code,
+		"last_error_message": message,
+		"updated_at_ms":      store.currentTime().UnixMilli(),
 	}).Error
 }
 

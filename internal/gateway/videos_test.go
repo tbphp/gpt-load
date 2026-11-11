@@ -41,6 +41,7 @@ func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *videostore.St
 		Credentials: []state.CredentialConfig{
 			{ID: 1, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "credential-1"},
 			{ID: 2, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 2, Fingerprint: "credential-2"},
+			{ID: 3, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 3, Fingerprint: "credential-3"},
 		},
 		AccessKeys: []state.AccessKeyConfig{
 			{
@@ -56,8 +57,8 @@ func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *videostore.St
 		t.Fatalf("Publish() error = %v", err)
 	}
 	registry := state.NewCredentialRegistry()
-	entries := make([]state.CredentialEntry, 0, 2)
-	for index, secret := range []string{"key-one", "key-two"} {
+	entries := make([]state.CredentialEntry, 0, 3)
+	for index, secret := range []string{"key-one", "key-two", "key-three"} {
 		encrypted, err := keyService.Encrypt(`{"api_key":"` + secret + `"}`)
 		if err != nil {
 			t.Fatalf("Encrypt() error = %v", err)
@@ -180,8 +181,12 @@ func TestVideoCreateRetrieveAndPinning(t *testing.T) {
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("cooldown status = %d body = %s", recorder.Code, recorder.Body.String())
 	}
-	if code := videoJSONResponse(t, recorder)["error"].(map[string]any)["code"]; code != "task_credential_unavailable" {
+	cooldownBody := videoJSONResponse(t, recorder)
+	if code := cooldownBody["error"].(map[string]any)["code"]; code != "task_credential_unavailable" {
 		t.Fatalf("cooldown code = %v", code)
+	}
+	if cooldownBody["task_id"] != id {
+		t.Fatalf("cooldown task_id = %v, want %q", cooldownBody["task_id"], id)
 	}
 	if len(forwarder.inputs) != 2 {
 		t.Fatalf("pinned cooldown forwarded again: %d calls", len(forwarder.inputs))
@@ -234,7 +239,7 @@ func TestVideoCreateRotatesTransportFailure(t *testing.T) {
 }
 
 func TestVideoCreateUnusual403CoolsAndRotates(t *testing.T) {
-	engine, _, _, _, _, forwarder := newVideoGatewayFixture(t)
+	engine, _, _, _, registry, forwarder := newVideoGatewayFixture(t)
 	forwarder.results = []UpstreamResult{
 		{StatusCode: http.StatusForbidden, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 			Body: []byte(`{"error":{"message":"unusual activity detected"}}`)},
@@ -246,6 +251,12 @@ func TestVideoCreateUnusual403CoolsAndRotates(t *testing.T) {
 	engine.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 2 {
 		t.Fatalf("status = %d attempts = %d body = %s", recorder.Code, len(forwarder.inputs), recorder.Body.String())
+	}
+	cooled := forwarder.inputs[0].Credential.ID
+	for _, candidate := range registry.CollectCredentialCandidates([]uint{1}, nil, time.Now()) {
+		if candidate.ID == cooled {
+			t.Fatalf("credential %d was not cooled after unusual activity", cooled)
+		}
 	}
 }
 
@@ -421,5 +432,91 @@ func TestVideoErrorEnvelopeKeepsOpenAIErrorShape(t *testing.T) {
 	envelope := videoJSONResponse(t, recorder)["error"].(map[string]any)
 	if envelope["type"] != "invalid_request_error" || envelope["code"] != "model_not_found" {
 		t.Fatalf("error envelope = %#v", envelope)
+	}
+}
+
+func TestVideoCreateWithTaskIDNeverRetries(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			engine, _, _, _, _, forwarder := newVideoGatewayFixture(t)
+			forwarder.results = []UpstreamResult{
+				{
+					StatusCode: status, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+					Body: []byte(`{"task_id":"task_up_ambiguous","error":{"message":"retryable"}}`),
+				},
+				videoUpstreamSuccess("task_up_should_not_run"),
+			}
+			request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"sora-2","prompt":"fox"}`))
+			request.Header.Set("Authorization", "Bearer gl-video")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if len(forwarder.inputs) != 1 {
+				t.Fatalf("attempts = %d, want 1", len(forwarder.inputs))
+			}
+			wantStatus := http.StatusBadGateway
+			wantCode := "upstream_error"
+			if status == http.StatusTooManyRequests {
+				wantStatus, wantCode = http.StatusTooManyRequests, "rate_limit_exceeded"
+			}
+			if recorder.Code != wantStatus {
+				t.Fatalf("status = %d, want %d body = %s", recorder.Code, wantStatus, recorder.Body.String())
+			}
+			if code := videoJSONResponse(t, recorder)["error"].(map[string]any)["code"]; code != wantCode {
+				t.Fatalf("code = %v, want %q", code, wantCode)
+			}
+		})
+	}
+}
+
+func TestVideoCreateStopsAtThreeAttempts(t *testing.T) {
+	engine, _, _, _, _, forwarder := newVideoGatewayFixture(t)
+	for i := 0; i < 4; i++ {
+		forwarder.results = append(forwarder.results, UpstreamResult{
+			StatusCode: http.StatusInternalServerError, DispatchState: execution.DispatchMaybeSent,
+			ResponseStarted: true, Body: []byte(`{}`),
+		})
+	}
+	forwarder.results = append(forwarder.results, videoUpstreamSuccess("task_up_should_not_run"))
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"sora-2","prompt":"fox"}`))
+	request.Header.Set("Authorization", "Bearer gl-video")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if len(forwarder.inputs) != 3 {
+		t.Fatalf("attempts = %d, want 3", len(forwarder.inputs))
+	}
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestVideoDeleteFailureDoesNotMarkTaskCancelled(t *testing.T) {
+	engine, _, store, _, _, forwarder := newVideoGatewayFixture(t)
+	forwarder.results = []UpstreamResult{videoUpstreamSuccess("task_up_delete_fail")}
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"sora-2","prompt":"fox"}`))
+	request.Header.Set("Authorization", "Bearer gl-video")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	id := videoJSONResponse(t, recorder)["id"].(string)
+
+	forwarder.results = append(forwarder.results, UpstreamResult{
+		StatusCode: http.StatusConflict, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		Body: []byte(`{"error":{"message":"task cannot be cancelled"}}`),
+	})
+	request = httptest.NewRequest(http.MethodDelete, "/v1/videos/"+id, nil)
+	request.Header.Set("Authorization", "Bearer gl-video")
+	recorder = httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("delete status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	task, err := store.Get(request.Context(), 1, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status == video.StatusCancelled {
+		t.Fatal("failed delete was persisted as cancelled")
 	}
 }

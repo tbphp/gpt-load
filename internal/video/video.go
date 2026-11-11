@@ -48,6 +48,7 @@ type TaskStore interface {
 	Get(ctx context.Context, accessKeyID uint, id string) (Task, error)
 	UpdateCreateResult(ctx context.Context, task Task) error
 	UpdateObservation(ctx context.Context, task Task) error
+	MarkFailed(ctx context.Context, id, code, message string) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -174,7 +175,8 @@ type APIError struct {
 
 // ErrorEnvelope is the top-level OpenAI-style error response.
 type ErrorEnvelope struct {
-	Error APIError `json:"error"`
+	Error  APIError `json:"error"`
+	TaskID string   `json:"task_id,omitempty"`
 }
 
 // NewID returns a stable gateway task identifier with a `video_` prefix.
@@ -628,14 +630,14 @@ func ApplyUpstreamObservation(task Task, response UpstreamResponse) Task {
 	if response.Progress != nil {
 		task.Progress = ClampProgress(*response.Progress)
 	}
-	if task.Status == StatusCompleted {
-		task.Progress = 100
-	}
 	if response.URL != "" {
 		task.ResultURL = response.URL
 	}
 	if status := strings.TrimSpace(response.Status); status != "" {
 		task.Status = NormalizeStatus(status)
+	}
+	if task.Status == StatusCompleted {
+		task.Progress = 100
 	}
 	task.LastErrorCode = response.ErrorCode
 	task.LastErrorMessage = response.ErrorMessage
@@ -680,8 +682,10 @@ func TaskResponse(task Task, now time.Time, includeURL bool) Response {
 // the provider supplied them.
 func CreateResponse(task Task) Response {
 	response := TaskResponse(task, time.UnixMilli(task.CreatedAtMS), false)
-	response.Status = StatusQueued
-	response.Progress = 0
+	if task.Status != StatusFailed && task.Status != StatusCancelled {
+		response.Status = StatusQueued
+		response.Progress = 0
+	}
 	taskID, videoID := task.UpstreamIDs()
 	response.TaskID = taskID
 	response.VideoID = videoID

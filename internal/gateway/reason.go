@@ -287,13 +287,25 @@ func (handler *Handler) writeVideoReason(context *gin.Context, value reason) err
 			message = text
 		}
 	}
-	return handler.writeVideoError(context, value.Status, code, errorType, "", message)
+	taskID := ""
+	if stored, ok := context.Get(videoTaskIDKey); ok {
+		taskID, _ = stored.(string)
+	}
+	return handler.writeVideoErrorWithTaskID(context, value.Status, code, errorType, "", message, taskID)
 }
 
 func (handler *Handler) writeVideoError(
 	context *gin.Context,
 	status int,
 	code, errorType, param, message string,
+) error {
+	return handler.writeVideoErrorWithTaskID(context, status, code, errorType, param, message, "")
+}
+
+func (handler *Handler) writeVideoErrorWithTaskID(
+	context *gin.Context,
+	status int,
+	code, errorType, param, message, taskID string,
 ) error {
 	if errorType == "" {
 		if status >= http.StatusInternalServerError {
@@ -302,7 +314,7 @@ func (handler *Handler) writeVideoError(
 			errorType = "invalid_request_error"
 		}
 	}
-	body, err := json.Marshal(video.ErrorEnvelope{Error: video.APIError{
+	body, err := json.Marshal(video.ErrorEnvelope{TaskID: taskID, Error: video.APIError{
 		Message: message, Type: errorType, Param: param, Code: code,
 	}})
 	if err != nil {

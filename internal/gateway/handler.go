@@ -95,43 +95,44 @@ type runtimeCredentialRegistry interface {
 }
 
 type Handler struct {
-	guardrails          requestaudit.Cache
-	autoTasks           autoTaskCache
-	decisionClient      autoDecisionRunner
-	manager             *state.Manager
-	catalog             *catalog.Runtime
-	channels            *channel.Registry
-	subscriptions       *subscriptionruntime.Runtime
-	registry            runtimeCredentialRegistry
-	encryption          encryption.Service
-	forwarder           AttemptForwarder
-	dialects            dialect.Set
-	stats               *health.StatsStore
-	mutations           credentialMutationCoordinator
-	limiter             AccessKeyRPMLimiter
-	requestLogSink      telemetry.RequestLogSink
-	priceTables         PriceTableProvider
-	accessQuota         *accessquota.Runtime
-	usageReader         AccessKeyUsageReader
-	newRequestID        func() (string, error)
-	requestNow          func() time.Time
-	now                 func() time.Time
-	writeTimeout        time.Duration
-	modelListLimit      int64
-	requestBodyLimit    int64
-	logger              *logrus.Logger
-	authFailureEvents   *utils.RateLimitedEventCounter
-	routeNotFoundEvents *utils.RateLimitedEventCounter
-	lifecycle           *httplifecycle.Coordinator
-	affinityCache       *affinity.Cache
-	invalidLineage      *codexrecovery.InvalidLineage
-	responseBindings    *state.ResponseBindings
-	videoTasks          video.TaskStore
-	websocketLimits     websocketLimits
-	websocketBudget     websocketBudget
-	liveOpener          execution.LiveOpener
-	liveSessions        *liveSessions
-	liveConfig          config.CodexLiveConfig
+	guardrails            requestaudit.Cache
+	autoTasks             autoTaskCache
+	decisionClient        autoDecisionRunner
+	manager               *state.Manager
+	catalog               *catalog.Runtime
+	channels              *channel.Registry
+	subscriptions         *subscriptionruntime.Runtime
+	registry              runtimeCredentialRegistry
+	encryption            encryption.Service
+	forwarder             AttemptForwarder
+	dialects              dialect.Set
+	stats                 *health.StatsStore
+	mutations             credentialMutationCoordinator
+	limiter               AccessKeyRPMLimiter
+	requestLogSink        telemetry.RequestLogSink
+	priceTables           PriceTableProvider
+	accessQuota           *accessquota.Runtime
+	usageReader           AccessKeyUsageReader
+	newRequestID          func() (string, error)
+	requestNow            func() time.Time
+	now                   func() time.Time
+	writeTimeout          time.Duration
+	modelListLimit        int64
+	requestBodyLimit      int64
+	logger                *logrus.Logger
+	authFailureEvents     *utils.RateLimitedEventCounter
+	routeNotFoundEvents   *utils.RateLimitedEventCounter
+	lifecycle             *httplifecycle.Coordinator
+	affinityCache         *affinity.Cache
+	invalidLineage        *codexrecovery.InvalidLineage
+	responseBindings      *state.ResponseBindings
+	videoTasks            video.TaskStore
+	allowPrivateVideoURLs bool
+	websocketLimits       websocketLimits
+	websocketBudget       websocketBudget
+	liveOpener            execution.LiveOpener
+	liveSessions          *liveSessions
+	liveConfig            config.CodexLiveConfig
 }
 
 func (handler *Handler) ConfigureVideoTasks(store video.TaskStore) {
@@ -1633,17 +1634,17 @@ func (handler *Handler) executeAttempts(
 					decision.Retry = health.RetryNextCandidate
 					decision.Effect = health.EffectNone
 				}
-				if videoHasTaskID {
-					decision.Retry = health.RetryNone
-					decision.Effect = health.EffectNone
-					decision.CooldownUntil = time.Time{}
-				}
 				if forwardAttempts < forwardAttemptLimit &&
 					(result.StatusCode == http.StatusUnauthorized || result.StatusCode == http.StatusForbidden || result.StatusCode == http.StatusTooManyRequests) {
 					decision.Retry = health.RetryNextCandidate
 					if decision.Effect == health.EffectSkipGroup {
 						decision.Effect = health.EffectNone
 					}
+				}
+				if videoHasTaskID {
+					decision.Retry = health.RetryNone
+					decision.Effect = health.EffectNone
+					decision.CooldownUntil = time.Time{}
 				}
 			}
 		}

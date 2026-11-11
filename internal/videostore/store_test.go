@@ -126,3 +126,11 @@ func TestStoreMarkCancelledAndCleanup(t *testing.T) {
 		t.Fatalf("cleanup did not remove expired task: %v", err)
 	}
 }
+
+func TestStoreReadsConfiguredTTL(t *testing.T) {
+	t.Setenv("VIDEO_TASK_TTL", "2h")
+	store := NewStore(sqlitetest.OpenMigrated(t))
+	if store.TTL() != 2*time.Hour {
+		t.Fatalf("TTL() = %s", store.TTL())
+	}
+}
