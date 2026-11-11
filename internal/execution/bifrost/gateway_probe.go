@@ -45,6 +45,15 @@ func protocolProbeRequest(spec execution.AttemptSpec) (string, []byte, *executio
 	var path string
 	var payload any
 	switch spec.ClientProtocol {
+	case protocol.OpenAICompletions:
+		// 探测按非流式解析，必须显式关闭流式：上游可能缺省按流式返回 SSE。
+		path = "/v1/chat/completions"
+		payload = map[string]any{
+			"model":      spec.UpstreamModel,
+			"messages":   []map[string]string{{"role": "user", "content": "ping"}},
+			"max_tokens": 16,
+			"stream":     false,
+		}
 	case protocol.OpenAIResponses:
 		path = "/v1/responses"
 		payload = map[string]any{"model": spec.UpstreamModel, "input": "ping", "max_output_tokens": 16, "store": false, "stream": false}
@@ -103,7 +112,7 @@ func normalizeGatewayProtocolProbeResult(spec execution.AttemptSpec, result *exe
 		return
 	}
 	switch spec.ClientProtocol {
-	case protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini, protocol.GeminiEmbeddings:
+	case protocol.OpenAICompletions, protocol.OpenAIResponses, protocol.Anthropic, protocol.Gemini, protocol.GeminiEmbeddings:
 	default:
 		return
 	}
@@ -132,9 +141,11 @@ func validGatewayProtocolProbeResponse(selected protocol.Protocol, body []byte) 
 	}
 	if json.Unmarshal(body, &response) != nil ||
 		(len(response.Error) > 0 && !bytes.Equal(bytes.TrimSpace(response.Error), []byte("null"))) {
-		return false
+		return validGatewayProbeEventStream(selected, body)
 	}
 	switch selected {
+	case protocol.OpenAICompletions:
+		return validGatewayProbeChatCompletion(body)
 	case protocol.OpenAIResponses:
 		return response.Object == "response" && response.Output != nil &&
 			(response.Status == "completed" || response.Status == "incomplete") &&
@@ -169,6 +180,43 @@ func validGatewayProbeEmbedding(raw json.RawMessage) bool {
 }
 
 // 仅校验协议结构，不要求生成文本非空，保留低输出预算下的合法响应。
+// validGatewayProbeChatCompletion 要求标准 Chat Completions 响应体。
+func validGatewayProbeChatCompletion(body []byte) bool {
+	var response struct {
+		Object  string            `json:"object"`
+		Choices []json.RawMessage `json:"choices"`
+	}
+	return json.Unmarshal(body, &response) == nil &&
+		response.Object == "chat.completion" && response.Choices != nil
+}
+
+// validGatewayProbeEventStream 接受上游忽略 stream=false 仍返回的 SSE 帧。
+// 只要有一帧是本协议的有效数据帧，就说明凭据与模型可以正常调用。
+func validGatewayProbeEventStream(selected protocol.Protocol, body []byte) bool {
+	if selected != protocol.OpenAICompletions {
+		return false
+	}
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		payload, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data:"))
+		if !ok {
+			continue
+		}
+		payload = bytes.TrimSpace(payload)
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+			continue
+		}
+		var frame struct {
+			Object  string            `json:"object"`
+			Choices []json.RawMessage `json:"choices"`
+		}
+		if json.Unmarshal(payload, &frame) == nil &&
+			frame.Object == "chat.completion.chunk" && frame.Choices != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func validGatewayProbeTypedItems(selected protocol.Protocol, items []json.RawMessage) bool {
 	for _, item := range items {
 		fields, err := decodeNativeJSONObject(item)

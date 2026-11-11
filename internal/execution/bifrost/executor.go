@@ -600,30 +600,13 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 				secrets:   secrets,
 			}, nil
 		}
-		if providerKind == channel.ProviderMultiProtocolGateway && spec.ClientProtocol != protocol.OpenAICompletions {
+		if providerKind == channel.ProviderMultiProtocolGateway {
 			return prepareGatewayProtocolProbe(spec, resolved, provider, directKey, secrets)
 		}
 		if providerKind == channel.ProviderAlibaba && mode == channel.RouteNative && spec.ClientProtocol != protocol.OpenAICompletions {
 			return prepareAlibabaProtocolProbe(spec, provider, directKey, secrets, r.fixedConfig.targetBaseURL)
 		}
 		request := newProbeRequest(provider, providerKind, spec.UpstreamModel)
-		if providerKind == channel.ProviderMultiProtocolGateway {
-			baseURL, configured, targetErr := targetBaseURL(resolved.TargetConfig)
-			if targetErr != nil || !configured {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
-				return preparedAttempt{}, &failure
-			}
-			typedURL, targetErr := resolveMultiProtocolGatewayTargetURL(baseURL, "/v1/chat/completions", "")
-			if targetErr != nil {
-				failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
-				return preparedAttempt{}, &failure
-			}
-			return preparedAttempt{
-				provider: provider, mode: mode, upstreamProtocol: protocol.OpenAICompletions,
-				request: request, typedURL: typedURL, clientProtocol: spec.ClientProtocol,
-				directKey: directKey, secrets: secrets,
-			}, nil
-		}
 		responses := spec.ClientProtocol == protocol.OpenAIResponses
 		typedURL, upstreamProtocol, targetErr := convertedTypedTarget(
 			providerKind,
@@ -970,6 +953,15 @@ func newProbeRequest(
 		params.MaxCompletionTokens = nil
 		params.ExtraParams = map[string]any{"max_tokens": 1}
 	}
+	// 探测按非流式解析响应，必须显式关闭流式：OpenAI 形态的请求体对 stream
+	// 使用 omitempty，缺省时上游（例如再一跳网关）可能直接返回 SSE，
+	// 解析失败后只会表现为「上游响应无法解析」。
+	if probeUsesOpenAIWire(providerKind) {
+		if params.ExtraParams == nil {
+			params.ExtraParams = make(map[string]any, 1)
+		}
+		params.ExtraParams["stream"] = false
+	}
 	return &schemas.BifrostChatRequest{
 		Provider: provider,
 		Model:    model,
@@ -981,6 +973,13 @@ func newProbeRequest(
 		}},
 		Params: params,
 	}
+}
+
+// probeUsesOpenAIWire 判断探测请求是否直接以 OpenAI Chat Completions 形态发给上游。
+func probeUsesOpenAIWire(providerKind channel.ProviderKind) bool {
+	return providerKind == channel.ProviderOpenAI ||
+		providerKind == channel.ProviderMultiProtocolGateway ||
+		openAICompatibleBase(providerKind)
 }
 
 func providerSupportsPassthrough(providerKind channel.ProviderKind) bool {
