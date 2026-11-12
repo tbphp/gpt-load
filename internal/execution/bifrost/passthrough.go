@@ -215,10 +215,18 @@ func sanitizeNativePassthroughRequest(
 		return bytes.Clone(request.Body), request.Header.Clone(), nil
 	}
 	if spec.ClientProtocol == protocol.GeminiEmbeddings && spec.Operation == execution.OperationEmbeddingsCreate {
+		model := spec.UpstreamModel
+		if spec.ChannelID == string(channel.GoogleVertex) {
+			var ok bool
+			model, ok = channel.NormalizeVertexEmbeddingsModel(model)
+			if !ok {
+				return nil, nil, fmt.Errorf("invalid Vertex Embeddings model")
+			}
+		}
 		request, err := dialect.NewGeminiEmbeddings().SanitizeRequestForAttempt(&dialect.ParsedRequest{
 			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
 			Header: spec.Header.Clone(), Body: spec.Body,
-		}, spec.UpstreamModel)
+		}, model)
 		if err != nil {
 			return nil, nil, err
 		}

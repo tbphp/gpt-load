@@ -11,7 +11,7 @@ func TestGeminiEmbeddingsNativeRouteIsLimitedToSupportedChannels(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	supported := map[ID]struct{}{Gemini: {}, GPTLoad: {}, NewAPI: {}}
+	supported := map[ID]struct{}{Gemini: {}, GoogleVertex: {}, GPTLoad: {}, NewAPI: {}}
 	for _, descriptor := range registry.List() {
 		definition, ok := registry.lookup(descriptor.ID)
 		if !ok {
