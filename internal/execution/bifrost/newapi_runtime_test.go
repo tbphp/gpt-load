@@ -505,6 +505,11 @@ func TestNewAPINativeStreamsKeepProtocolWireAndUsage(t *testing.T) {
 
 func newNewAPIManagerForTest(t *testing.T, baseURL string) (*RuntimeManager, channel.ResolvedTarget) {
 	t.Helper()
+	return newNewAPIManagerWithOptionsForTest(t, baseURL, runtimeOptions{allowPrivateNetwork: true})
+}
+
+func newNewAPIManagerWithOptionsForTest(t *testing.T, baseURL string, options runtimeOptions) (*RuntimeManager, channel.ResolvedTarget) {
+	t.Helper()
 
 	registry := channel.NewRegistry()
 	resolved, err := registry.Resolve(
@@ -514,7 +519,7 @@ func newNewAPIManagerForTest(t *testing.T, baseURL string) (*RuntimeManager, cha
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, registry)
+	manager, err := newRuntimeManager(options, registry)
 	if err != nil {
 		t.Fatal(err)
 	}

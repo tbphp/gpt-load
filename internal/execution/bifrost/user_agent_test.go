@@ -16,20 +16,33 @@ import (
 )
 
 func TestNewAPIModelDiscoveryUserAgentOnWire(t *testing.T) {
+	for _, fallback := range []string{"", "Go-http-client/1.1"} {
+		t.Run("fallback="+fallback, func(t *testing.T) {
+			testNewAPIModelDiscoveryUserAgentOnWire(t, fallback)
+		})
+	}
+}
+
+func testNewAPIModelDiscoveryUserAgentOnWire(t *testing.T, fallback string) {
+	t.Helper()
+	wantDefault := fallback
+	if wantDefault == "" {
+		wantDefault = "GPT-Load/" + version.Version
+	}
 	for _, test := range []struct {
 		name       string
 		header     http.Header
 		configured []string
 		want       string
 	}{
-		{name: "system default", want: "GPT-Load/" + version.Version},
+		{name: "system default", want: wantDefault},
 		{name: "preserve client", header: http.Header{"User-Agent": {"client/1.0"}}, want: "client/1.0"},
-		{name: "empty client", header: http.Header{"User-Agent": {""}}, want: "GPT-Load/" + version.Version},
-		{name: "whitespace client", header: http.Header{"User-Agent": {" \t "}}, want: "GPT-Load/" + version.Version},
+		{name: "empty client", header: http.Header{"User-Agent": {""}}, want: wantDefault},
+		{name: "whitespace client", header: http.Header{"User-Agent": {" \t "}}, want: wantDefault},
 		{name: "configured override", header: http.Header{"User-Agent": {"operator/2.0"}}, configured: []string{"user-agent"}, want: "operator/2.0"},
-		{name: "explicit removal", configured: []string{"User-Agent"}, want: "GPT-Load/" + version.Version},
-		{name: "explicit empty", header: http.Header{"User-Agent": {""}}, configured: []string{"User-Agent"}, want: "GPT-Load/" + version.Version},
-		{name: "explicit whitespace", header: http.Header{"User-Agent": {" \t "}}, configured: []string{"User-Agent"}, want: "GPT-Load/" + version.Version},
+		{name: "explicit removal", configured: []string{"User-Agent"}, want: wantDefault},
+		{name: "explicit empty", header: http.Header{"User-Agent": {""}}, configured: []string{"User-Agent"}, want: wantDefault},
+		{name: "explicit whitespace", header: http.Header{"User-Agent": {" \t "}}, configured: []string{"User-Agent"}, want: wantDefault},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			seen := make(chan http.Header, 1)
@@ -39,7 +52,9 @@ func TestNewAPIModelDiscoveryUserAgentOnWire(t *testing.T) {
 				_, _ = w.Write([]byte(`{"success":true,"data":[{"id":"model-one"}]}`))
 			}))
 			defer server.Close()
-			manager, target := newNewAPIManagerForTest(t, server.URL)
+			manager, target := newNewAPIManagerWithOptionsForTest(t, server.URL, runtimeOptions{
+				allowPrivateNetwork: true, userAgentFallback: fallback,
+			})
 			spec := utilitySpec(channel.NewAPI, protocol.OpenAICompletions, execution.OperationListModels, http.MethodGet, "/v1/models", nil)
 			spec.TargetConfig = target.TargetConfig
 			spec.Header = test.header.Clone()
@@ -62,11 +77,23 @@ func TestNewAPIModelDiscoveryUserAgentOnWire(t *testing.T) {
 }
 
 func TestRequestUserAgentOnWire(t *testing.T) {
+	for _, fallback := range []string{"", "Go-http-client/1.1"} {
+		t.Run("fallback="+fallback, func(t *testing.T) {
+			testRequestUserAgentOnWire(t, fallback)
+		})
+	}
+}
+
+func testRequestUserAgentOnWire(t *testing.T, fallback string) {
+	t.Helper()
 	for _, route := range []string{"native", "typed"} {
 		for _, operation := range []string{"unary", "stream", "probe"} {
 			for _, policy := range []string{"default", "client", "configured", "removed", "empty", "whitespace"} {
 				name := route + "/" + operation + "/" + policy
 				want := "GPT-Load/" + version.Version
+				if fallback != "" {
+					want = fallback
+				}
 				if policy == "configured" {
 					want = "operator/2.0"
 				} else if policy == "client" {
@@ -84,7 +111,10 @@ func TestRequestUserAgentOnWire(t *testing.T) {
 						writeSuccess(w, "ok")
 					}))
 					defer server.Close()
-					runtime := newTestRuntime(t)
+					runtime := newRuntimeForTest(t, testRuntimeOptions{
+						allowPrivateNetwork: true,
+						userAgentFallback:   fallback,
+					})
 					spec := compatibleSpec(server.URL)
 					if route == "typed" {
 						// 非 /v1 前缀走 SDK typed fallback，覆盖不同的 HTTP 构造路径。
@@ -134,8 +164,20 @@ func TestRequestUserAgentOnWire(t *testing.T) {
 }
 
 func TestWebsocketUserAgentOnWire(t *testing.T) {
+	for _, fallback := range []string{"", "Go-http-client/1.1"} {
+		t.Run("fallback="+fallback, func(t *testing.T) {
+			testWebsocketUserAgentOnWire(t, fallback)
+		})
+	}
+}
+
+func testWebsocketUserAgentOnWire(t *testing.T, fallback string) {
+	t.Helper()
 	for _, policy := range []string{"default", "client", "configured", "removed", "empty", "whitespace"} {
 		want := "GPT-Load/" + version.Version
+		if fallback != "" {
+			want = fallback
+		}
 		if policy == "configured" {
 			want = "operator/2.0"
 		} else if policy == "client" {
@@ -154,7 +196,9 @@ func TestWebsocketUserAgentOnWire(t *testing.T) {
 				_, _, _ = conn.ReadMessage()
 			}))
 			defer server.Close()
-			manager, _ := newNewAPIManagerForTest(t, server.URL)
+			manager, _ := newNewAPIManagerWithOptionsForTest(t, server.URL, runtimeOptions{
+				allowPrivateNetwork: true, userAgentFallback: fallback,
+			})
 			spec := compatibleSpec(server.URL)
 			spec.ChannelID = string(channel.OpenAI)
 			spec.ClientProtocol = protocol.OpenAIResponses

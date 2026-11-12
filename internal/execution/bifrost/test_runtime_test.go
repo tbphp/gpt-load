@@ -10,6 +10,7 @@ import (
 )
 
 type testRuntimeOptions struct {
+	userAgentFallback         string
 	allowPrivateNetwork       bool
 	openAIBaseURL             string
 	anthropicBaseURL          string
@@ -27,6 +28,7 @@ func newRuntimeForTest(t *testing.T, options testRuntimeOptions) *testRuntime {
 	t.Helper()
 	registry := channel.NewRegistry()
 	manager, err := newRuntimeManager(runtimeOptions{
+		userAgentFallback:         options.userAgentFallback,
 		allowPrivateNetwork:       options.allowPrivateNetwork,
 		maxUnaryResponseBodyBytes: options.maxUnaryResponseBodyBytes,
 	}, registry)
