@@ -365,6 +365,17 @@ func ZhipuCreateResponse(task Task) map[string]any {
 	if task.UpstreamTaskID != "" && task.UpstreamTaskID != task.UpstreamTaskAlias {
 		response["upstream_id"] = task.UpstreamTaskID
 	}
+	if task.Status == StatusFailed || task.Status == StatusCancelled {
+		message := task.LastErrorMessage
+		if message == "" {
+			message = "Upstream media task did not complete."
+		}
+		code := task.LastErrorCode
+		if code == "" {
+			code = "upstream_error"
+		}
+		response["error"] = APIError{Message: message, Type: "upstream_error", Code: code}
+	}
 	return response
 }
 

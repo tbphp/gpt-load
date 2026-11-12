@@ -77,6 +77,14 @@ func TestParseZhipuResponseAndTaskResponse(t *testing.T) {
 		t.Fatalf("data mirror missing: %#v", body)
 	}
 
+	dataOnly, err := ParseZhipuResponse([]byte(`{"task_status":"SUCCESS","data":[{"url":"https://cdn.example/data.png"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task := ApplyZhipuObservation(Task{Kind: KindImage, Status: StatusInProgress}, dataOnly); task.ResultURL != "https://cdn.example/data.png" {
+		t.Fatalf("data-only result = %#v", task)
+	}
+
 	video, err := ParseZhipuResponse([]byte(`{"id":"v-1","task_status":"FAIL","error":{"code":"bad","message":"boom"}}`))
 	if err != nil {
 		t.Fatal(err)

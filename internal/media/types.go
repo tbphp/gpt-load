@@ -37,7 +37,6 @@ type TaskStore interface {
 	UpdateCreateResult(ctx context.Context, task Task) error
 	UpdateObservation(ctx context.Context, task Task) error
 	MarkFailed(ctx context.Context, id, code, message string) error
-	Delete(ctx context.Context, id string) error
 }
 
 // ValidationError identifies one invalid request field and is safe to return
@@ -109,8 +108,8 @@ type Task struct {
 	UpstreamModel     string  `gorm:"type:varchar(255);not null;default:''"`
 	ClientModel       string  `gorm:"type:varchar(255);not null;default:''"`
 	Status            string  `gorm:"type:varchar(32);not null;default:'queued';check:chk_media_tasks_status,status IN ('queued','in_progress','completed','failed','cancelled')"`
-	Mode              string  `gorm:"type:varchar(32);not null;default:'text'"`
-	Seconds           string  `gorm:"type:varchar(8);not null;default:'5'"`
+	Mode              string  `gorm:"type:varchar(32);not null;default:''"`
+	Seconds           string  `gorm:"type:varchar(8);not null;default:''"`
 	Size              string  `gorm:"type:varchar(32);not null;default:''"`
 	AspectRatio       string  `gorm:"type:varchar(16);not null;default:''"`
 	Quality           string  `gorm:"type:varchar(16);not null;default:''"`

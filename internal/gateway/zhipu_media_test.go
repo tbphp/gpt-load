@@ -336,3 +336,24 @@ func TestZhipuModelListShowsMediaModels(t *testing.T) {
 		}
 	}
 }
+
+func TestZhipuCreateWithTaskIDNeverRetries(t *testing.T) {
+	engine, _, _, _, _, forwarder := newZhipuGatewayFixture(t)
+	forwarder.results = []UpstreamResult{
+		{
+			StatusCode: http.StatusTooManyRequests, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+			Body: []byte(`{"id":"up_ambiguous","task_status":"PROCESSING","error":{"message":"retryable"}}`),
+		},
+		zhipuAsyncCreateResponse("up_should_not_run"),
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/async/images/generations", strings.NewReader(`{"model":"CogView-3-Flash","prompt":"fox"}`))
+	request.Header.Set("Authorization", "Bearer gl-zhipu")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if len(forwarder.inputs) != 1 {
+		t.Fatalf("attempts = %d, want 1", len(forwarder.inputs))
+	}
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}

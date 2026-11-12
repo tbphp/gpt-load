@@ -223,13 +223,6 @@ func (store *Store) MarkCancelled(ctx context.Context, accessKeyID uint, id stri
 	return nil
 }
 
-func (store *Store) Delete(ctx context.Context, id string) error {
-	if store == nil || store.db == nil {
-		return fmt.Errorf("media task store is unavailable")
-	}
-	return store.db.WithContext(ctx).Where("id = ?", id).Delete(&media.Task{}).Error
-}
-
 func (store *Store) DeleteExpired(ctx context.Context) (int64, error) {
 	if store == nil || store.db == nil {
 		return 0, fmt.Errorf("media task store is unavailable")
