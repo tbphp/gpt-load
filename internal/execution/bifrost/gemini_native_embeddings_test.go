@@ -306,13 +306,13 @@ func TestGeminiNativeEmbeddingsRouteCapability(t *testing.T) {
 			Operation:      operation,
 			RouteMode:      execution.RouteNative,
 		}
-		for _, provider := range []channel.ProviderKind{channel.ProviderGemini, channel.ProviderMultiProtocolGateway} {
+		for _, provider := range []channel.ProviderKind{channel.ProviderGemini, channel.ProviderGoogleVertex, channel.ProviderMultiProtocolGateway} {
 			if err := manager.ValidateRouteCapability(provider, route); err != nil {
 				t.Errorf("%s %s: %v", provider, operation, err)
 			}
 		}
 		for _, provider := range []channel.ProviderKind{
-			channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderGoogleVertex, channel.ProviderOpenRouter,
+			channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderOpenRouter,
 		} {
 			if err := manager.ValidateRouteCapability(provider, route); err == nil {
 				t.Errorf("unexpected gemini-embeddings %s capability for %s", operation, provider)
