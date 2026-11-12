@@ -326,7 +326,7 @@ func normalizeGroupSettings(settings config.Settings) (config.Settings, models.J
 	}
 	if value, exists := settings[state.SettingParameterOverrides]; exists {
 		rules, err := parameteroverride.Compile(value)
-		if err != nil || rules.ValidateResponsesContinuation() != nil {
+		if err != nil || rules.ValidateResponsesContinuation() != nil || rules.ValidateAudioSpeechStreaming() != nil {
 			return nil, nil, app_errors.ErrValidation
 		}
 	}

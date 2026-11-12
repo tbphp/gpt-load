@@ -541,7 +541,7 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 		return prepareDecisions(spec, resolved, provider, directKey, secrets)
 	}
 	if spec.ClientProtocol == protocol.AudioSpeech {
-		return prepareAudioSpeech(spec, resolved, provider, directKey, secrets)
+		return prepareAudioSpeech(spec, resolved, provider, directKey, secrets, stream)
 	}
 	if spec.ClientProtocol == protocol.Mistral {
 		return prepareMistral(spec, resolved, provider, directKey, secrets)
@@ -1119,7 +1119,7 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 	case protocol.Decisions:
 		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationDecisionsCreate && spec.Method == http.MethodPost && spec.Path == "/v1/systemone"
 	case protocol.AudioSpeech:
-		return audioSpeechRequestShape(spec, stream)
+		return audioSpeechRequestShape(spec)
 	case protocol.Mistral:
 		return mistralRequestShape(spec, stream)
 	case protocol.OpenAIEmbeddings:

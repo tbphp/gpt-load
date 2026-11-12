@@ -158,8 +158,6 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 
 ### 組み込みチャネル
 
-Audio Speech は OpenAI、OpenRouter、Mistral に対応し、各チャネルのネイティブなリクエスト・レスポンスを形式変換せずに転送します。OpenAI は生の音声データを返します。通常の音声レスポンスのみ対応し、SSE 音声イベントや音声による認証情報テストには対応しません。プロトコル制限付きアクセスキーでは `audio-speech` を許可してください。`openai-completions` の許可だけでは音声にはアクセスできません。
-
 - **公式・クラウド**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
 - **モデルサービス**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Cline、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（チャット）、Cohere（テキストリランキング）、OpenCode Go、OpenCode Zen
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
