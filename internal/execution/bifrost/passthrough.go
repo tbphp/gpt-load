@@ -218,7 +218,7 @@ func sanitizeNativePassthroughRequest(
 		model := spec.UpstreamModel
 		if spec.ChannelID == string(channel.GoogleVertex) {
 			var ok bool
-			model, ok = channel.NormalizeVertexGeminiModel(model)
+			model, ok = channel.NormalizeVertexEmbeddingsModel(model)
 			if !ok {
 				return nil, nil, fmt.Errorf("invalid Vertex Embeddings model")
 			}

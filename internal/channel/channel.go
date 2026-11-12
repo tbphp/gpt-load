@@ -351,6 +351,11 @@ func NormalizeVertexGeminiModel(model string) (string, bool) {
 	return modules.NormalizeVertexGeminiModel(model)
 }
 
+// NormalizeVertexEmbeddingsModel 归一化 Vertex 向量操作支持的 publisher 模型名。
+func NormalizeVertexEmbeddingsModel(model string) (string, bool) {
+	return modules.NormalizeVertexEmbeddingsModel(model)
+}
+
 // Operations returns the stable operation set declared for a client protocol.
 func (t ResolvedTarget) Operations(clientProtocol protocol.Protocol) []execution.Operation {
 	byOperation := t.modes[clientProtocol]

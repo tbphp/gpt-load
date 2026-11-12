@@ -1267,9 +1267,14 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 }
 
 func vertexNativeGeminiPath(model, action string) (string, error) {
-	model, ok := channel.NormalizeVertexGeminiModel(model)
-	if !ok || (action != "generateContent" && action != "streamGenerateContent" &&
-		action != "embedContent" && action != "batchEmbedContents") {
+	var ok bool
+	switch action {
+	case "generateContent", "streamGenerateContent":
+		model, ok = channel.NormalizeVertexGeminiModel(model)
+	case "embedContent", "batchEmbedContents":
+		model, ok = channel.NormalizeVertexEmbeddingsModel(model)
+	}
+	if !ok {
 		return "", fmt.Errorf("invalid Vertex Gemini target")
 	}
 	if allDigitsASCII(model) {

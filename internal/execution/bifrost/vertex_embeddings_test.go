@@ -8,6 +8,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 )
 
@@ -128,5 +129,57 @@ func TestVertexPreparesNativeAndConvertedEmbeddings(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVertexEmbeddingsUnsupportedTargetsAllowAnotherCandidate(t *testing.T) {
+	t.Parallel()
+	runtime := newTestRuntime(t)
+	for _, model := range []string{"text-embedding-005", "claude-3-5-sonnet@20240620", "123456789", "google/123456789"} {
+		for _, test := range []struct {
+			name      string
+			protocol  protocol.Protocol
+			operation execution.Operation
+			action    string
+			body      string
+		}{
+			{"native single", protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, "embedContent", `{"content":{"parts":[{"text":"hello"}]}}`},
+			{"native batch", protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, "batchEmbedContents", `{"requests":[{"content":{"parts":[{"text":"hello"}]}}]}`},
+			{"converted", protocol.OpenAIEmbeddings, execution.OperationEmbeddingsCreate, "", `{"model":"public-embedding","input":"hello"}`},
+			{"probe", protocol.GeminiEmbeddings, execution.OperationProbe, "", ""},
+		} {
+			t.Run(model+"/"+test.name, func(t *testing.T) {
+				spec := vertexEmbeddingsSpec(test.protocol, test.operation, test.action, test.body)
+				spec.UpstreamModel = model
+				spec = execution.NewAttemptSpec(spec)
+				_, failure := runtime.prepare(spec, false)
+				if failure == nil || failure.Error == nil {
+					t.Fatal("unsupported target was prepared for dispatch")
+				}
+				decision := health.JudgeExecution(health.ExecutionAttempt{
+					DispatchState: failure.DispatchState, Evidence: failure.Error,
+				}, health.DecisionContext{Operation: test.operation})
+				if failure.DispatchState != execution.DispatchNotSent ||
+					failure.Error.Kind != execution.ErrorKindConversionUnsupported ||
+					decision.Retry != health.RetryNextCandidate || decision.Effect != health.EffectSkipGroup {
+					t.Fatalf("unsupported target result = %+v; decision = %+v", failure, decision)
+				}
+			})
+		}
+	}
+}
+
+func TestVertexNumericEndpointRemainsAvailableForConversation(t *testing.T) {
+	t.Parallel()
+	for _, action := range []string{"generateContent", "streamGenerateContent"} {
+		path, err := vertexNativeGeminiPath("123456789", action)
+		if err != nil || path != "/endpoints/123456789:"+action {
+			t.Fatalf("%s path = %q, %v", action, path, err)
+		}
+	}
+	for _, action := range []string{"embedContent", "batchEmbedContents"} {
+		if path, err := vertexNativeGeminiPath("123456789", action); err == nil {
+			t.Fatalf("%s accepted numeric endpoint path %q", action, path)
+		}
 	}
 }

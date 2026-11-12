@@ -529,7 +529,8 @@ func appendExecutionTargets(
 					}
 					modelMode, supported := target.ModeForModel(clientProtocol, operation, model.ID)
 					if !supported {
-						return fmt.Errorf("compile group %d channel has no route mode for %q/%q model %q", group.ID, clientProtocol, operation, model.ID)
+						// 模型相关路由可排除当前模型，不影响分组中的其他模型和协议。
+						continue
 					}
 					appendExecutionTarget(index, clientProtocol, operation, externalModelName(model), RouteTarget{
 						GroupID: group.ID, UpstreamModelID: strings.TrimSpace(model.ID),
