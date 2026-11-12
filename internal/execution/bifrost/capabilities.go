@@ -81,6 +81,9 @@ func nativeRouteImplemented(
 	case channel.ProviderCline:
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderOpenAI:
+		if clientProtocol == protocol.AudioSpeech {
+			return operation == execution.OperationAudioSpeech
+		}
 		if clientProtocol == protocol.OpenAIEmbeddings {
 			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
 		}
