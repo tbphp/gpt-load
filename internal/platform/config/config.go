@@ -13,6 +13,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/pion/stun/v3"
+	"golang.org/x/net/http/httpguts"
 
 	"gpt-load/internal/platform/authkey"
 	"gpt-load/internal/platform/securefile"
@@ -127,6 +128,7 @@ type CodexLiveICEServer struct {
 
 // Config contains static environment configuration for the application process.
 type Config struct {
+	UpstreamUserAgentFallback string
 	ClientIPHeader            string
 	TrustedProxies            []string
 	Server                    ServerConfig
@@ -153,6 +155,11 @@ type Settings = map[string]any
 // .env file is loaded when present, but existing environment variables always win.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
+	upstreamUserAgentFallback := os.Getenv("UPSTREAM_USER_AGENT_FALLBACK")
+	if !httpguts.ValidHeaderFieldValue(upstreamUserAgentFallback) {
+		return nil, fmt.Errorf("UPSTREAM_USER_AGENT_FALLBACK must be a valid HTTP header value")
+	}
+	upstreamUserAgentFallback = strings.TrimSpace(upstreamUserAgentFallback)
 	clientIPHeader := strings.TrimSpace(os.Getenv("CLIENT_IP_HEADER"))
 	var trustedProxies []string
 	if value := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")); value != "" {
@@ -277,8 +284,9 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		ClientIPHeader: clientIPHeader,
-		TrustedProxies: trustedProxies,
+		UpstreamUserAgentFallback: upstreamUserAgentFallback,
+		ClientIPHeader:            clientIPHeader,
+		TrustedProxies:            trustedProxies,
 		Server: ServerConfig{
 			Host:                    valueOrDefault("HOST", defaultHost),
 			Port:                    port,

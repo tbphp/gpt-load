@@ -241,6 +241,7 @@ Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确�
 | `HTTP_PROXY`                    | 空                                          | HTTP 上游请求的环境代理。                                                                                                                                |
 | `HTTPS_PROXY`                   | 空                                          | HTTPS 上游请求的环境代理。                                                                                                                               |
 | `NO_PROXY`                      | 空                                          | 逗号分隔的不经过环境代理的主机、域名或 IP。                                                                                                              |
+| `UPSTREAM_USER_AGENT_FALLBACK` | 空，使用 `GPT-Load/<version>` | 普通渠道 API 请求、凭据探测、模型发现和 Responses WebSocket 握手的兜底 User-Agent。仅在请求头规则应用后最终 UA 缺失、为空或全是空白时生效，不覆盖规则或客户端提供的非空 UA。例如 `Go-http-client/1.1`（固定值，不随 HTTP 协议变化）。不改变订阅适配器身份。修改后重启。 |
 | `LOG_LEVEL`                     | `info`                                      | 支持 `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace`；无效值会告警并回退到 `info`。                                               |
 | `LOG_FORMAT`                    | `text`                                      | 支持 `text`、`json`；其他值会导致启动失败。                                                                                                              |
 | `MODELS_DEV_AUTO_SYNC_ENABLED`  | 未设置，初始默认 `true`                     | 未设置时使用管理界面的持久化设置；设置后强制开启或关闭 Models.dev 自动同步，并使管理界面中的同名选项变为只读。                                           |
