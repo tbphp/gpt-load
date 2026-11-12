@@ -40,6 +40,19 @@ func TestAudioSpeechGatewayKeepsEachChannelNativeFormat(t *testing.T) {
 		calls         int64
 	}{
 		{
+			name: "openai binary", channelID: channel.OpenAI, upstreamPath: "/v1/audio/speech",
+			body:          `{"model":"public","input":"hello","voice":"alloy","response_format":"mp3"}`,
+			upstreamModel: "gpt-4o-mini-tts", upstreamField: `"voice":"alloy"`,
+			contentType: "audio/mpeg", upstream: []byte("ID3\x04\x00\x00binary-audio"),
+			want: []string{"ID3\x04\x00\x00binary-audio"}, filters: speechOnly, status: http.StatusOK, calls: 1,
+		},
+		{
+			name: "openai requires audio-speech protocol access", channelID: channel.OpenAI,
+			body:          `{"model":"public","input":"hello","voice":"alloy"}`,
+			upstreamModel: "gpt-4o-mini-tts", filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}}},
+			status: http.StatusServiceUnavailable,
+		},
+		{
 			name: "openrouter binary", channelID: channel.OpenRouter, basePath: "/api", upstreamPath: "/api/v1/audio/speech",
 			body:          `{"model":"public","input":"hello","voice":"alloy","response_format":"mp3"}`,
 			upstreamModel: "openai/gpt-4o-mini-tts", upstreamField: `"voice":"alloy"`,

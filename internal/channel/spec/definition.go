@@ -366,6 +366,7 @@ type ParamsNormalizer func(json.RawMessage) (map[string]string, error)
 type CredentialValidator func(map[string]string) error
 
 // RouteResolver applies one declared model-dependent mode policy.
+// 返回空模式表示该模型不支持此路由。
 type RouteResolver func(upstreamModel string, defaultMode execution.RouteMode) execution.RouteMode
 
 // Extensions are implementations owned by the same file as their channel.

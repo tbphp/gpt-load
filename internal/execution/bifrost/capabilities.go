@@ -40,7 +40,8 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
 	case execution.OperationEmbeddingsCreate:
-		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIEmbeddings
+		return (providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex) &&
+			clientProtocol == protocol.OpenAIEmbeddings
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank &&
 			clientProtocol != protocol.Decisions && clientProtocol.Valid()
@@ -80,6 +81,9 @@ func nativeRouteImplemented(
 	case channel.ProviderCline:
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderOpenAI:
+		if clientProtocol == protocol.AudioSpeech {
+			return operation == execution.OperationAudioSpeech
+		}
 		if clientProtocol == protocol.OpenAIEmbeddings {
 			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
 		}
@@ -155,6 +159,9 @@ func nativeRouteImplemented(
 	case channel.ProviderGroq:
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderGoogleVertex:
+		if clientProtocol == protocol.GeminiEmbeddings {
+			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
+		}
 		return clientProtocol == protocol.Gemini &&
 			(operation == execution.OperationChatCompletion || operation == execution.OperationProbe)
 	default:

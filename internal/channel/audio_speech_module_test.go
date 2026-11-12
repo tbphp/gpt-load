@@ -11,7 +11,7 @@ func TestAudioSpeechNativeRouteIsLimitedToSupportedChannels(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	supported := map[ID]struct{}{Mistral: {}, OpenRouter: {}}
+	supported := map[ID]struct{}{OpenAI: {}, Mistral: {}, OpenRouter: {}}
 	for _, descriptor := range registry.List() {
 		definition, ok := registry.lookup(descriptor.ID)
 		if !ok {
