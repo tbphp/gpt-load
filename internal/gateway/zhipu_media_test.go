@@ -304,10 +304,6 @@ func TestZhipuCancelUnsupported(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 	id := zhipuJSON(t, recorder)["id"].(string)
-	forwarder.results = append(forwarder.results, UpstreamResult{
-		StatusCode: http.StatusMethodNotAllowed, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-		Body: []byte(`{"error":{"message":"not supported"}}`),
-	})
 	request = httptest.NewRequest(http.MethodDelete, "/v1/async-result/"+id, nil)
 	request.Header.Set("Authorization", "Bearer gl-zhipu")
 	recorder = httptest.NewRecorder()
@@ -317,6 +313,9 @@ func TestZhipuCancelUnsupported(t *testing.T) {
 	}
 	if zhipuJSON(t, recorder)["error"].(map[string]any)["code"] != "cancel_not_supported" {
 		t.Fatalf("cancel body = %s", recorder.Body.String())
+	}
+	if len(forwarder.inputs) != 1 {
+		t.Fatalf("unsupported cancel reached upstream: %d calls", len(forwarder.inputs))
 	}
 }
 
@@ -355,5 +354,49 @@ func TestZhipuCreateWithTaskIDNeverRetries(t *testing.T) {
 	}
 	if recorder.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestZhipuSyncImageMissingURLReturns502(t *testing.T) {
+	engine, _, _, _, _, forwarder := newZhipuGatewayFixture(t)
+	forwarder.results = []UpstreamResult{{
+		StatusCode: http.StatusOK, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		Header: http.Header{"Content-Type": {"application/json"}},
+		Body:   []byte(`{"data":[{"b64":"x"}]}`),
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"CogView-3-Flash","prompt":"fox"}`))
+	request.Header.Set("Authorization", "Bearer gl-zhipu")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if zhipuJSON(t, recorder)["error"].(map[string]any)["code"] != "upstream_error" {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
+func TestZhipuVideoDoesNotInjectDefaults(t *testing.T) {
+	engine, _, _, _, _, forwarder := newZhipuGatewayFixture(t)
+	forwarder.results = []UpstreamResult{{
+		StatusCode: http.StatusOK, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
+		Header: http.Header{"Content-Type": {"application/json"}},
+		Body:   []byte(`{"id":"up_minimal","request_id":"req_minimal","task_status":"PROCESSING"}`),
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos/generations", strings.NewReader(`{"model":"CogVideoX-Flash","prompt":"fox"}`))
+	request.Header.Set("Authorization", "Bearer gl-zhipu")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if len(forwarder.inputs) != 1 {
+		t.Fatalf("inputs = %d", len(forwarder.inputs))
+	}
+	body := string(forwarder.inputs[0].Request.Body)
+	for _, field := range []string{`"size"`, `"fps"`, `"quality"`, `"duration"`, `"with_audio"`} {
+		if strings.Contains(body, field) {
+			t.Fatalf("server injected %s into minimal video body: %s", field, body)
+		}
 	}
 }

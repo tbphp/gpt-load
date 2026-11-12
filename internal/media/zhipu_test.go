@@ -12,8 +12,11 @@ func TestParseZhipuImageRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if create.Protocol != ProtocolZhipuMedia || create.Operation != OperationZhipuImagesGenerate ||
-		create.Kind != KindImage || create.Size != "1024x1024" || create.ImageCount != 1 {
+		create.Kind != KindImage || create.Size != "" || create.ImageCount != 1 {
 		t.Fatalf("create = %#v", create)
+	}
+	if strings.Contains(string(create.NormalizedBody), `"size"`) || strings.Contains(string(create.NormalizedBody), `"quality"`) {
+		t.Fatalf("image defaults were injected: %s", create.NormalizedBody)
 	}
 	async, err := ParseZhipuImageRequest([]byte(`{"model":"CogView-3-Flash","prompt":"fox","size":"1440x720","quality":"hd"}`), true)
 	if err != nil {
@@ -26,6 +29,8 @@ func TestParseZhipuImageRequest(t *testing.T) {
 		`{"model":"CogView-3-Flash"}`,
 		`{"model":"CogView-3-Flash","prompt":"fox","size":"123x456"}`,
 		`{"model":"CogView-3-Flash","prompt":"fox","size":"1024x1024","quality":"ultra"}`,
+		`{"model":"CogVideoX-Flash","prompt":"fox"}`,
+		`{"model":"glm-4-flash","prompt":"fox"}`,
 	} {
 		if _, err := ParseZhipuImageRequest([]byte(body), false); err == nil {
 			t.Fatalf("invalid image request accepted: %s", body)
@@ -43,11 +48,25 @@ func TestParseZhipuVideoRequest(t *testing.T) {
 		create.FPS != 60 || create.Duration != 10 || create.WithAudio || create.Quality != "speed" {
 		t.Fatalf("create = %#v", create)
 	}
+	minimal, err := ParseZhipuVideoRequest([]byte(`{"model":"CogVideoX-Flash","prompt":"fox"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"size"`, `"fps"`, `"quality"`, `"duration"`, `"with_audio"`} {
+		if strings.Contains(string(minimal.NormalizedBody), field) {
+			t.Fatalf("video default %s was injected: %s", field, minimal.NormalizedBody)
+		}
+	}
+	if minimal.FPS != 0 || minimal.Duration != 0 || minimal.WithAudio || minimal.Quality != "" || minimal.Size != "" {
+		t.Fatalf("minimal video = %#v", minimal)
+	}
 	for _, body := range []string{
 		`{"model":"CogVideoX-Flash"}`,
 		`{"model":"CogVideoX-Flash","prompt":"fox","fps":45}`,
 		`{"model":"CogVideoX-Flash","prompt":"fox","duration":15}`,
 		`{"model":"CogVideoX-Flash","prompt":"fox","image_url":"file:///tmp/a.png"}`,
+		`{"model":"CogView-3-Flash","prompt":"fox"}`,
+		`{"model":"glm-4-flash","prompt":"fox"}`,
 	} {
 		if _, err := ParseZhipuVideoRequest([]byte(body)); err == nil {
 			t.Fatalf("invalid video request accepted: %s", body)
@@ -110,5 +129,15 @@ func TestNormalizeStatusHandlesZhipuStates(t *testing.T) {
 	}
 	if _, err := ParseZhipuResponse([]byte(`not json`)); err == nil || !strings.Contains(err.Error(), "not a JSON") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestZhipuSyncImageRejectsMissingURL(t *testing.T) {
+	t.Parallel()
+	if _, err := ZhipuSyncImageResponse([]byte(`{"data":[{"b64":"x"}]}`)); err == nil {
+		t.Fatal("sync image response without URL/base64 payload was accepted")
+	}
+	if _, err := ZhipuSyncImageResponse([]byte(`{"data":[{"url":"https://cdn.example/i.png"}]}`)); err != nil {
+		t.Fatal(err)
 	}
 }

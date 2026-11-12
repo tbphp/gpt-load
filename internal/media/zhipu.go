@@ -45,6 +45,25 @@ type ZhipuUpstream struct {
 	Raw         json.RawMessage
 }
 
+// ZhipuModelKind classifies known Zhipu media model families.
+func ZhipuModelKind(model string) string {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(lower, "cogview"), strings.Contains(lower, "glm-image"), strings.Contains(lower, "image"):
+		return KindImage
+	case strings.Contains(lower, "cogvideo"), strings.Contains(lower, "vidu"), strings.Contains(lower, "video"):
+		return KindVideo
+	default:
+		return ""
+	}
+}
+
+func knownZhipuChatModel(model string) bool {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(lower, "glm-4") || strings.HasPrefix(lower, "glm-3") ||
+		strings.HasPrefix(lower, "charglm") || strings.HasPrefix(lower, "embedding-")
+}
+
 // ParseZhipuImageRequest validates a sync or async CogView request.
 func ParseZhipuImageRequest(body []byte, async bool) (MediaCreate, error) {
 	if !json.Valid(body) {
@@ -65,15 +84,17 @@ func ParseZhipuImageRequest(body []byte, async bool) (MediaCreate, error) {
 	if prompt == "" || strings.TrimSpace(prompt) == "" {
 		return MediaCreate{}, &ValidationError{Param: "prompt", Message: "prompt must be a non-empty string."}
 	}
+	if ZhipuModelKind(model) == KindVideo || knownZhipuChatModel(model) {
+		return MediaCreate{}, &ValidationError{Param: "model", Message: "model does not support image generation."}
+	}
 	size, _, err := stringField(raw, "size", false)
 	if err != nil {
 		return MediaCreate{}, err
 	}
-	if size == "" {
-		size = "1024x1024"
-	}
-	if err := validateZhipuImageSize(size); err != nil {
-		return MediaCreate{}, err
+	if size != "" {
+		if err := validateZhipuImageSize(size); err != nil {
+			return MediaCreate{}, err
+		}
 	}
 	quality, _, err := stringField(raw, "quality", false)
 	if err != nil {
@@ -87,10 +108,7 @@ func ParseZhipuImageRequest(body []byte, async bool) (MediaCreate, error) {
 	if _, _, err := stringField(raw, "user_id", false); err != nil {
 		return MediaCreate{}, err
 	}
-	normalized, err := normalizeZhipuBody(raw, size, quality)
-	if err != nil {
-		return MediaCreate{}, err
-	}
+	normalized := append([]byte(nil), body...)
 	operation := OperationZhipuImagesGenerate
 	if async {
 		operation = OperationZhipuImagesCreateAsync
@@ -122,6 +140,9 @@ func ParseZhipuVideoRequest(body []byte) (MediaCreate, error) {
 	if prompt == "" || strings.TrimSpace(prompt) == "" {
 		return MediaCreate{}, &ValidationError{Param: "prompt", Message: "prompt must be a non-empty string."}
 	}
+	if ZhipuModelKind(model) == KindImage || knownZhipuChatModel(model) {
+		return MediaCreate{}, &ValidationError{Param: "model", Message: "model does not support video generation."}
+	}
 	imageURL, _, err := stringField(raw, "image_url", false)
 	if err != nil {
 		return MediaCreate{}, err
@@ -135,20 +156,16 @@ func ParseZhipuVideoRequest(body []byte) (MediaCreate, error) {
 	if err != nil {
 		return MediaCreate{}, err
 	}
-	if size == "" {
-		size = "1920x1080"
-	}
-	if err := validateZhipuVideoSize(size); err != nil {
-		return MediaCreate{}, err
+	if size != "" {
+		if err := validateZhipuVideoSize(size); err != nil {
+			return MediaCreate{}, err
+		}
 	}
 	fps, present, err := integerField(raw, "fps")
 	if err != nil {
 		return MediaCreate{}, err
 	}
-	if !present {
-		fps = 30
-	}
-	if fps != 30 && fps != 60 {
+	if present && fps != 30 && fps != 60 {
 		return MediaCreate{}, &ValidationError{Param: "fps", Message: "fps must be 30 or 60."}
 	}
 	quality, _, err := stringField(raw, "quality", false)
@@ -160,65 +177,26 @@ func ParseZhipuVideoRequest(body []byte) (MediaCreate, error) {
 	default:
 		return MediaCreate{}, &ValidationError{Param: "quality", Message: "quality must be speed or quality."}
 	}
-	if quality == "" {
-		quality = "quality"
-	}
 	duration, present, err := integerField(raw, "duration")
 	if err != nil {
 		return MediaCreate{}, err
 	}
-	if !present {
-		duration = 5
-	}
-	if duration != 5 && duration != 10 {
+	if present && duration != 5 && duration != 10 {
 		return MediaCreate{}, &ValidationError{Param: "duration", Message: "duration must be 5 or 10."}
 	}
-	withAudio := true
+	withAudio := false
 	if audio, ok := raw["with_audio"]; ok && !bytes.Equal(bytes.TrimSpace(audio), []byte("null")) {
 		if err := json.Unmarshal(audio, &withAudio); err != nil {
 			return MediaCreate{}, &ValidationError{Param: "with_audio", Message: "with_audio must be a boolean."}
 		}
 	}
-	normalized, err := normalizeZhipuVideoBody(raw, size, int(fps), quality, int(duration), withAudio)
-	if err != nil {
-		return MediaCreate{}, err
-	}
+	normalized := append([]byte(nil), body...)
 	return MediaCreate{
 		Protocol: ProtocolZhipuMedia, Operation: OperationZhipuVideosCreate, Kind: KindVideo,
 		ClientModel: model, Prompt: prompt, Size: size, Quality: quality,
 		FPS: int(fps), Duration: int(duration), WithAudio: withAudio,
 		ImageCount: 1, NormalizedBody: normalized,
 	}, nil
-}
-
-func normalizeZhipuBody(raw map[string]json.RawMessage, size, quality string) ([]byte, error) {
-	object := make(map[string]json.RawMessage, len(raw)+2)
-	for key, value := range raw {
-		object[key] = value
-	}
-	for key, value := range map[string]any{"size": size} {
-		encoded, _ := json.Marshal(value)
-		object[key] = encoded
-	}
-	if quality != "" {
-		encoded, _ := json.Marshal(quality)
-		object["quality"] = encoded
-	}
-	return json.Marshal(object)
-}
-
-func normalizeZhipuVideoBody(raw map[string]json.RawMessage, size string, fps int, quality string, duration int, withAudio bool) ([]byte, error) {
-	object := make(map[string]json.RawMessage, len(raw)+5)
-	for key, value := range raw {
-		object[key] = value
-	}
-	for key, value := range map[string]any{
-		"size": size, "fps": fps, "quality": quality, "duration": duration, "with_audio": withAudio,
-	} {
-		encoded, _ := json.Marshal(value)
-		object[key] = encoded
-	}
-	return json.Marshal(object)
 }
 
 func validateZhipuImageSize(raw string) error {
@@ -427,8 +405,15 @@ func ZhipuSyncImageResponse(body []byte) ([]byte, error) {
 	if len(results) == 0 {
 		results = parsed.ImageResult
 	}
-	if len(results) == 0 {
-		return nil, fmt.Errorf("upstream image response contains no result")
+	hasPayload := false
+	for _, result := range results {
+		if result.URL != "" || result.B64JSON != "" {
+			hasPayload = true
+			break
+		}
+	}
+	if !hasPayload {
+		return nil, fmt.Errorf("upstream image response contains no URL or base64 payload")
 	}
 	response := map[string]any{"created": time.Now().Unix(), "data": results}
 	if parsed.Model != "" {

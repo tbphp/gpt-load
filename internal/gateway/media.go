@@ -44,6 +44,7 @@ type mediaRequestState struct {
 	operation   execution.Operation
 	kind        string
 	clientModel string
+	accessKeyID uint
 	create      *media.MediaCreate
 	createHash  string
 	reservation media.Task
@@ -106,7 +107,8 @@ func (handler *Handler) prepareMediaRequest(
 		}
 		state := &mediaRequestState{
 			store: handler.mediaTasks, protocol: selectedProtocol, operation: metadata.Operation,
-			kind: create.Kind, clientModel: create.ClientModel, create: create, createHash: hash,
+			kind: create.Kind, clientModel: create.ClientModel, accessKeyID: accessKey.ID,
+			create: create, createHash: hash,
 		}
 		idPrefix := "media"
 		if selectedProtocol == protocol.OpenAIVideos {
@@ -168,6 +170,9 @@ func (handler *Handler) prepareMediaRequest(
 	if task.UpstreamTaskID == "" {
 		return nil, metadata, parsed, &reasonMediaCredentialUnavailable
 	}
+	if metadata.Operation == execution.OperationZhipuMediaCancel {
+		return nil, metadata, parsed, &reasonMediaCancelNotSupported
+	}
 	if _, supported := group.ResolvedTarget.Mode(selectedProtocol, metadata.Operation); !supported {
 		switch metadata.Operation {
 		case execution.OperationVideosDelete, execution.OperationZhipuMediaCancel:
@@ -227,6 +232,17 @@ func taskParams(create *media.MediaCreate, idPrefix string) media.NewTaskParams 
 		ClientModel: create.ClientModel, Mode: create.Mode, Seconds: create.Seconds,
 		Size: create.Size, AspectRatio: create.AspectRatio, Quality: create.Quality,
 		FPS: create.FPS, Duration: create.Duration, WithAudio: create.WithAudio, ImageCount: create.ImageCount,
+	}
+}
+
+func mediaIDPrefix(value protocol.Protocol) string {
+	switch value {
+	case protocol.OpenAIVideos:
+		return "video"
+	case protocol.ZhipuMedia:
+		return "zhipu"
+	default:
+		return "media"
 	}
 }
 
