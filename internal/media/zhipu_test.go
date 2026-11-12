@@ -140,4 +140,8 @@ func TestZhipuSyncImageRejectsMissingURL(t *testing.T) {
 	if _, err := ZhipuSyncImageResponse([]byte(`{"data":[{"url":"https://cdn.example/i.png"}]}`)); err != nil {
 		t.Fatal(err)
 	}
+	b64, err := ZhipuSyncImageResponse([]byte(`{"data":[{"b64_json":"aGVsbG8="}]}`))
+	if err != nil || !strings.Contains(string(b64), `"b64_json":"aGVsbG8="`) {
+		t.Fatalf("b64-only response = %s err = %v", b64, err)
+	}
 }

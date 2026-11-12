@@ -49,7 +49,6 @@ func ZhipuAI() spec.Module {
 				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuImagesCreateAsync, execution.RouteNative),
 				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuVideosCreate, execution.RouteNative),
 				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuMediaRetrieve, execution.RouteNative),
-				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuMediaCancel, execution.RouteNative),
 			},
 		},
 	}

@@ -49,10 +49,10 @@ type ZhipuUpstream struct {
 func ZhipuModelKind(model string) string {
 	lower := strings.ToLower(strings.TrimSpace(model))
 	switch {
-	case strings.Contains(lower, "cogview"), strings.Contains(lower, "glm-image"), strings.Contains(lower, "image"):
-		return KindImage
 	case strings.Contains(lower, "cogvideo"), strings.Contains(lower, "vidu"), strings.Contains(lower, "video"):
 		return KindVideo
+	case strings.Contains(lower, "cogview"), strings.Contains(lower, "glm-image"), strings.Contains(lower, "image"):
+		return KindImage
 	default:
 		return ""
 	}

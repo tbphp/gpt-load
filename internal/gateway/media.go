@@ -159,6 +159,15 @@ func (handler *Handler) prepareMediaRequest(
 			return nil, metadata, parsed, &reasonMediaTaskNotFound
 		}
 	}
+	if metadata.Operation == execution.OperationZhipuMediaCancel {
+		if recorder != nil {
+			recorder.setClientModel(task.ClientModel)
+			recorder.setOperation(metadata.Operation)
+			recorder.setUsageApplicable(false)
+			recorder.setMediaMetadata(observationForExistingTask(task, "cancel"))
+		}
+		return nil, metadata, parsed, &reasonMediaCancelNotSupported
+	}
 	group, ok := snapshot.Groups[task.GroupID]
 	if !ok {
 		return nil, metadata, parsed, &reasonMediaCredentialUnavailable
@@ -169,9 +178,6 @@ func (handler *Handler) prepareMediaRequest(
 	}
 	if task.UpstreamTaskID == "" {
 		return nil, metadata, parsed, &reasonMediaCredentialUnavailable
-	}
-	if metadata.Operation == execution.OperationZhipuMediaCancel {
-		return nil, metadata, parsed, &reasonMediaCancelNotSupported
 	}
 	if _, supported := group.ResolvedTarget.Mode(selectedProtocol, metadata.Operation); !supported {
 		switch metadata.Operation {
@@ -343,7 +349,10 @@ func (handler *Handler) finalizeMediaCreate(
 	}
 	task := state.reservation
 	if task.ID == "" {
-		created, err := state.store.NewTask(selection.GroupID, taskParams(state.create, "media"), state.createHash)
+		if state.accessKeyID == 0 {
+			return result, &reasonMediaInternal
+		}
+		created, err := state.store.NewTask(state.accessKeyID, taskParams(state.create, mediaIDPrefix(state.protocol)), state.createHash)
 		if err != nil {
 			return result, &reasonMediaInternal
 		}
