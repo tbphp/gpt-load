@@ -227,6 +227,19 @@ func sanitizeNativePassthroughRequest(
 		}
 		return bytes.Clone(request.Body), request.Header.Clone(), nil
 	}
+	if spec.ClientProtocol == protocol.ZhipuMedia {
+		if !zhipuMediaCreateOperation(spec.Operation) {
+			return nil, spec.Header.Clone(), nil
+		}
+		request, err := dialect.NewZhipuMedia().SanitizeRequestForAttempt(&dialect.ParsedRequest{
+			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
+			Header: spec.Header.Clone(), Body: bytes.Clone(spec.Body),
+		}, spec.UpstreamModel, stream)
+		if err != nil {
+			return nil, nil, err
+		}
+		return bytes.Clone(request.Body), request.Header.Clone(), nil
+	}
 	if spec.ClientProtocol == protocol.GeminiEmbeddings && spec.Operation == execution.OperationEmbeddingsCreate {
 		request, err := dialect.NewGeminiEmbeddings().SanitizeRequestForAttempt(&dialect.ParsedRequest{
 			Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,

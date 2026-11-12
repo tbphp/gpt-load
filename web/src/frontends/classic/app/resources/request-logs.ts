@@ -62,6 +62,11 @@ export type RequestLogOperation =
   | 'videos_retrieve'
   | 'videos_content'
   | 'videos_delete'
+  | 'zhipu_media_cancel'
+  | 'zhipu_media_retrieve'
+  | 'zhipu_videos_create'
+  | 'zhipu_images_create_async'
+  | 'zhipu_images_generate'
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
@@ -236,17 +241,25 @@ export interface RequestLogItemDto {
   cache_write_unknown_tokens: string
   output_tokens: string
   estimated_cost_nano_usd: string
-  video_metadata?: RequestLogVideoMetadataDto
+  media_metadata?: RequestLogMediaMetadataDto
 }
 
-export interface RequestLogVideoMetadataDto {
+export interface RequestLogMediaMetadataDto {
   gateway_task_id?: string
   upstream_task_id?: string
+  protocol?: string
+  operation?: string
+  kind?: string
   model?: string
   mode?: string
   seconds?: string
   size?: string
   aspect_ratio?: string
+  quality?: string
+  fps?: number
+  duration?: number
+  with_audio?: boolean
+  image_count?: number
   phase?: string
   status?: string
 }
@@ -336,6 +349,11 @@ const operations = [
   'videos_retrieve',
   'videos_content',
   'videos_delete',
+  'zhipu_media_cancel',
+  'zhipu_media_retrieve',
+  'zhipu_videos_create',
+  'zhipu_images_create_async',
+  'zhipu_images_generate',
   'embeddings_create',
   'rerank',
   'decisions_create',
@@ -420,7 +438,7 @@ const itemFields = [
   'cache_write_unknown_tokens',
   'output_tokens',
   'estimated_cost_nano_usd',
-  'video_metadata',
+  'media_metadata',
 ] as const
 
 function invalidResponse(): never {
@@ -711,21 +729,37 @@ function projectUsageCost(record: Record<string, unknown>) {
   }
 }
 
-function projectVideoMetadata(value: unknown): RequestLogVideoMetadataDto | undefined {
+function projectMediaMetadata(value: unknown): RequestLogMediaMetadataDto | undefined {
   if (value === undefined || value === null) return undefined
   const record = projectRecord(value)
   const text = (key: string): string | undefined => {
     const field = record[key]
     return field === undefined ? undefined : projectString(field, { allowEmpty: true })
   }
+  const number = (key: string): number | undefined => {
+    const field = record[key]
+    return field === undefined ? undefined : Number(projectString(field, { allowEmpty: true }))
+  }
+  const flag = (key: string): boolean | undefined => {
+    const field = record[key]
+    return field === undefined ? undefined : projectBoolean(field)
+  }
   return {
     gateway_task_id: text('gateway_task_id'),
     upstream_task_id: text('upstream_task_id'),
+    protocol: text('protocol'),
+    operation: text('operation'),
+    kind: text('kind'),
     model: text('model'),
     mode: text('mode'),
     seconds: text('seconds'),
     size: text('size'),
     aspect_ratio: text('aspect_ratio'),
+    quality: text('quality'),
+    fps: number('fps'),
+    duration: number('duration'),
+    with_audio: flag('with_audio'),
+    image_count: number('image_count'),
     phase: text('phase'),
     status: text('status'),
   }
@@ -809,7 +843,7 @@ function projectItemRecord(record: Record<string, unknown>): RequestLogItemDto {
     estimated_cost_nano_usd: projectNonNegativeInt64String(
       record.total_estimated_cost_nano_usd ?? record.estimated_cost_nano_usd,
     ),
-    video_metadata: projectVideoMetadata(record.video_metadata),
+    media_metadata: projectMediaMetadata(record.media_metadata),
     cost_state: projectEnum(record.total_cost_state ?? record.cost_state, costStates),
     pricing_completeness: projectEnum(
       record.total_pricing_completeness ?? record.pricing_completeness,

@@ -1,4 +1,4 @@
-package video
+package media
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestParseCreateRequestAppliesDefaultsAndModeRules(t *testing.T) {
+func TestParseOpenAIVideoCreateRequestAppliesDefaultsAndModeRules(t *testing.T) {
 	t.Parallel()
 	valid := []struct {
 		name string
@@ -23,9 +23,9 @@ func TestParseCreateRequestAppliesDefaultsAndModeRules(t *testing.T) {
 	}
 	for _, test := range valid {
 		t.Run(test.name, func(t *testing.T) {
-			parsed, err := ParseCreateRequest([]byte(test.body))
+			parsed, err := ParseOpenAIVideoCreateRequest([]byte(test.body))
 			if err != nil {
-				t.Fatalf("ParseCreateRequest() error = %v", err)
+				t.Fatalf("ParseOpenAIVideoCreateRequest() error = %v", err)
 			}
 			if parsed.Model != "m" || parsed.Prompt != "p" {
 				t.Fatalf("parsed = %#v", parsed)
@@ -36,7 +36,7 @@ func TestParseCreateRequestAppliesDefaultsAndModeRules(t *testing.T) {
 		})
 	}
 
-	text, err := ParseCreateRequest([]byte(`{"model":"m","prompt":"p"}`))
+	text, err := ParseOpenAIVideoCreateRequest([]byte(`{"model":"m","prompt":"p"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestParseCreateRequestAppliesDefaultsAndModeRules(t *testing.T) {
 	}
 }
 
-func TestParseCreateRequestRejectsInvalidShapes(t *testing.T) {
+func TestParseOpenAIVideoCreateRequestRejectsInvalidShapes(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name  string
@@ -80,9 +80,9 @@ func TestParseCreateRequestRejectsInvalidShapes(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := ParseCreateRequest([]byte(test.body))
+			_, err := ParseOpenAIVideoCreateRequest([]byte(test.body))
 			if err == nil {
-				t.Fatal("ParseCreateRequest() error = nil")
+				t.Fatal("ParseOpenAIVideoCreateRequest() error = nil")
 			}
 			var validation *ValidationError
 			if !errors.As(err, &validation) {
@@ -98,7 +98,7 @@ func TestParseCreateRequestRejectsInvalidShapes(t *testing.T) {
 func TestApplyUpstreamObservationPreservesStatusWhenUpstreamOmitsIt(t *testing.T) {
 	t.Parallel()
 	task := Task{Status: StatusCompleted, Progress: 100, ResultURL: "https://cdn.example/a.mp4"}
-	updated := ApplyUpstreamObservation(task, UpstreamResponse{})
+	updated := ApplyUpstreamObservation(task, OpenAIVideoUpstreamResponse{})
 	if updated.Status != StatusCompleted || updated.Progress != 100 || updated.ResultURL != "https://cdn.example/a.mp4" {
 		t.Fatalf("updated = %#v", updated)
 	}
@@ -128,42 +128,42 @@ func TestNormalizeStatusMapsProviderStates(t *testing.T) {
 	}
 }
 
-func TestSelectUpstreamTaskIDPrefersProviderIdentity(t *testing.T) {
+func TestSelectOpenAIVideoTaskIDPrefersProviderIdentity(t *testing.T) {
 	t.Parallel()
-	response := UpstreamResponse{ID: "id-1", TaskID: "task-1", VideoID: "video-1"}
-	if got := SelectUpstreamTaskID("openai", response); got != "id-1" {
+	response := OpenAIVideoUpstreamResponse{ID: "id-1", TaskID: "task-1", VideoID: "video-1"}
+	if got := SelectOpenAIVideoTaskID("openai", response); got != "id-1" {
 		t.Fatalf("openai id = %q", got)
 	}
-	if got := SelectUpstreamTaskID("agnes", response); got != "video-1" {
+	if got := SelectOpenAIVideoTaskID("agnes", response); got != "video-1" {
 		t.Fatalf("agnes id = %q", got)
 	}
 	response.VideoID = ""
-	if got := SelectUpstreamTaskID("agnes", response); got != "task-1" {
+	if got := SelectOpenAIVideoTaskID("agnes", response); got != "task-1" {
 		t.Fatalf("agnes fallback id = %q", got)
 	}
 	response.TaskID = ""
-	if got := SelectUpstreamTaskID("agnes", response); got != "id-1" {
+	if got := SelectOpenAIVideoTaskID("agnes", response); got != "id-1" {
 		t.Fatalf("agnes final fallback id = %q", got)
 	}
 }
 
-func TestParseUpstreamResponseKeepsURLAndError(t *testing.T) {
+func TestParseOpenAIVideoResponseKeepsURLAndError(t *testing.T) {
 	t.Parallel()
-	response, err := ParseUpstreamResponse([]byte(`{"id":"video_1","status":"completed","progress":100,"url":"https://cdn.example/v.mp4"}`))
+	response, err := ParseOpenAIVideoResponse([]byte(`{"id":"video_1","status":"completed","progress":100,"url":"https://cdn.example/v.mp4"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.Status != "completed" || response.URL != "https://cdn.example/v.mp4" || response.Progress == nil || *response.Progress != 100 {
 		t.Fatalf("response = %#v", response)
 	}
-	response, err = ParseUpstreamResponse([]byte(`{"id":"video_2","status":"failed","error":{"code":"upstream_error","message":"boom"}}`))
+	response, err = ParseOpenAIVideoResponse([]byte(`{"id":"video_2","status":"failed","error":{"code":"upstream_error","message":"boom"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.ErrorCode != "upstream_error" || response.ErrorMessage != "boom" {
 		t.Fatalf("error response = %#v", response)
 	}
-	if _, err := ParseUpstreamResponse([]byte(`not json`)); err == nil {
+	if _, err := ParseOpenAIVideoResponse([]byte(`not json`)); err == nil {
 		t.Fatal("malformed upstream response was accepted")
 	}
 }
@@ -189,7 +189,7 @@ func TestIdempotencyHashScopesToAccessKey(t *testing.T) {
 func TestApplyUpstreamObservationCompletedForcesProgress100(t *testing.T) {
 	t.Parallel()
 	progress := 42
-	updated := ApplyUpstreamObservation(Task{Status: StatusInProgress, Progress: 42}, UpstreamResponse{
+	updated := ApplyUpstreamObservation(Task{Status: StatusInProgress, Progress: 42}, OpenAIVideoUpstreamResponse{
 		Status: "completed", Progress: &progress,
 	})
 	if updated.Status != StatusCompleted || updated.Progress != 100 {

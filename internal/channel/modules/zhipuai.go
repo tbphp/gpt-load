@@ -45,6 +45,11 @@ func ZhipuAI() spec.Module {
 				spec.NewRoute(protocol.Gemini, execution.OperationChatCompletion, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationListModels, execution.RouteConverted),
 				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteConverted),
+				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuImagesGenerate, execution.RouteNative),
+				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuImagesCreateAsync, execution.RouteNative),
+				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuVideosCreate, execution.RouteNative),
+				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuMediaRetrieve, execution.RouteNative),
+				spec.NewRoute(protocol.ZhipuMedia, execution.OperationZhipuMediaCancel, execution.RouteNative),
 			},
 		},
 	}

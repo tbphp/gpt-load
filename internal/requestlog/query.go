@@ -376,11 +376,11 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 				return nil, fmt.Errorf("decode request audit: %w", err)
 			}
 		}
-		var videoMetadata *telemetry.VideoObservation
-		if len(row.VideoMetadata) > 0 && string(row.VideoMetadata) != "null" {
-			videoMetadata = new(telemetry.VideoObservation)
-			if err := json.Unmarshal(row.VideoMetadata, videoMetadata); err != nil {
-				return nil, fmt.Errorf("decode video metadata: %w", err)
+		var mediaMetadata *telemetry.MediaObservation
+		if len(row.MediaMetadata) > 0 && string(row.MediaMetadata) != "null" {
+			mediaMetadata = new(telemetry.MediaObservation)
+			if err := json.Unmarshal(row.MediaMetadata, mediaMetadata); err != nil {
+				return nil, fmt.Errorf("decode media metadata: %w", err)
 			}
 		}
 		total := telemetry.TotalPricing(telemetry.PricingObservation{CostState: row.CostState, PricingCompleteness: row.PricingCompleteness, EstimatedCostNanoUSD: row.EstimatedCostNanoUSD}, decision, audit)
@@ -431,7 +431,7 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			CacheWriteUnknownTokens: row.CacheWriteUnknownTokens,
 			OutputTokens:            row.OutputTokens,
 			EstimatedCostNanoUSD:    row.EstimatedCostNanoUSD,
-			VideoMetadata:           videoMetadata,
+			MediaMetadata:           mediaMetadata,
 		})
 	}
 	return records, nil

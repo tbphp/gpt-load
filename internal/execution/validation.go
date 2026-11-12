@@ -328,6 +328,11 @@ func operationRequiresModel(operation Operation) bool {
 		operation == OperationVideosRetrieve ||
 		operation == OperationVideosContent ||
 		operation == OperationVideosDelete ||
+		operation == OperationZhipuImagesGenerate ||
+		operation == OperationZhipuImagesCreateAsync ||
+		operation == OperationZhipuVideosCreate ||
+		operation == OperationZhipuMediaRetrieve ||
+		operation == OperationZhipuMediaCancel ||
 		operation == OperationEmbeddingsCreate ||
 		operation == OperationLiveCall ||
 		operation == OperationRerank ||

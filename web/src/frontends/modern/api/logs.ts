@@ -23,6 +23,11 @@ export const logOperations = [
   'videos_retrieve',
   'videos_content',
   'videos_delete',
+  'zhipu_media_cancel',
+  'zhipu_media_retrieve',
+  'zhipu_videos_create',
+  'zhipu_images_create_async',
+  'zhipu_images_generate',
   'embeddings_create',
   'rerank',
   'decisions_create',
@@ -150,17 +155,25 @@ export interface LogEntry {
   cache_write_unknown_tokens: string
   output_tokens: string
   estimated_cost_nano_usd: string
-  video_metadata?: LogVideoMetadata
+  media_metadata?: LogMediaMetadata
 }
 
-export interface LogVideoMetadata {
+export interface LogMediaMetadata {
   gateway_task_id: string | null
   upstream_task_id: string | null
+  protocol: string | null
+  operation: string | null
+  kind: string | null
   model: string | null
   mode: string | null
   seconds: string | null
   size: string | null
   aspect_ratio: string | null
+  quality: string | null
+  fps: number | null
+  duration: number | null
+  with_audio: boolean | null
+  image_count: number | null
   phase: string | null
   status: string | null
 }
@@ -398,23 +411,31 @@ function entry(value: unknown): LogEntry {
     estimated_cost_nano_usd: count(
       row.total_estimated_cost_nano_usd ?? row.estimated_cost_nano_usd,
     ),
-    video_metadata:
-      row.video_metadata === undefined || row.video_metadata === null
+    media_metadata:
+      row.media_metadata === undefined || row.media_metadata === null
         ? undefined
-        : videoMetadata(row.video_metadata),
+        : mediaMetadata(row.media_metadata),
   }
 }
 
-function videoMetadata(value: unknown): LogVideoMetadata {
+function mediaMetadata(value: unknown): LogMediaMetadata {
   const row = record(value)
   return {
     gateway_task_id: optionalText(row.gateway_task_id),
     upstream_task_id: optionalText(row.upstream_task_id),
+    protocol: optionalText(row.protocol),
+    operation: optionalText(row.operation),
+    kind: optionalText(row.kind),
     model: optionalText(row.model),
     mode: optionalText(row.mode),
     seconds: optionalText(row.seconds),
     size: optionalText(row.size),
     aspect_ratio: optionalText(row.aspect_ratio),
+    quality: optionalText(row.quality),
+    fps: row.fps == null ? null : integer(row.fps),
+    duration: row.duration == null ? null : integer(row.duration),
+    with_audio: row.with_audio == null ? null : boolean(row.with_audio),
+    image_count: row.image_count == null ? null : integer(row.image_count),
     phase: optionalText(row.phase),
     status: optionalText(row.status),
   }

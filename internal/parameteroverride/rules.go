@@ -369,6 +369,10 @@ func supports(clientProtocol protocol.Protocol, operation execution.Operation) b
 		return operation == execution.OperationImagesGenerate
 	case protocol.OpenAIVideos:
 		return operation == execution.OperationVideosCreate
+	case protocol.ZhipuMedia:
+		return operation == execution.OperationZhipuImagesGenerate ||
+			operation == execution.OperationZhipuImagesCreateAsync ||
+			operation == execution.OperationZhipuVideosCreate
 	case protocol.Rerank:
 		return operation == execution.OperationRerank
 	case protocol.Decisions:

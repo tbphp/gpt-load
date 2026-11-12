@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"gpt-load/internal/execution"
+	"gpt-load/internal/media"
 	"gpt-load/internal/protocol"
-	"gpt-load/internal/video"
 )
 
 const openAIVideosPath = "/v1/videos"
@@ -43,7 +43,7 @@ func (d *OpenAIVideos) InspectRequest(request *ParsedRequest) (RequestMetadata, 
 		if request.Method != http.MethodPost {
 			return RequestMetadata{}, fmt.Errorf("%s only supports POST on %s", d.Protocol(), openAIVideosPath)
 		}
-		parsed, err := video.ParseCreateRequest(request.Body)
+		parsed, err := media.ParseOpenAIVideoCreateRequest(request.Body)
 		if err != nil {
 			return RequestMetadata{}, err
 		}
@@ -51,14 +51,19 @@ func (d *OpenAIVideos) InspectRequest(request *ParsedRequest) (RequestMetadata, 
 		request.Body = parsed.NormalizedBody
 		return RequestMetadata{
 			Model: &model, Operation: execution.OperationVideosCreate,
-			VideoCreate:      &parsed,
+			MediaCreate: &media.MediaCreate{
+				Protocol: "openai-videos", Operation: string(execution.OperationVideosCreate), Kind: media.KindVideo,
+				ClientModel: parsed.Model, Prompt: parsed.Prompt, Mode: parsed.Mode,
+				Seconds: parsed.Seconds, Size: parsed.Size, AspectRatio: parsed.AspectRatio,
+				ImageCount: parsed.N, NormalizedBody: parsed.NormalizedBody,
+			},
 			RouteRequirement: execution.RouteRequirementNative,
 		}, nil
 	}
 
 	remainder := strings.TrimPrefix(request.Path, openAIVideosPath+"/")
 	parts := strings.Split(remainder, "/")
-	if len(parts) == 0 || len(parts) > 2 || !validVideoTaskID(parts[0]) {
+	if len(parts) == 0 || len(parts) > 2 || !validMediaTaskID(parts[0]) {
 		return RequestMetadata{}, fmt.Errorf("invalid %s resource path", d.Protocol())
 	}
 	operation := execution.OperationVideosRetrieve
@@ -79,7 +84,7 @@ func (d *OpenAIVideos) InspectRequest(request *ParsedRequest) (RequestMetadata, 
 		operation = execution.OperationVideosContent
 	}
 	return RequestMetadata{
-		VideoTaskID: parts[0], Operation: operation,
+		MediaTaskID: parts[0], Operation: operation,
 		RouteRequirement: execution.RouteRequirementNative,
 	}, nil
 }
@@ -94,7 +99,7 @@ func (d *OpenAIVideos) RewriteRequestModel(request *ParsedRequest, model string)
 	if request.Path != openAIVideosPath {
 		return cloneParsedRequest(request)
 	}
-	parsed, err := video.ParseCreateRequest(request.Body)
+	parsed, err := media.ParseOpenAIVideoCreateRequest(request.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +138,7 @@ func (d *OpenAIVideos) SanitizeRequestForAttempt(
 	if request.Path != openAIVideosPath {
 		return cloneParsedRequest(request)
 	}
-	parsed, err := video.ParseCreateRequest(request.Body)
+	parsed, err := media.ParseOpenAIVideoCreateRequest(request.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +176,7 @@ func (*OpenAIVideos) RewriteResponseModel(body []byte, externalModel string) ([]
 	return rewriteOptionalJSONField(body, "model", externalModel)
 }
 
-func validVideoTaskID(value string) bool {
+func validMediaTaskID(value string) bool {
 	if len(value) == 0 || len(value) > 128 {
 		return false
 	}

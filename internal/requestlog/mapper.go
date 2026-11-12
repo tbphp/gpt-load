@@ -173,13 +173,13 @@ func mapEvent(
 		}
 		auditTotal = telemetry.TotalPricing(auditTotal, nil, &auditCopy)
 	}
-	var videoJSON models.JSON
-	if event.Video != nil {
-		encoded, err := json.Marshal(event.Video)
+	var mediaJSON models.JSON
+	if event.Media != nil {
+		encoded, err := json.Marshal(event.Media)
 		if err != nil {
 			return models.RequestLog{}, fmt.Errorf("encode video metadata: %w", err)
 		}
-		videoJSON = encoded
+		mediaJSON = encoded
 	}
 	return models.RequestLog{
 		RequestAudit: auditJSON, AuditCostNanoUSD: auditTotal.EstimatedCostNanoUSD, AuditPricingCompleteness: auditTotal.PricingCompleteness, AuditUsageRows: auditRows,
@@ -227,7 +227,7 @@ func mapEvent(
 		CostState:                   pricingObservation.CostState,
 		PricingCompleteness:         pricingObservation.PricingCompleteness,
 		AttemptRows:                 attempts,
-		VideoMetadata:               videoJSON,
+		MediaMetadata:               mediaJSON,
 	}, nil
 }
 

@@ -23,7 +23,7 @@ func TestErrorDecisionMigrationPreservesAttemptsAndAddsDecisionContract(t *testi
 	}
 	if err := db.Omit(
 		"RequestAudit", "AuditCostNanoUSD", "AuditPricingCompleteness", "AffinityKind", "AutoDecision", "DecisionModel", "DecisionCostNanoUSD",
-		"DecisionPricingCompleteness", "DecisionGroupID", "DecisionChannelID", "DecisionCredentialID", "FirstOutputMs", "LastOutputMs", "ClientIP", "VideoMetadata",
+		"DecisionPricingCompleteness", "DecisionGroupID", "DecisionChannelID", "DecisionCredentialID", "FirstOutputMs", "LastOutputMs", "ClientIP", "MediaMetadata",
 	).Create(&request).Error; err != nil {
 		t.Fatalf("create request log: %v", err)
 	}

@@ -528,6 +528,12 @@ func validProtocolOperation(clientProtocol protocol.Protocol, operation executio
 		execution.OperationVideosContent,
 		execution.OperationVideosDelete:
 		return clientProtocol == protocol.OpenAIVideos
+	case execution.OperationZhipuImagesGenerate,
+		execution.OperationZhipuImagesCreateAsync,
+		execution.OperationZhipuVideosCreate,
+		execution.OperationZhipuMediaRetrieve,
+		execution.OperationZhipuMediaCancel:
+		return clientProtocol == protocol.ZhipuMedia
 	case execution.OperationRerank:
 		return clientProtocol == protocol.Rerank
 	case execution.OperationDecisionsCreate:

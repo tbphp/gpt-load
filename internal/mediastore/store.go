@@ -1,4 +1,4 @@
-package videostore
+package mediastore
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
-	"gpt-load/internal/video"
+	"gpt-load/internal/media"
 )
 
 // Store persists gateway video task bindings. It never stores credential
@@ -23,12 +23,12 @@ type Store struct {
 }
 
 func NewStore(db *gorm.DB) *Store {
-	store := &Store{db: db, now: time.Now, ttl: video.DefaultTTL}
-	if raw := strings.TrimSpace(os.Getenv("VIDEO_TASK_TTL")); raw != "" {
+	store := &Store{db: db, now: time.Now, ttl: media.DefaultTTL}
+	if raw := strings.TrimSpace(os.Getenv("MEDIA_TASK_TTL")); raw != "" {
 		if ttl, err := time.ParseDuration(raw); err == nil && ttl > 0 {
 			store.ttl = ttl
 		} else {
-			logrus.WithField("value", raw).Warn("ignoring invalid VIDEO_TASK_TTL")
+			logrus.WithField("value", raw).Warn("ignoring invalid MEDIA_TASK_TTL")
 		}
 	}
 	return store
@@ -48,21 +48,39 @@ func (store *Store) SetTTL(ttl time.Duration) {
 
 func (store *Store) TTL() time.Duration {
 	if store == nil || store.ttl <= 0 {
-		return video.DefaultTTL
+		return media.DefaultTTL
 	}
 	return store.ttl
 }
 
-func (store *Store) NewTask(accessKeyID uint, request video.CreateRequest, idempotencyHash string) (video.Task, error) {
-	id, err := video.NewID()
-	if err != nil {
-		return video.Task{}, err
-	}
+func (store *Store) NewTask(accessKeyID uint, params media.NewTaskParams, idempotencyHash string) (media.Task, error) {
 	now := store.currentTime()
-	task := video.Task{
-		ID: id, AccessKeyID: accessKeyID, ClientModel: request.Model,
-		Status: video.StatusQueued, Mode: request.Mode, Seconds: request.Seconds,
-		Size: request.Size, AspectRatio: request.AspectRatio,
+	protocolName := params.Protocol
+	if protocolName == "" {
+		protocolName = "openai-videos"
+	}
+	operation := params.Operation
+	if operation == "" {
+		operation = "videos_create"
+	}
+	kind := params.Kind
+	if kind == "" {
+		kind = media.KindVideo
+	}
+	idPrefix := params.IDPrefix
+	if idPrefix == "" {
+		idPrefix = "media"
+	}
+	id, err := media.NewID(idPrefix)
+	if err != nil {
+		return media.Task{}, err
+	}
+	task := media.Task{
+		ID: id, AccessKeyID: accessKeyID, Protocol: protocolName, Operation: operation, Kind: kind,
+		ClientModel: params.ClientModel, Status: media.StatusQueued,
+		Mode: params.Mode, Seconds: params.Seconds, Size: params.Size,
+		AspectRatio: params.AspectRatio, Quality: params.Quality,
+		FPS: params.FPS, Duration: params.Duration, WithAudio: params.WithAudio, ImageCount: params.ImageCount,
 		CreatedAtMS: now.UnixMilli(), UpdatedAtMS: now.UnixMilli(),
 		ExpiresAtMS: now.Add(store.TTL()).UnixMilli(),
 	}
@@ -74,9 +92,9 @@ func (store *Store) NewTask(accessKeyID uint, request video.CreateRequest, idemp
 
 // Reserve persists a pending task. When an idempotency key already exists, the
 // existing row is returned and created is false.
-func (store *Store) Reserve(ctx context.Context, task video.Task) (video.Task, bool, error) {
+func (store *Store) Reserve(ctx context.Context, task media.Task) (media.Task, bool, error) {
 	if store == nil || store.db == nil {
-		return video.Task{}, false, fmt.Errorf("video task store is unavailable")
+		return media.Task{}, false, fmt.Errorf("media task store is unavailable")
 	}
 	err := store.db.WithContext(ctx).Create(&task).Error
 	if err == nil {
@@ -87,63 +105,63 @@ func (store *Store) Reserve(ctx context.Context, task video.Task) (video.Task, b
 		if lookupErr == nil {
 			return existing, false, nil
 		}
-		if errors.Is(lookupErr, video.ErrNotFound) {
+		if errors.Is(lookupErr, media.ErrNotFound) {
 			// The unique index can still hold an expired row. Remove it and retry
 			// once so an idempotency key remains reusable after its TTL elapses.
 			if deleteErr := store.db.WithContext(ctx).
 				Where("access_key_id = ? AND idempotency_key = ?", task.AccessKeyID, *task.IdempotencyKey).
-				Delete(&video.Task{}).Error; deleteErr == nil {
+				Delete(&media.Task{}).Error; deleteErr == nil {
 				if createErr := store.db.WithContext(ctx).Create(&task).Error; createErr == nil {
 					return task, true, nil
 				}
 			}
 		}
 	}
-	return video.Task{}, false, err
+	return media.Task{}, false, err
 }
 
 // Get returns the task owned by the access key. Expired rows are treated as
 // absent so the caller can return task_not_found.
-func (store *Store) Get(ctx context.Context, accessKeyID uint, id string) (video.Task, error) {
+func (store *Store) Get(ctx context.Context, accessKeyID uint, id string) (media.Task, error) {
 	if store == nil || store.db == nil {
-		return video.Task{}, fmt.Errorf("video task store is unavailable")
+		return media.Task{}, fmt.Errorf("media task store is unavailable")
 	}
 	if id == "" {
-		return video.Task{}, video.ErrNotFound
+		return media.Task{}, media.ErrNotFound
 	}
-	var task video.Task
+	var task media.Task
 	err := store.db.WithContext(ctx).
 		Where("id = ? AND access_key_id = ? AND expires_at_ms > ?", id, accessKeyID, store.currentTime().UnixMilli()).
 		First(&task).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return video.Task{}, video.ErrNotFound
+		return media.Task{}, media.ErrNotFound
 	}
 	if err != nil {
-		return video.Task{}, err
+		return media.Task{}, err
 	}
 	return task, nil
 }
 
-func (store *Store) getByIdempotency(ctx context.Context, accessKeyID uint, hash string) (video.Task, error) {
-	var task video.Task
+func (store *Store) getByIdempotency(ctx context.Context, accessKeyID uint, hash string) (media.Task, error) {
+	var task media.Task
 	err := store.db.WithContext(ctx).
 		Where("access_key_id = ? AND idempotency_key = ? AND expires_at_ms > ?", accessKeyID, hash, store.currentTime().UnixMilli()).
 		First(&task).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return video.Task{}, video.ErrNotFound
+		return media.Task{}, media.ErrNotFound
 	}
 	if err != nil {
-		return video.Task{}, err
+		return media.Task{}, err
 	}
 	return task, nil
 }
 
-func (store *Store) UpdateCreateResult(ctx context.Context, task video.Task) error {
+func (store *Store) UpdateCreateResult(ctx context.Context, task media.Task) error {
 	if store == nil || store.db == nil {
-		return fmt.Errorf("video task store is unavailable")
+		return fmt.Errorf("media task store is unavailable")
 	}
 	task.UpdatedAtMS = store.currentTime().UnixMilli()
-	return store.db.WithContext(ctx).Model(&video.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
+	return store.db.WithContext(ctx).Model(&media.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
 		"group_id":            task.GroupID,
 		"credential_id":       task.CredentialID,
 		"upstream_task_id":    task.UpstreamTaskID,
@@ -159,12 +177,12 @@ func (store *Store) UpdateCreateResult(ctx context.Context, task video.Task) err
 	}).Error
 }
 
-func (store *Store) UpdateObservation(ctx context.Context, task video.Task) error {
+func (store *Store) UpdateObservation(ctx context.Context, task media.Task) error {
 	if store == nil || store.db == nil {
-		return fmt.Errorf("video task store is unavailable")
+		return fmt.Errorf("media task store is unavailable")
 	}
 	task.UpdatedAtMS = store.currentTime().UnixMilli()
-	return store.db.WithContext(ctx).Model(&video.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
+	return store.db.WithContext(ctx).Model(&media.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
 		"status":             task.Status,
 		"progress":           task.Progress,
 		"result_url":         task.ResultURL,
@@ -176,10 +194,10 @@ func (store *Store) UpdateObservation(ctx context.Context, task video.Task) erro
 
 func (store *Store) MarkFailed(ctx context.Context, id, code, message string) error {
 	if store == nil || store.db == nil {
-		return fmt.Errorf("video task store is unavailable")
+		return fmt.Errorf("media task store is unavailable")
 	}
-	return store.db.WithContext(ctx).Model(&video.Task{}).Where("id = ?", id).Updates(map[string]any{
-		"status":             video.StatusFailed,
+	return store.db.WithContext(ctx).Model(&media.Task{}).Where("id = ?", id).Updates(map[string]any{
+		"status":             media.StatusFailed,
 		"last_error_code":    code,
 		"last_error_message": message,
 		"updated_at_ms":      store.currentTime().UnixMilli(),
@@ -188,37 +206,37 @@ func (store *Store) MarkFailed(ctx context.Context, id, code, message string) er
 
 func (store *Store) MarkCancelled(ctx context.Context, accessKeyID uint, id string) error {
 	if store == nil || store.db == nil {
-		return fmt.Errorf("video task store is unavailable")
+		return fmt.Errorf("media task store is unavailable")
 	}
-	result := store.db.WithContext(ctx).Model(&video.Task{}).
+	result := store.db.WithContext(ctx).Model(&media.Task{}).
 		Where("id = ? AND access_key_id = ? AND expires_at_ms > ?", id, accessKeyID, store.currentTime().UnixMilli()).
 		Updates(map[string]any{
-			"status":        video.StatusCancelled,
+			"status":        media.StatusCancelled,
 			"updated_at_ms": store.currentTime().UnixMilli(),
 		})
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return video.ErrNotFound
+		return media.ErrNotFound
 	}
 	return nil
 }
 
 func (store *Store) Delete(ctx context.Context, id string) error {
 	if store == nil || store.db == nil {
-		return fmt.Errorf("video task store is unavailable")
+		return fmt.Errorf("media task store is unavailable")
 	}
-	return store.db.WithContext(ctx).Where("id = ?", id).Delete(&video.Task{}).Error
+	return store.db.WithContext(ctx).Where("id = ?", id).Delete(&media.Task{}).Error
 }
 
 func (store *Store) DeleteExpired(ctx context.Context) (int64, error) {
 	if store == nil || store.db == nil {
-		return 0, fmt.Errorf("video task store is unavailable")
+		return 0, fmt.Errorf("media task store is unavailable")
 	}
 	result := store.db.WithContext(ctx).
 		Where("expires_at_ms <= ?", store.currentTime().UnixMilli()).
-		Delete(&video.Task{})
+		Delete(&media.Task{})
 	return result.RowsAffected, result.Error
 }
 
@@ -227,7 +245,7 @@ func (store *Store) Cleanup(ctx context.Context, now time.Time) error {
 	if store == nil || store.db == nil {
 		return nil
 	}
-	result := store.db.WithContext(ctx).Where("expires_at_ms <= ?", now.UnixMilli()).Delete(&video.Task{})
+	result := store.db.WithContext(ctx).Where("expires_at_ms <= ?", now.UnixMilli()).Delete(&media.Task{})
 	return result.Error
 }
 

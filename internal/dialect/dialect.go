@@ -4,11 +4,11 @@ import (
 	"net/http"
 
 	"gpt-load/internal/execution"
+	"gpt-load/internal/media"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/reasoning"
 	"gpt-load/internal/usage"
-	"gpt-load/internal/video"
 )
 
 type ParsedRequest struct {
@@ -28,12 +28,12 @@ type RequestMetadata struct {
 	RouteRequirement         execution.RouteRequirement
 	ResponsesStorePreference execution.ResponsesStorePreference
 	PreviousResponseID       string
-	// VideoTaskID is the client-visible gateway video task identifier parsed
-	// from one video resource path. Create requests leave it empty.
-	VideoTaskID string
-	// VideoCreate carries the validated creation shape for the openai-videos
-	// protocol so the gateway can reserve an idempotent task before dispatch.
-	VideoCreate      *video.CreateRequest
+	// MediaTaskID is the client-visible gateway media task identifier parsed from
+	// one resource path. Create requests leave it empty.
+	MediaTaskID string
+	// MediaCreate carries the validated creation shape so the gateway can reserve
+	// an idempotent media task before dispatch.
+	MediaCreate      *media.MediaCreate
 	ObserveUsage     bool
 	PricingMode      pricing.Mode
 	UsageDiagnostics usage.Diagnostics

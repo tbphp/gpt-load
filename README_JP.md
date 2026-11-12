@@ -148,6 +148,7 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 | OpenAI Chat Completions | `POST /v1/chat/completions`                                        |
 | OpenAI Responses        | `/v1/responses` およびそのリソースパス                             |
 | OpenAI Images           | `POST /v1/images/...`                                              |
+| Zhipu Media             | `POST /v1/images/generations`、`POST /v1/async/images/generations`、`POST /v1/videos/generations`、`GET/DELETE /v1/async-result/{id}` |
 | OpenAI Videos           | `POST /v1/videos`、`/v1/videos/{id}`、`/v1/videos/{id}/content`      |
 | OpenAI Embeddings       | `POST /v1/embeddings`                                              |
 | Rerank                  | `POST /v1/rerank`                                                  |
@@ -243,7 +244,7 @@ Windows の一般ユーザーは代わりに `gpt-load-windows-setup.exe` を利
 | `LOG_LEVEL` | `info` | `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace` に対応します。無効な値は警告を出して `info` に戻ります。 |
 | `LOG_FORMAT` | `text` | `text` と `json` に対応します。それ以外の値では起動に失敗します。 |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | 未設定、初期既定値 `true` | 未設定時は管理画面に保存された設定を使用します。設定時は Models.dev の自動同期を強制的に有効または無効にし、管理画面の同名オプションを読み取り専用にします。 |
-| `VIDEO_TASK_TTL` | `24h` | ゲートウェイの動画タスクバインディングの有効期間（Go duration、例: `12h`、`30m`）。期限切れは `task_not_found` を返し、毎時クリーンアップされます。 |
+| `MEDIA_TASK_TTL` | `24h` | ゲートウェイのメディアタスクバインディングの有効期間（Go duration、例: `12h`、`30m`）。期限切れは `task_not_found` を返し、毎時クリーンアップされます。 |
 
 環境プロキシは、認証情報、Group、グローバル設定のいずれにもプロキシが指定されていない場合にのみ適用されます。
 

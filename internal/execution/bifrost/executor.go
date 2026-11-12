@@ -545,6 +545,9 @@ func (r *Runtime) prepare(spec execution.AttemptSpec, stream bool) (preparedAtte
 	if spec.ClientProtocol == protocol.OpenAIVideos {
 		return prepareVideos(spec, resolved, provider, directKey, secrets)
 	}
+	if spec.ClientProtocol == protocol.ZhipuMedia {
+		return prepareZhipuMedia(spec, resolved, provider, directKey, secrets)
+	}
 	if spec.ClientProtocol == protocol.Mistral {
 		return prepareMistral(spec, resolved, provider, directKey, secrets)
 	}
@@ -1005,7 +1008,7 @@ func providerKindNativeForClient(providerKind channel.ProviderKind, clientProtoc
 		return clientProtocol == protocol.OpenAICompletions
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderMultiProtocolGateway:
 		return clientProtocol == protocol.OpenAICompletions || clientProtocol == protocol.OpenAIResponses ||
-			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIVideos ||
+			clientProtocol == protocol.OpenAIImages || clientProtocol == protocol.OpenAIVideos || clientProtocol == protocol.ZhipuMedia ||
 			clientProtocol == protocol.OpenAIEmbeddings ||
 			(providerKind == channel.ProviderMultiProtocolGateway &&
 				(clientProtocol == protocol.Anthropic || clientProtocol == protocol.Gemini ||
@@ -1100,6 +1103,8 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		}
 	case protocol.OpenAIVideos:
 		return validVideoRequestShape(spec, stream)
+	case protocol.ZhipuMedia:
+		return validZhipuMediaShape(spec, stream)
 	case protocol.Rerank:
 		return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationRerank && spec.Method == http.MethodPost && spec.Path == "/v1/rerank"
 	case protocol.Decisions:
@@ -1137,6 +1142,31 @@ func supportedRequestShape(spec execution.AttemptSpec, stream bool) bool {
 		return validGeminiGeneratePath(spec.Path, action)
 	}
 	return false
+}
+
+func validZhipuMediaShape(spec execution.AttemptSpec, stream bool) bool {
+	if stream || spec.RouteMode != execution.RouteNative {
+		return false
+	}
+	switch spec.Operation {
+	case execution.OperationZhipuImagesGenerate:
+		return spec.Method == http.MethodPost && spec.Path == "/v1/images/generations" && len(spec.Body) > 0
+	case execution.OperationZhipuImagesCreateAsync:
+		return spec.Method == http.MethodPost && spec.Path == "/v1/async/images/generations" && len(spec.Body) > 0
+	case execution.OperationZhipuVideosCreate:
+		return spec.Method == http.MethodPost && spec.Path == "/v1/videos/generations" && len(spec.Body) > 0
+	case execution.OperationZhipuMediaRetrieve:
+		return spec.Method == http.MethodGet && validZhipuAsyncResultPath(spec.Path)
+	case execution.OperationZhipuMediaCancel:
+		return spec.Method == http.MethodDelete && validZhipuAsyncResultPath(spec.Path)
+	default:
+		return false
+	}
+}
+
+func validZhipuAsyncResultPath(path string) bool {
+	remainder, ok := strings.CutPrefix(path, "/v1/async-result/")
+	return ok && remainder != "" && !strings.Contains(remainder, "/") && validResourceID(remainder)
 }
 
 func validVideoRequestShape(spec execution.AttemptSpec, stream bool) bool {

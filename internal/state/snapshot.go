@@ -497,7 +497,9 @@ func appendExecutionTargets(
 				execution.OperationResponsesInputItems,
 				execution.OperationVideosRetrieve,
 				execution.OperationVideosContent,
-				execution.OperationVideosDelete:
+				execution.OperationVideosDelete,
+				execution.OperationZhipuMediaRetrieve,
+				execution.OperationZhipuMediaCancel:
 				appendExecutionTarget(index, clientProtocol, operation, NoModelRouteKey, RouteTarget{
 					GroupID: group.ID, Mode: mode, ResolvedTarget: cloneResolvedTarget(target),
 				})
@@ -516,6 +518,9 @@ func appendExecutionTargets(
 				execution.OperationImagesGenerate,
 				execution.OperationImagesEdit,
 				execution.OperationVideosCreate,
+				execution.OperationZhipuImagesGenerate,
+				execution.OperationZhipuImagesCreateAsync,
+				execution.OperationZhipuVideosCreate,
 				execution.OperationEmbeddingsCreate, execution.OperationRerank,
 				execution.OperationDecisionsCreate,
 				execution.OperationAudioSpeech,

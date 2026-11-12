@@ -76,6 +76,9 @@ func nativeRouteImplemented(
 	if clientProtocol == protocol.Rerank {
 		return (providerKind == channel.ProviderOpenAICompatible || providerKind == channel.ProviderMultiProtocolGateway) && (operation == execution.OperationRerank || operation == execution.OperationProbe)
 	}
+	if clientProtocol == protocol.ZhipuMedia {
+		return providerKind == channel.ProviderOpenAICompatible && zhipuMediaOperation(operation)
+	}
 	switch providerKind {
 	case channel.ProviderCline:
 		return clientProtocol == protocol.OpenAICompletions && standardProtocolOperation(clientProtocol, operation)
@@ -165,6 +168,19 @@ func nativeRouteImplemented(
 	case channel.ProviderGoogleVertex:
 		return clientProtocol == protocol.Gemini &&
 			(operation == execution.OperationChatCompletion || operation == execution.OperationProbe)
+	default:
+		return false
+	}
+}
+
+func zhipuMediaOperation(operation execution.Operation) bool {
+	switch operation {
+	case execution.OperationZhipuImagesGenerate,
+		execution.OperationZhipuImagesCreateAsync,
+		execution.OperationZhipuVideosCreate,
+		execution.OperationZhipuMediaRetrieve,
+		execution.OperationZhipuMediaCancel:
+		return true
 	default:
 		return false
 	}

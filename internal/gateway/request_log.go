@@ -85,7 +85,7 @@ type requestRecorder struct {
 	pricingPending       bool
 	outcome              requestOutcome
 	usage                telemetry.UsageObservation
-	video                *telemetry.VideoObservation
+	media                *telemetry.MediaObservation
 	now                  func() time.Time
 	redactor             *redact.Redactor
 	emitted              bool
@@ -173,12 +173,12 @@ func (recorder *requestRecorder) emit() {
 		Operation:             recorder.operation,
 		Attempts:              append([]telemetry.Attempt(nil), recorder.attempts...),
 		Usage:                 recorder.usage,
-		Video:                 cloneVideoObservation(recorder.video),
+		Media:                 cloneMediaObservation(recorder.media),
 		RequestBody:           recorder.requestBody,
 	})
 }
 
-func cloneVideoObservation(value *telemetry.VideoObservation) *telemetry.VideoObservation {
+func cloneMediaObservation(value *telemetry.MediaObservation) *telemetry.MediaObservation {
 	if value == nil {
 		return nil
 	}
@@ -186,22 +186,22 @@ func cloneVideoObservation(value *telemetry.VideoObservation) *telemetry.VideoOb
 	return &clone
 }
 
-func (recorder *requestRecorder) setVideoMetadata(value *telemetry.VideoObservation) {
+func (recorder *requestRecorder) setMediaMetadata(value *telemetry.MediaObservation) {
 	if recorder == nil || value == nil {
 		return
 	}
-	recorder.video = cloneVideoObservation(value)
+	recorder.media = cloneMediaObservation(value)
 }
 
-func (recorder *requestRecorder) updateVideoMetadata(status, upstreamTaskID string) {
-	if recorder == nil || recorder.video == nil {
+func (recorder *requestRecorder) updateMediaMetadata(status, upstreamTaskID string) {
+	if recorder == nil || recorder.media == nil {
 		return
 	}
 	if status != "" {
-		recorder.video.Status = status
+		recorder.media.Status = status
 	}
 	if upstreamTaskID != "" {
-		recorder.video.UpstreamTaskID = upstreamTaskID
+		recorder.media.UpstreamTaskID = upstreamTaskID
 	}
 }
 

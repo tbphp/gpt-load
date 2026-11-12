@@ -23,6 +23,7 @@ import (
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/mediastore"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
@@ -43,7 +44,6 @@ import (
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
-	"gpt-load/internal/videostore"
 	"gpt-load/internal/webui"
 )
 
@@ -169,6 +169,7 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 		dialect.NewOpenAIResponses,
 		dialect.NewOpenAIImages,
 		dialect.NewOpenAIVideos,
+		dialect.NewZhipuMedia,
 		dialect.NewOpenAIEmbeddings,
 		dialect.NewRerank,
 		dialect.NewDecisions,
@@ -182,6 +183,7 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 			openAIResponses *dialect.OpenAIResponses,
 			openAIImages *dialect.OpenAIImages,
 			openAIVideos *dialect.OpenAIVideos,
+			zhipuMedia *dialect.ZhipuMedia,
 			openAIEmbeddings *dialect.OpenAIEmbeddings,
 			rerank *dialect.Rerank,
 			decisions *dialect.Decisions,
@@ -192,7 +194,7 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 			mistral *dialect.Mistral,
 		) dialect.Set {
 			return dialect.NewSet(
-				openAI, openAIResponses, openAIImages, openAIVideos, openAIEmbeddings, rerank, decisions, anthropic, gemini, geminiEmbeddings,
+				openAI, openAIResponses, openAIImages, openAIVideos, zhipuMedia, openAIEmbeddings, rerank, decisions, anthropic, gemini, geminiEmbeddings,
 				audioSpeech, mistral,
 			)
 		},
@@ -213,8 +215,8 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 		subscriptionproviders.NewModelCatalogUpdater,
 		newProviderAdapterRegistry,
 		func(registry *provideradapter.Registry) execution.Executor { return registry },
-		func(db *gorm.DB) *videostore.Store { return videostore.NewStore(db) },
-		func(store *videostore.Store) control.VideoTaskCleaner { return store },
+		func(db *gorm.DB) *mediastore.Store { return mediastore.NewStore(db) },
+		func(store *mediastore.Store) control.MediaTaskCleaner { return store },
 		func(runtime *bifrostexecutor.RuntimeManager) app.ExecutionRuntime { return runtime },
 		func(executor execution.Executor, store *rpm.Store) *gateway.ExecutionForwarder {
 			forwarder := gateway.NewExecutionForwarder(executor)
@@ -271,12 +273,12 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 	if err := dependencyContainer.Decorate(func(
 		handler *gateway.Handler,
 		adapter *cpaexecutor.Adapter,
-		videoTasks *videostore.Store,
+		mediaTasks *mediastore.Store,
 		cfg *config.Config,
 		memory memlimit.Memory,
 	) *gateway.Handler {
 		handler.ConfigureCodexLive(adapter, cfg.CodexLive)
-		handler.ConfigureVideoTasks(videoTasks)
+		handler.ConfigureMediaTasks(mediaTasks)
 		handler.ConfigureRequestBodyLimit(memory)
 		return handler
 	}); err != nil {

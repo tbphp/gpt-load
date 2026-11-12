@@ -71,6 +71,11 @@ export type ChannelOperation =
   | 'videos_retrieve'
   | 'videos_content'
   | 'videos_delete'
+  | 'zhipu_media_cancel'
+  | 'zhipu_media_retrieve'
+  | 'zhipu_videos_create'
+  | 'zhipu_images_create_async'
+  | 'zhipu_images_generate'
   | 'embeddings_create'
   | 'rerank'
   | 'decisions_create'
@@ -196,6 +201,11 @@ const operations = [
   'videos_retrieve',
   'videos_content',
   'videos_delete',
+  'zhipu_media_cancel',
+  'zhipu_media_retrieve',
+  'zhipu_videos_create',
+  'zhipu_images_create_async',
+  'zhipu_images_generate',
   'embeddings_create',
   'rerank',
   'decisions_create',

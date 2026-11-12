@@ -79,6 +79,21 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			path:    "/v1/images/edits",
 		},
 		{
+			name:    "data.zhipu.images.async",
+			methods: []string{http.MethodPost},
+			path:    "/v1/async/images/generations",
+		},
+		{
+			name:    "data.zhipu.videos",
+			methods: []string{http.MethodPost},
+			path:    "/v1/videos/generations",
+		},
+		{
+			name:    "data.zhipu.async-result",
+			methods: []string{http.MethodGet, http.MethodDelete},
+			path:    "/v1/async-result/:id",
+		},
+		{
 			name:    "data.openai.videos",
 			methods: []string{http.MethodPost},
 			path:    "/v1/videos",

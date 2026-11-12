@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/execution"
-	"gpt-load/internal/video"
+	"gpt-load/internal/media"
 )
 
 func TestOpenAIVideosInspectRequest(t *testing.T) {
@@ -22,7 +22,7 @@ func TestOpenAIVideosInspectRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if metadata.Operation != execution.OperationVideosCreate || metadata.Model == nil ||
-		*metadata.Model != "agnes-video-2.5-flash" || metadata.VideoCreate == nil ||
+		*metadata.Model != "agnes-video-2.5-flash" || metadata.MediaCreate == nil ||
 		metadata.RouteRequirement != execution.RouteRequirementNative {
 		t.Fatalf("create metadata = %#v", metadata)
 	}
@@ -45,7 +45,7 @@ func TestOpenAIVideosInspectRequest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s %s: %v", test.method, test.path, err)
 		}
-		if metadata.Operation != test.operation || metadata.VideoTaskID != test.taskID {
+		if metadata.Operation != test.operation || metadata.MediaTaskID != test.taskID {
 			t.Fatalf("%s %s metadata = %#v", test.method, test.path, metadata)
 		}
 	}
@@ -69,7 +69,7 @@ func TestOpenAIVideosValidationErrorType(t *testing.T) {
 		Method: http.MethodPost, Path: "/v1/videos",
 		Body: []byte(`{"model":"m","prompt":"p","mode":"keyframe"}`),
 	})
-	var validation *video.ValidationError
+	var validation *media.ValidationError
 	if !errors.As(err, &validation) || validation.Param != "first_frame" {
 		t.Fatalf("error = %v", err)
 	}

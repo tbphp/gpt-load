@@ -17,17 +17,17 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
+	"gpt-load/internal/media"
+	"gpt-load/internal/mediastore"
 	"gpt-load/internal/outboundproxy"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/sqlitetest"
-	"gpt-load/internal/video"
-	"gpt-load/internal/videostore"
 )
 
-func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *videostore.Store, *state.Manager, *state.CredentialRegistry, *scriptedForwarder) {
+func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *mediastore.Store, *state.Manager, *state.CredentialRegistry, *scriptedForwarder) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService := encryptiontest.Service(t, "video-handler-test-master-key")
@@ -77,12 +77,12 @@ func newVideoGatewayFixture(t *testing.T) (*gin.Engine, *Handler, *videostore.St
 	if err := registry.ReplaceCredentials(entries); err != nil {
 		t.Fatalf("ReplaceCredentials() error = %v", err)
 	}
-	store := videostore.NewStore(sqlitetest.OpenMigrated(t))
+	store := mediastore.NewStore(sqlitetest.OpenMigrated(t))
 	handler := NewHandler(
 		manager, registry, keyService, forwarder, dialect.NewSet(dialect.NewOpenAIVideos()),
 		health.NewStatsStore(), health.NewMutationCoordinator(), nil, nil, nil,
 	)
-	handler.ConfigureVideoTasks(store)
+	handler.ConfigureMediaTasks(store)
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, handler, store, manager, registry, forwarder
@@ -377,7 +377,7 @@ func TestVideoTaskExpiryAndDelete(t *testing.T) {
 		{
 			StatusCode: http.StatusOK, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 			Header: http.Header{"Content-Type": {"application/json"}},
-			Body:   []byte(`{"id":"task_up_6","status":"completed","url":"https://cdn.example/video.mp4"}`),
+			Body:   []byte(`{"id":"task_up_6","status":"completed","url":"https://cdn.example/media.mp4"}`),
 		},
 	}
 	request = httptest.NewRequest(http.MethodGet, "/v1/videos/"+id, nil)
@@ -396,7 +396,7 @@ func TestVideoTaskExpiryAndDelete(t *testing.T) {
 		{
 			StatusCode: http.StatusOK, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
 			Header: http.Header{"Content-Type": {"application/json"}},
-			Body:   []byte(`{"id":"task_up_6","status":"completed","url":"https://cdn.example/video.mp4"}`),
+			Body:   []byte(`{"id":"task_up_6","status":"completed","url":"https://cdn.example/media.mp4"}`),
 		},
 		{StatusCode: http.StatusNoContent, DispatchState: execution.DispatchMaybeSent, ResponseStarted: true},
 	}
@@ -408,7 +408,7 @@ func TestVideoTaskExpiryAndDelete(t *testing.T) {
 		t.Fatalf("delete status = %d body = %s", recorder.Code, recorder.Body.String())
 	}
 	task, err := store.Get(request.Context(), 1, id)
-	if err != nil || task.Status != video.StatusCancelled {
+	if err != nil || task.Status != media.StatusCancelled {
 		t.Fatalf("cancelled task = %#v err = %v", task, err)
 	}
 
@@ -521,7 +521,7 @@ func TestVideoDeleteFailureDoesNotMarkTaskCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.Status == video.StatusCancelled {
+	if task.Status == media.StatusCancelled {
 		t.Fatal("failed delete was persisted as cancelled")
 	}
 }
@@ -584,7 +584,7 @@ func TestValidatePublicVideoURLRejectsPrivateTargets(t *testing.T) {
 }
 
 func TestVideoHTTPClientRedirectRejectsPrivateTarget(t *testing.T) {
-	client, err := newVideoHTTPClient(outboundproxy.Effective{}, state.TimeoutConfig{}, true)
+	client, err := newMediaHTTPClient(outboundproxy.Effective{}, state.TimeoutConfig{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

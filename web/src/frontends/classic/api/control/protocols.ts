@@ -16,6 +16,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'zhipu-media',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'openai-embeddings',
     supportsProtocolOnlyRouting: false,
   },

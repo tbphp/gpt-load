@@ -12,8 +12,8 @@ import (
 
 	"gpt-load/internal/accessquota"
 	"gpt-load/internal/execution"
+	"gpt-load/internal/media"
 	"gpt-load/internal/pricing"
-	"gpt-load/internal/video"
 )
 
 type reason struct {
@@ -93,23 +93,33 @@ var (
 	reasonVideoProtocolNotAllowed = reason{
 		Status: http.StatusForbidden, Code: "protocol_not_allowed", Message: "This access key is not allowed to use the openai-videos protocol. Enable it in the access key protocol filters.",
 	}
-	reasonVideoModelNotFound = reason{
-		Status: http.StatusNotFound, Code: "model_not_found", Message: "The requested video model is not available in any permitted group.",
+	reasonZhipuProtocolNotAllowed = reason{
+		Status: http.StatusForbidden, Code: "protocol_not_allowed",
+		Message: "This access key is not allowed to use the zhipu-media protocol. Enable it in the access key protocol filters.",
 	}
-	reasonVideoTaskNotFound = reason{
-		Status: http.StatusNotFound, Code: "task_not_found", Message: "Video task was not found or has expired.",
+	reasonMediaModelNotFound = reason{
+		Status: http.StatusNotFound, Code: "model_not_found",
+		Message: "The requested media model is not available in any permitted group.",
 	}
-	reasonVideoCredentialUnavailable = reason{
-		Status: http.StatusServiceUnavailable, Code: "task_credential_unavailable", Message: "The credential that created this video task is temporarily unavailable.",
+	reasonMediaTaskNotFound = reason{
+		Status: http.StatusNotFound, Code: "task_not_found",
+		Message: "Media task was not found or has expired.",
 	}
-	reasonVideoCancelNotSupported = reason{
-		Status: http.StatusNotImplemented, Code: "cancel_not_supported", Message: "The upstream channel does not support cancelling video tasks.",
+	reasonMediaCredentialUnavailable = reason{
+		Status: http.StatusServiceUnavailable, Code: "task_credential_unavailable",
+		Message: "The credential that created this media task is temporarily unavailable.",
 	}
-	reasonVideoContentNotSupported = reason{
-		Status: http.StatusNotImplemented, Code: "content_not_supported", Message: "The upstream channel does not support video content downloads.",
+	reasonMediaCancelNotSupported = reason{
+		Status: http.StatusNotImplemented, Code: "cancel_not_supported",
+		Message: "The upstream channel does not support cancelling media tasks.",
 	}
-	reasonVideoInternal = reason{
-		Status: http.StatusInternalServerError, Code: "internal_error", Message: "The video task could not be recorded.",
+	reasonMediaContentNotSupported = reason{
+		Status: http.StatusNotImplemented, Code: "content_not_supported",
+		Message: "The upstream channel does not support media content downloads.",
+	}
+	reasonMediaInternal = reason{
+		Status: http.StatusInternalServerError, Code: "internal_error",
+		Message: "The media task could not be recorded.",
 	}
 )
 
@@ -254,9 +264,10 @@ func (handler *Handler) completeConfigurationChanged(
 }
 
 func (handler *Handler) writeReason(context *gin.Context, value reason) error {
+	_, mediaEnvelope := context.Get(mediaErrorEnvelopeKey)
 	if context != nil && context.Request != nil && context.Request.URL != nil &&
-		isVideoDataPlanePath(context.Request.URL.Path) {
-		return handler.writeVideoReason(context, value)
+		(isMediaDataPlanePath(context.Request.URL.Path) || mediaEnvelope) {
+		return handler.writeMediaReason(context, value)
 	}
 	body, err := json.Marshal(struct {
 		Code    string `json:"code"`
@@ -273,36 +284,36 @@ func (handler *Handler) writeReason(context *gin.Context, value reason) error {
 	)
 }
 
-func isVideoDataPlanePath(path string) bool {
+func isMediaDataPlanePath(path string) bool {
 	return path == "/v1/videos" || strings.HasPrefix(path, "/v1/videos/")
 }
 
-func (handler *Handler) writeVideoReason(context *gin.Context, value reason) error {
-	code, errorType, message := videoErrorCode(value)
+func (handler *Handler) writeMediaReason(context *gin.Context, value reason) error {
+	code, errorType, message := mediaErrorCode(value)
 	if value.Code == "invalid_protocol_request" {
 		message = value.Message
 	}
-	if stored, ok := context.Get(videoUpstreamMessageKey); ok {
+	if stored, ok := context.Get(mediaUpstreamMessageKey); ok {
 		if text, valid := stored.(string); valid && text != "" {
 			message = text
 		}
 	}
 	taskID := ""
-	if stored, ok := context.Get(videoTaskIDKey); ok {
+	if stored, ok := context.Get(mediaTaskIDKey); ok {
 		taskID, _ = stored.(string)
 	}
-	return handler.writeVideoErrorWithTaskID(context, value.Status, code, errorType, "", message, taskID)
+	return handler.writeMediaErrorWithTaskID(context, value.Status, code, errorType, "", message, taskID)
 }
 
-func (handler *Handler) writeVideoError(
+func (handler *Handler) writeMediaError(
 	context *gin.Context,
 	status int,
 	code, errorType, param, message string,
 ) error {
-	return handler.writeVideoErrorWithTaskID(context, status, code, errorType, param, message, "")
+	return handler.writeMediaErrorWithTaskID(context, status, code, errorType, param, message, "")
 }
 
-func (handler *Handler) writeVideoErrorWithTaskID(
+func (handler *Handler) writeMediaErrorWithTaskID(
 	context *gin.Context,
 	status int,
 	code, errorType, param, message, taskID string,
@@ -314,7 +325,7 @@ func (handler *Handler) writeVideoErrorWithTaskID(
 			errorType = "invalid_request_error"
 		}
 	}
-	body, err := json.Marshal(video.ErrorEnvelope{TaskID: taskID, Error: video.APIError{
+	body, err := json.Marshal(media.ErrorEnvelope{TaskID: taskID, Error: media.APIError{
 		Message: message, Type: errorType, Param: param, Code: code,
 	}})
 	if err != nil {
@@ -328,7 +339,7 @@ func (handler *Handler) writeVideoErrorWithTaskID(
 	)
 }
 
-func videoErrorCode(value reason) (code, errorType, message string) {
+func mediaErrorCode(value reason) (code, errorType, message string) {
 	code, message = value.Code, value.Message
 	errorType = "invalid_request_error"
 	if value.Status >= http.StatusInternalServerError {

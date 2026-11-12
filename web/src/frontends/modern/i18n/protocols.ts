@@ -6,6 +6,7 @@ export const protocolOrder = [
   'openai-completions',
   'openai-images',
   'openai-videos',
+  'zhipu-media',
   'openai-embeddings',
   'gemini-embeddings',
   'codex-live',

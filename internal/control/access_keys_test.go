@@ -166,6 +166,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 				protocol.OpenAIResponses,
 				protocol.Mistral,
 				protocol.AudioSpeech,
+				protocol.ZhipuMedia,
 			},
 		},
 	})

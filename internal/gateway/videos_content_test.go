@@ -15,15 +15,15 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/media"
+	"gpt-load/internal/mediastore"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/encryptiontest"
 	"gpt-load/internal/testutil/sqlitetest"
-	"gpt-load/internal/video"
-	"gpt-load/internal/videostore"
 )
 
-func newVideoContentFixture(t *testing.T, channelID channel.ID, upstreamURL string) (*gin.Engine, *videostore.Store, *Handler) {
+func newVideoContentFixture(t *testing.T, channelID channel.ID, upstreamURL string) (*gin.Engine, *mediastore.Store, *Handler) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService := encryptiontest.Service(t, "video-content-test-master-key")
@@ -56,20 +56,20 @@ func newVideoContentFixture(t *testing.T, channelID channel.ID, upstreamURL stri
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	store := videostore.NewStore(sqlitetest.OpenMigrated(t))
+	store := mediastore.NewStore(sqlitetest.OpenMigrated(t))
 	handler := NewHandler(
 		manager, registry, keyService, &scriptedForwarder{}, dialect.NewSet(dialect.NewOpenAIVideos()),
 		health.NewStatsStore(), health.NewMutationCoordinator(), nil, nil, nil,
 	)
-	handler.ConfigureVideoTasks(store)
+	handler.ConfigureMediaTasks(store)
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, store, handler
 }
 
-func seedVideoTask(t *testing.T, store *videostore.Store) video.Task {
+func seedVideoTask(t *testing.T, store *mediastore.Store) media.Task {
 	t.Helper()
-	request := video.CreateRequest{Model: "video-model", Mode: "text", Seconds: "5", Size: "720P", AspectRatio: "16:9"}
+	request := media.NewTaskParams{Protocol: media.ProtocolOpenAIVideos, Operation: "videos_create", Kind: media.KindVideo, ClientModel: "video-model", Mode: "text", Seconds: "5", Size: "720P", AspectRatio: "16:9"}
 	task, err := store.NewTask(1, request, "")
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func seedVideoTask(t *testing.T, store *videostore.Store) video.Task {
 	}
 	task.GroupID, task.CredentialID = 1, 1
 	task.UpstreamTaskID, task.UpstreamModel = "task_up_content", "upstream-video"
-	task.Status = video.StatusInProgress
+	task.Status = media.StatusInProgress
 	if err := store.UpdateCreateResult(context.Background(), task); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestVideoContentProxiesBinaryRangeWithPinnedCredential(t *testing.T) {
 
 func TestVideoContentUsesResultURLWithoutCredential(t *testing.T) {
 	var calls atomic.Int64
-	media := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	mediaServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls.Add(1)
 		if request.Header.Get("Authorization") != "" {
 			t.Errorf("signed media URL received authorization %q", request.Header.Get("Authorization"))
@@ -137,11 +137,11 @@ func TestVideoContentUsesResultURLWithoutCredential(t *testing.T) {
 		writer.Header().Set("Content-Type", "video/mp4")
 		_, _ = io.WriteString(writer, "signed")
 	}))
-	defer media.Close()
+	defer mediaServer.Close()
 	engine, store, handler := newVideoContentFixture(t, channel.Agnes, "http://127.0.0.1:1")
 	handler.allowPrivateVideoURLs = true
 	task := seedVideoTask(t, store)
-	task.Status, task.Progress, task.ResultURL = video.StatusCompleted, 100, media.URL
+	task.Status, task.Progress, task.ResultURL = media.StatusCompleted, 100, mediaServer.URL
 	if err := store.UpdateObservation(context.Background(), task); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestVideoContentUsesResultURLWithoutCredential(t *testing.T) {
 func TestVideoContentBlocksPrivateResultURL(t *testing.T) {
 	engine, store, _ := newVideoContentFixture(t, channel.Agnes, "http://127.0.0.1:1")
 	task := seedVideoTask(t, store)
-	task.Status, task.Progress = video.StatusCompleted, 100
+	task.Status, task.Progress = media.StatusCompleted, 100
 	task.ResultURL = "http://169.254.169.254/latest/meta-data"
 	if err := store.UpdateObservation(context.Background(), task); err != nil {
 		t.Fatal(err)

@@ -20,6 +20,9 @@ const (
 	openAIVideosPath            = "/v1/videos"
 	openAIVideosContentPattern  = openAIVideosPath + "/:video_id/content"
 	openAIVideosResourcePattern = openAIVideosPath + "/:video_id"
+	zhipuImagesAsyncPath        = "/v1/async/images/generations"
+	zhipuVideosGenerationsPath  = "/v1/videos/generations"
+	zhipuAsyncResultPattern     = "/v1/async-result/:id"
 	openAIEmbeddingsPath        = "/v1/embeddings"
 	decisionsPath               = "/v1/systemone"
 )
@@ -116,6 +119,24 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			methods: []string{http.MethodPost},
 			path:    openAIImagesEditsPath,
 			resolve: staticRoute(protocol.OpenAIImages, endpointForward),
+		},
+		{
+			name:    "data.zhipu.images.async",
+			methods: []string{http.MethodPost},
+			path:    zhipuImagesAsyncPath,
+			resolve: staticRoute(protocol.ZhipuMedia, endpointForward),
+		},
+		{
+			name:    "data.zhipu.videos",
+			methods: []string{http.MethodPost},
+			path:    zhipuVideosGenerationsPath,
+			resolve: staticRoute(protocol.ZhipuMedia, endpointForward),
+		},
+		{
+			name:    "data.zhipu.async-result",
+			methods: []string{http.MethodGet, http.MethodDelete},
+			path:    zhipuAsyncResultPattern,
+			resolve: staticRoute(protocol.ZhipuMedia, endpointForward),
 		},
 		{
 			name:    "data.openai.videos",

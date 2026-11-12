@@ -47,6 +47,11 @@ const (
 	OperationVideosRetrieve               Operation = "videos_retrieve"
 	OperationVideosContent                Operation = "videos_content"
 	OperationVideosDelete                 Operation = "videos_delete"
+	OperationZhipuImagesGenerate          Operation = "zhipu_images_generate"
+	OperationZhipuImagesCreateAsync       Operation = "zhipu_images_create_async"
+	OperationZhipuVideosCreate            Operation = "zhipu_videos_create"
+	OperationZhipuMediaRetrieve           Operation = "zhipu_media_retrieve"
+	OperationZhipuMediaCancel             Operation = "zhipu_media_cancel"
 	OperationEmbeddingsCreate             Operation = "embeddings_create"
 	OperationLiveCall                     Operation = "live_call"
 	OperationRerank                       Operation = "rerank"
@@ -84,6 +89,11 @@ func (o Operation) Valid() bool {
 		OperationVideosRetrieve,
 		OperationVideosContent,
 		OperationVideosDelete,
+		OperationZhipuImagesGenerate,
+		OperationZhipuImagesCreateAsync,
+		OperationZhipuVideosCreate,
+		OperationZhipuMediaRetrieve,
+		OperationZhipuMediaCancel,
 		OperationEmbeddingsCreate,
 		OperationLiveCall,
 		OperationRerank,
@@ -122,7 +132,7 @@ const (
 // ReplayPolicy returns the operation-level replay contract.
 func (o Operation) ReplayPolicy() ReplayPolicy {
 	switch o {
-	case OperationImagesGenerate, OperationImagesEdit, OperationVideosCreate, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall,
+	case OperationImagesGenerate, OperationImagesEdit, OperationVideosCreate, OperationZhipuImagesGenerate, OperationZhipuImagesCreateAsync, OperationZhipuVideosCreate, OperationEmbeddingsCreate, OperationRerank, OperationDecisionsCreate, OperationLiveCall,
 		OperationAudioSpeech, OperationMistralOCR, OperationMistralFIM, OperationMistralAudioTranscription,
 		OperationMistralModeration, OperationMistralChatModeration, OperationMistralClassification,
 		OperationMistralRealtimeTranscription:

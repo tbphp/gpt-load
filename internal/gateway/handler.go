@@ -25,6 +25,7 @@ import (
 	"gpt-load/internal/execution"
 	"gpt-load/internal/health"
 	"gpt-load/internal/httplifecycle"
+	"gpt-load/internal/media"
 	"gpt-load/internal/parameteroverride"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/contentcoding"
@@ -41,7 +42,6 @@ import (
 	subscriptionproviders "gpt-load/internal/subscription/providers"
 	subscriptionruntime "gpt-load/internal/subscription/runtime"
 	"gpt-load/internal/telemetry"
-	"gpt-load/internal/video"
 )
 
 const (
@@ -126,7 +126,7 @@ type Handler struct {
 	affinityCache         *affinity.Cache
 	invalidLineage        *codexrecovery.InvalidLineage
 	responseBindings      *state.ResponseBindings
-	videoTasks            video.TaskStore
+	mediaTasks            media.TaskStore
 	allowPrivateVideoURLs bool
 	websocketLimits       websocketLimits
 	websocketBudget       websocketBudget
@@ -135,9 +135,9 @@ type Handler struct {
 	liveConfig            config.CodexLiveConfig
 }
 
-func (handler *Handler) ConfigureVideoTasks(store video.TaskStore) {
+func (handler *Handler) ConfigureMediaTasks(store media.TaskStore) {
 	if handler != nil {
-		handler.videoTasks = store
+		handler.mediaTasks = store
 	}
 }
 
@@ -581,7 +581,8 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 
-	selectedDialect, dialectReady := handler.dialects[selectedRoute.Protocol]
+	selectedProtocol := selectedRoute.Protocol
+	selectedDialect, dialectReady := handler.dialects[selectedProtocol]
 	if !dialectReady || selectedRoute.Kind != endpointForward {
 		handler.logDataPlaneRouteNotFound(
 			ginContext.Request,
@@ -644,16 +645,31 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		Header:   requestHeaders,
 		Body:     body,
 	}
+	selectedProtocol, canonicalModel := handler.resolveMediaImageProtocol(
+		selectedProtocol, parsed.Path, body, snapshot,
+	)
+	if isMediaProtocol(selectedProtocol) || strings.HasPrefix(parsed.Path, "/v1/async-result/") ||
+		parsed.Path == "/v1/async/images/generations" {
+		ginContext.Set(mediaErrorEnvelopeKey, true)
+	}
+	if canonicalModel != "" {
+		parsed.Body = rewriteJSONModel(parsed.Body, canonicalModel)
+	}
+	selectedDialect = handler.dialects[selectedProtocol]
+	if selectedDialect == nil {
+		handler.completeReason(ginContext, recorder, reasonEndpointNotFound)
+		return
+	}
 	metadata, err := selectedDialect.InspectRequest(parsed)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 			return
 		}
-		var validation *video.ValidationError
+		var validation *media.ValidationError
 		if errors.As(err, &validation) {
 			recorder.completeReason(reason{Status: http.StatusBadRequest, Code: "invalid_request_error", Message: validation.Message})
-			_ = handler.writeVideoError(ginContext, http.StatusBadRequest, "invalid_request_error", "invalid_request_error", validation.Param, validation.Message)
+			_ = handler.writeMediaError(ginContext, http.StatusBadRequest, "invalid_request_error", "invalid_request_error", validation.Param, validation.Message)
 			return
 		}
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
@@ -671,23 +687,37 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		recorder.completeCanceled(ginContext.Request.Context(), 0, -1)
 		return
 	}
-	var videoState *videoRequestState
-	if selectedRoute.Protocol == protocol.OpenAIVideos {
+	if selectedProtocol == protocol.ZhipuMedia && metadata.Model != nil && isMediaCreateOperation(metadata.Operation) {
+		if canonical, ok := canonicalZhipuModel(snapshot, metadata.Operation, *metadata.Model); ok {
+			canonicalModel = canonical
+			metadata.Model = &canonicalModel
+			parsed.Body = rewriteJSONModel(parsed.Body, canonicalModel)
+			if metadata.MediaCreate != nil {
+				metadata.MediaCreate.ClientModel = canonicalModel
+			}
+		}
+	}
+	var mediaState *mediaRequestState
+	if isMediaProtocol(selectedProtocol) {
+		if canonicalModel != "" && metadata.MediaCreate != nil {
+			metadata.Model = &canonicalModel
+			metadata.MediaCreate.ClientModel = canonicalModel
+		}
 		var failure *reason
-		videoState, metadata, parsed, failure = handler.prepareVideoRequest(
-			ginContext, snapshot, accessKey, metadata, parsed, recorder,
+		mediaState, metadata, parsed, failure = handler.prepareMediaRequest(
+			ginContext, snapshot, accessKey, selectedProtocol, metadata, parsed, recorder,
 		)
 		if failure != nil {
 			handler.completeReason(ginContext, recorder, *failure)
 			return
 		}
-		if videoState != nil {
-			defer handler.cleanupVideoReservation(videoState)
-			if videoState.handled {
+		if mediaState != nil {
+			defer handler.cleanupMediaReservation(mediaState)
+			if mediaState.handled {
 				return
 			}
-			if videoState.binding.ID != "" {
-				model = videoState.binding.ClientModel
+			if mediaState.binding.ID != "" {
+				model = mediaState.binding.ClientModel
 			}
 		}
 	}
@@ -723,7 +753,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		}
 	}
 	query := scheduler.Query{
-		ClientProtocol:           selectedRoute.Protocol,
+		ClientProtocol:           selectedProtocol,
 		Operation:                metadata.Operation,
 		RouteRequirement:         metadata.RouteRequirement,
 		ResponsesStorePreference: metadata.ResponsesStorePreference,
@@ -751,10 +781,10 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	query.AllowedCredentialIDs = allowedCredentialIDs
 	query.AllowedCredentialRefs = allowedCredentialRefs
 	var requestAffinity requestAffinity
-	if videoState != nil && videoState.pinned {
-		pinned, exists := handler.registry.CredentialRef(videoState.binding.CredentialID)
-		if !exists || pinned.GroupID != videoState.binding.GroupID {
-			handler.completeReason(ginContext, recorder, reasonVideoCredentialUnavailable)
+	if mediaState != nil && mediaState.pinned {
+		pinned, exists := handler.registry.CredentialRef(mediaState.binding.CredentialID)
+		if !exists || pinned.GroupID != mediaState.binding.GroupID {
+			handler.completeReason(ginContext, recorder, reasonMediaCredentialUnavailable)
 			return
 		}
 		allowedCredentialRefs = map[uint]state.CredentialRef{pinned.ID: pinned}
@@ -775,13 +805,13 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		}
 	} else {
 		requestAffinity = handler.resolveRequestAffinity(
-			snapshot, accessKey.ID, selectedRoute.Protocol, metadata.AffinityPrefix, allowedCredentialRefs, metadata.PromptCacheKey,
+			snapshot, accessKey.ID, selectedProtocol, metadata.AffinityPrefix, allowedCredentialRefs, metadata.PromptCacheKey,
 		)
 		query.PreferredCredentialID = requestAffinity.preferredCredentialID
 	}
 	iterator := scheduler.New(snapshot, handler.registry, query)
 	forwardAttemptLimit := retryAttemptLimit(snapshot.Settings.RetryCount)
-	if selectedRoute.Protocol == protocol.OpenAIVideos && metadata.Operation == execution.OperationVideosCreate && forwardAttemptLimit > 3 {
+	if isMediaCreateOperation(metadata.Operation) && forwardAttemptLimit > 3 {
 		forwardAttemptLimit = 3
 	}
 	handler.executeAttempts(
@@ -795,7 +825,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		model,
 		metadata,
 		requestAffinity,
-		videoState,
+		mediaState,
 		recorder,
 		quotaAdmission,
 	)
@@ -969,7 +999,7 @@ func (handler *Handler) executeAttempts(
 	externalModel string,
 	originalMetadata dialect.RequestMetadata,
 	requestAffinity requestAffinity,
-	videoState *videoRequestState,
+	mediaState *mediaRequestState,
 	recorder *requestRecorder,
 	quotaAdmission *requestAccessQuotaAdmission,
 ) {
@@ -1258,8 +1288,8 @@ func (handler *Handler) executeAttempts(
 			}
 			ref = candidateRef
 		}
-		if videoState != nil && videoState.pinned && videoState.binding.UpstreamModel != "" {
-			pinnedModel := videoState.binding.UpstreamModel
+		if mediaState != nil && mediaState.pinned && mediaState.binding.UpstreamModel != "" {
+			pinnedModel := mediaState.binding.UpstreamModel
 			selection.UpstreamModelID = &pinnedModel
 		}
 		encrypted, active := handler.registry.ActiveEncryptedCredentialDataIfMatch(ref)
@@ -1539,45 +1569,49 @@ func (handler *Handler) executeAttempts(
 		}
 		releaseGroup()
 		result = normalizeUpstreamResultContract(result)
-		if videoState != nil {
-			if videoState.create != nil {
+		if mediaState != nil {
+			if mediaState.create != nil {
 				if result.HasResponse() && !result.ProviderErrorBeforeCommit &&
 					result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
 					upstreamModel := optionalModelValue(selection.UpstreamModelID)
-					writeCtx, cancelWrite := videoWriteContext(ginContext.Request.Context())
-					normalized, failure := handler.finalizeVideoCreate(
-						writeCtx, videoState, selection, ref, result, externalModel, upstreamModel,
+					writeCtx, cancelWrite := mediaWriteContext(ginContext.Request.Context())
+					normalized, failure := handler.finalizeMediaCreate(
+						writeCtx, mediaState, selection, ref, result, externalModel, upstreamModel,
 					)
 					cancelWrite()
 					if failure != nil {
-						handler.rememberVideoUpstreamError(ginContext, result)
+						handler.rememberMediaUpstreamError(ginContext, result)
 						handler.completeReason(ginContext, recorder, *failure)
 						return
 					}
 					result = normalized
 					if recorder != nil {
-						recorder.updateVideoMetadata(videoState.reservation.Status, videoState.reservation.UpstreamTaskID)
+						if mediaState.sync {
+							recorder.updateMediaMetadata(media.StatusCompleted, "")
+						} else {
+							recorder.updateMediaMetadata(mediaState.reservation.Status, mediaState.reservation.UpstreamTaskID)
+						}
 					}
 				}
-			} else if videoState.pinned && result.HasResponse() {
-				writeCtx, cancelWrite := videoWriteContext(ginContext.Request.Context())
-				normalized, failure := handler.finalizeVideoResource(
-					writeCtx, videoState, result,
+			} else if mediaState.pinned && result.HasResponse() {
+				writeCtx, cancelWrite := mediaWriteContext(ginContext.Request.Context())
+				normalized, failure := handler.finalizeMediaResource(
+					writeCtx, mediaState, result,
 				)
 				cancelWrite()
 				if failure != nil {
-					handler.rememberVideoUpstreamError(ginContext, result)
+					handler.rememberMediaUpstreamError(ginContext, result)
 					handler.completeReason(ginContext, recorder, *failure)
 					return
 				}
 				result = normalized
 				if recorder != nil {
-					recorder.updateVideoMetadata(videoState.binding.Status, videoState.binding.UpstreamTaskID)
+					recorder.updateMediaMetadata(mediaState.binding.Status, mediaState.binding.UpstreamTaskID)
 				}
 			}
 		}
-		if selectedDialect.Protocol() == protocol.OpenAIVideos && (result.StatusCode >= http.StatusBadRequest || result.Err != nil) {
-			handler.rememberVideoUpstreamError(ginContext, result)
+		if isMediaProtocol(selectedDialect.Protocol()) && (result.StatusCode >= http.StatusBadRequest || result.Err != nil) {
+			handler.rememberMediaUpstreamError(ginContext, result)
 		}
 		if !stream && result.HasResponse() && !result.ProviderErrorBeforeCommit &&
 			result.DispatchState != execution.DispatchLocal &&
@@ -1615,7 +1649,7 @@ func (handler *Handler) executeAttempts(
 			attemptNow,
 			decisionContextForSelection(selection),
 		)
-		if videoState != nil && videoState.create != nil {
+		if mediaState != nil && mediaState.create != nil {
 			videoTransportFailure := !result.HasResponse() && result.Err != nil &&
 				ginContext.Request.Context().Err() == nil
 			if videoTransportFailure && forwardAttempts < forwardAttemptLimit {
@@ -1623,7 +1657,7 @@ func (handler *Handler) executeAttempts(
 				decision.Effect = health.EffectNone
 			}
 			if result.HasResponse() {
-				videoHasTaskID := handler.videoResultHasTaskID(selection, result)
+				videoHasTaskID := handler.mediaResultHasTaskID(selectedDialect.Protocol(), selection, result)
 				if result.StatusCode == http.StatusBadRequest || result.StatusCode == http.StatusNotFound {
 					decision.Retry = health.RetryNone
 				}
@@ -1896,8 +1930,8 @@ func (handler *Handler) executeAttempts(
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
-			if videoState != nil && result.StatusCode >= http.StatusBadRequest {
-				handler.completeVideoUpstreamFailure(ginContext, recorder, operation, result)
+			if mediaState != nil && result.StatusCode >= http.StatusBadRequest {
+				handler.completeMediaUpstreamFailure(ginContext, recorder, operation, result)
 				return
 			}
 			writeErr := handler.writeUpstreamResponse(ginContext, result)
@@ -1978,8 +2012,8 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 	if lastResponse != nil {
-		if videoState != nil && lastResponse.result.StatusCode >= http.StatusBadRequest {
-			handler.completeVideoUpstreamFailure(ginContext, recorder, operation, lastResponse.result)
+		if mediaState != nil && lastResponse.result.StatusCode >= http.StatusBadRequest {
+			handler.completeMediaUpstreamFailure(ginContext, recorder, operation, lastResponse.result)
 			return
 		}
 		writeErr := handler.writeUpstreamResponse(ginContext, lastResponse.result)
@@ -2027,19 +2061,19 @@ func (handler *Handler) executeAttempts(
 		handler.completeReason(ginContext, recorder, *parameterOverrideFailure)
 		return
 	}
-	if videoState != nil && videoState.create != nil {
+	if mediaState != nil && mediaState.create != nil {
 		switch iterator.StaticReason() {
 		case scheduler.ReasonNoRouteTarget, scheduler.ReasonOperationUnsupported,
 			scheduler.ReasonModelFiltered, scheduler.ReasonGroupFiltered:
-			handler.completeReason(ginContext, recorder, reasonVideoModelNotFound)
+			handler.completeReason(ginContext, recorder, reasonMediaModelNotFound)
 			return
 		}
 	}
-	if videoState != nil && videoState.pinned {
+	if mediaState != nil && mediaState.pinned {
 		if until, limited := iterator.CooldownUntil(); limited {
 			setCooldownRetryAfter(ginContext, until, handler.now())
 		}
-		handler.completeReason(ginContext, recorder, reasonVideoCredentialUnavailable)
+		handler.completeReason(ginContext, recorder, reasonMediaCredentialUnavailable)
 		return
 	}
 	if until, limited := iterator.CooldownUntil(); limited {

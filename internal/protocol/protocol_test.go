@@ -117,6 +117,7 @@ func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.
 		OpenAIResponses,
 		OpenAIImages,
 		OpenAIVideos,
+		ZhipuMedia,
 		OpenAIEmbeddings,
 		CodexLive,
 		Rerank,

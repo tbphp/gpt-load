@@ -44,7 +44,7 @@ type credentialStageCleaner interface {
 	CleanupCredentialStages(context.Context, time.Time) error
 }
 
-type VideoTaskCleaner interface {
+type MediaTaskCleaner interface {
 	Cleanup(context.Context, time.Time) error
 }
 
@@ -70,7 +70,7 @@ type Runtime struct {
 	validator          validationSweep
 	requestLogCleaner  RequestLogCleaner
 	stageCleaner       credentialStageCleaner
-	videoTaskCleaner   VideoTaskCleaner
+	mediaTaskCleaner   MediaTaskCleaner
 	operationRecovery  operationRecoveryRuntime
 	catalogSync        catalogSyncRuntime
 	cpaModelCatalog    catalogSyncRuntime
@@ -94,13 +94,13 @@ func NewRuntime(
 	operationRecovery *Service,
 	catalogSync *CatalogSyncCoordinator,
 	cpaModelCatalog *subscriptionproviders.ModelCatalogUpdater,
-	videoTasks VideoTaskCleaner,
+	mediaTasks MediaTaskCleaner,
 ) *Runtime {
 	runtime := &Runtime{
 		registry:           registry,
 		requestLogCleaner:  requestLogCleaner,
 		stageCleaner:       operationRecovery,
-		videoTaskCleaner:   videoTasks,
+		mediaTaskCleaner:   mediaTasks,
 		operationRecovery:  operationRecovery,
 		catalogSync:        catalogSync,
 		cpaModelCatalog:    cpaModelCatalog,
@@ -142,7 +142,7 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		defer wait.Done()
 		runtime.runValidation(ctx, validationTicker, currentValidationInterval, validationUpdates)
 	}()
-	if runtime.requestLogCleaner != nil || runtime.stageCleaner != nil || runtime.videoTaskCleaner != nil {
+	if runtime.requestLogCleaner != nil || runtime.stageCleaner != nil || runtime.mediaTaskCleaner != nil {
 		retentionTicker := runtime.newTicker(retentionInterval)
 		wait.Add(1)
 		go func() {
@@ -269,9 +269,9 @@ func (runtime *Runtime) sweepRetention(ctx context.Context, now time.Time) {
 			logrus.WithError(err).WithField("event", "control.credential_stage_cleanup_failed").Warn("credential stage cleanup failed")
 		}
 	}
-	if runtime.videoTaskCleaner != nil {
-		if err := runtime.videoTaskCleaner.Cleanup(ctx, now); err != nil {
-			logrus.WithError(err).WithField("event", "control.video_task_cleanup_failed").Warn("video task cleanup failed")
+	if runtime.mediaTaskCleaner != nil {
+		if err := runtime.mediaTaskCleaner.Cleanup(ctx, now); err != nil {
+			logrus.WithError(err).WithField("event", "control.media_task_cleanup_failed").Warn("media task cleanup failed")
 		}
 	}
 }
