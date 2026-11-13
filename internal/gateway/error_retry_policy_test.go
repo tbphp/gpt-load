@@ -75,10 +75,9 @@ func TestUnknownResponsesCancellationFailureDoesNotSwitchCredential(t *testing.T
 		_, _ = fmt.Fprint(w, `{"id":"resp_1","status":"cancelled"}`)
 	}))
 	defer upstream.Close()
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIResponses, "model-a", dialect.NewSet(dialect.NewOpenAIResponses()),
-		dialectGatewayGroup{id: 1, name: "resource-retry", channelID: channel.OpenAI,
-			params: json.RawMessage(fmt.Sprintf(`{"base_url":%q}`, upstream.URL+"/v1")), apiKeys: []string{"sk-one", "sk-two"}},
-	)
+	handler, engine, _ := newContinuationFixture(t, newTestExecutionForwarder(t))
+	setContinuationChannel(t, handler, channel.OpenAI, upstream.URL)
+	recordResponseOwnership(t, handler, 1, 1, "resp_1")
 	request := httptest.NewRequest(http.MethodPost, "/v1/responses/resp_1/cancel", strings.NewReader("{}"))
 	request.Header.Set("Authorization", "Bearer gl-client")
 	response := httptest.NewRecorder()

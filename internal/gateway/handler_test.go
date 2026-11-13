@@ -4419,6 +4419,7 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 func TestHandlerReturnsModelRequiredByFilterForProtocolOnlyRequest(t *testing.T) {
 	forwarder := &scriptedForwarder{}
 	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-responses")
+	recordResponseOwnership(t, handler, 1, 1, "resp_123")
 	keyService := encryptiontest.Service(t, "handler-test-master-key")
 	if _, err := manager.Publish(state.CompileInput{
 		ChannelRegistry: channel.NewRegistry(),
