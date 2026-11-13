@@ -252,6 +252,14 @@ func TestAggregationGatewayRejectsUnsupportedOperations(t *testing.T) {
 			}))
 			defer server.Close()
 			engine, _, _, _, _ := newAggregationSearchGateway(t, channelID, server.URL)
+			create := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"public","input":"hello","store":true}`))
+			create.Header.Set("Authorization", "Bearer gl-search-client")
+			create.Header.Set("Content-Type", "application/json")
+			created := httptest.NewRecorder()
+			engine.ServeHTTP(created, create)
+			if created.Code != http.StatusOK || calls.Load() != 1 {
+				t.Fatalf("create response=%d %s, upstream calls=%d", created.Code, created.Body.String(), calls.Load())
+			}
 			tests := []requestCase{
 				{http.MethodGet, "/v1/responses/resp_123", ""},
 				{http.MethodDelete, "/v1/responses/resp_123", ""},

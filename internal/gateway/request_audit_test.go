@@ -436,6 +436,7 @@ func TestRequestAuditResourceRoutesRespectCancellationExemption(t *testing.T) {
 			t.Run(endpoint.method+endpoint.path+body, func(t *testing.T) {
 				forwarder := &scriptedForwarder{results: []UpstreamResult{auditReply(auditHit)}}
 				h, engine := auditEngine(t, forwarder)
+				recordResponseOwnership(t, h, 1, 1, "resp_test")
 				h.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
 				request := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader(body))
 				request.Header.Set("Authorization", "Bearer gl-client")

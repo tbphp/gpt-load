@@ -363,6 +363,7 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 		t.Fatalf("Publish() error = %v", err)
 	}
 	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
+	recordResponseOwnership(t, handler, 1, 1, "resp_123")
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/responses/resp_123", nil)
 	request.Header.Set("Authorization", "Bearer gl-client")
@@ -415,6 +416,7 @@ func TestHandlerRejectsResponsesResourceWhenGroupHasNoModels(t *testing.T) {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses())
+	recordResponseOwnership(t, handler, 1, 1, "resp_123")
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/responses/resp_123", nil)
 	request.Header.Set("Authorization", "Bearer gl-client")

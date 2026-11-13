@@ -290,7 +290,7 @@ func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocall
 		{
 			name:   "replace extension",
 			method: http.MethodPut,
-			target: "/v1/responses/vendor-extension",
+			target: "/v1/responses/resp_123/vendor-extension",
 			body:   `{"enabled":true}`,
 			status: http.StatusOK,
 		},
@@ -329,13 +329,13 @@ func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocall
 		{
 			name:   "unknown resource extension",
 			method: http.MethodPatch,
-			target: "/v1/responses/vendor-extension/nested",
+			target: "/v1/responses/resp_123/vendor-extension/nested",
 			status: http.StatusOK,
 		},
 		{
 			name:            "upstream resource error",
 			method:          http.MethodGet,
-			target:          "/v1/responses/resp_missing",
+			target:          "/v1/responses/resp_123",
 			status:          http.StatusNotFound,
 			wantBody:        `{"error":{"message":"resource missing"}}`,
 			wantContentType: "application/json",

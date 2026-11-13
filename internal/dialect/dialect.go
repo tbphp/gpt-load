@@ -27,6 +27,7 @@ type RequestMetadata struct {
 	RouteRequirement         execution.RouteRequirement
 	ResponsesStorePreference execution.ResponsesStorePreference
 	PreviousResponseID       string
+	ResponseResourceID       string
 	ObserveUsage             bool
 	PricingMode              pricing.Mode
 	UsageDiagnostics         usage.Diagnostics

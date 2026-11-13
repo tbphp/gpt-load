@@ -15,6 +15,7 @@ func TestWriteReasonUsesStableDataPlaneEnvelope(t *testing.T) {
 		reasonEndpointNotFound,
 		reasonInvalidProtocolRequest,
 		reasonResponseBindingNotFound,
+		reasonResponseResourceNotFound,
 		reasonModelRequiredByFilter,
 		reasonNoCandidate,
 		reasonUpstreamConnect,

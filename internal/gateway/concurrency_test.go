@@ -206,6 +206,7 @@ func TestConcurrencyRetryUsesPublishedGroupLimit(t *testing.T) {
 func TestConcurrencyControlAndLocalQuery(t *testing.T) {
 	f := &scriptedForwarder{results: []UpstreamResult{{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{}`)}}}
 	h, m, _ := newHandlerForTest(t, f, "test-upstream")
+	recordResponseOwnership(t, h, 1, 1, "resp_test")
 	h.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
 	publishHandlerPolicySettings(t, h, m, 1, config.Settings{"global_concurrency_limit": 1}, config.Settings{"concurrency_limit": 1})
 	release, _ := m.Concurrency().TryAcquireRequest(1, 1, 0)
@@ -246,6 +247,7 @@ func TestConcurrencyCancelSkipsAuditUnderSaturation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			f := &scriptedForwarder{results: []UpstreamResult{auditReply(`{}`), auditReply(`{}`)}}
 			h, engine := auditEngine(t, f)
+			recordResponseOwnership(t, h, 1, 1, "resp_test")
 			h.dialects = dialect.NewSet(dialect.NewOpenAI(), dialect.NewOpenAIResponses())
 			snapshot := h.manager.Current()
 			snapshot.Settings.GlobalConcurrencyLimit = 1
