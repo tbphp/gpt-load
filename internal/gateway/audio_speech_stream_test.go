@@ -33,6 +33,7 @@ func TestAudioSpeechGatewayStreamsBeforeCompletion(t *testing.T) {
 		first     string
 		last      string
 		cancel    bool
+		wantError string
 	}{
 		{
 			name: "openai", channelID: channel.OpenAI,
@@ -50,6 +51,13 @@ func TestAudioSpeechGatewayStreamsBeforeCompletion(t *testing.T) {
 			name: "openai client cancellation", channelID: channel.OpenAI, cancel: true,
 			request: `{"model":"public","input":"hello","voice":"alloy","stream_format":"sse"}`,
 			first:   "data: {\"type\":\"speech.audio.delta\",\"audio\":\"aGVsbG8=\"}\n\n",
+		},
+		{
+			name: "untyped error after audio", channelID: channel.OpenAI,
+			request:   `{"model":"public","input":"hello","voice":"alloy","stream_format":"sse"}`,
+			first:     "data: {\"type\":\"speech.audio.delta\",\"audio\":\"aGVsbG8=\"}\n\n",
+			last:      "data: {\"error\":{\"message\":\"speech failed\"}}\n\n",
+			wantError: "upstream_sse_error",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -156,7 +164,7 @@ func TestAudioSpeechGatewayStreamsBeforeCompletion(t *testing.T) {
 				t.Fatalf("tail=%q err=%v calls=%d", tail, err, calls.Load())
 			}
 			events := sink.snapshot()
-			if len(events) != 1 || !events[0].Stream || events[0].ErrorCode != "" || events[0].Operation != execution.OperationAudioSpeech {
+			if len(events) != 1 || !events[0].Stream || events[0].ErrorCode != test.wantError || events[0].Operation != execution.OperationAudioSpeech {
 				t.Fatalf("request events=%+v", events)
 			}
 		})

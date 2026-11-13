@@ -72,29 +72,29 @@ func TestAudioSpeechRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
-func TestAudioSpeechClassifiesStreamLifecycleAndContent(t *testing.T) {
+func TestAudioSpeechClassifiesStreamLifecycle(t *testing.T) {
 	speech := NewAudioSpeech()
 	lifecycle, ok := any(speech).(StreamEventClassifier)
 	if !ok {
 		t.Fatal("audio speech must classify streaming completion and errors")
 	}
-	content, ok := any(speech).(StreamContentClassifier)
-	if !ok || !lifecycle.RequiresTerminalEvent() {
-		t.Fatal("audio speech must detect audio output and require a completion event")
+	if !lifecycle.RequiresTerminalEvent() {
+		t.Fatal("audio speech must require a completion event")
 	}
 	for _, test := range []struct {
 		name        string
 		event       StreamEvent
 		disposition StreamEventDisposition
-		produced    bool
 		invalid     bool
 	}{
-		{name: "openai delta", event: StreamEvent{Payload: []byte(`{"type":"speech.audio.delta","audio":"aGVsbG8="}`)}, produced: true},
-		{name: "mistral delta", event: StreamEvent{Name: "speech.audio.delta", Payload: []byte(`{"audio_data":"aGVsbG8="}`)}, produced: true},
-		{name: "empty delta", event: StreamEvent{Payload: []byte(`{"type":"speech.audio.delta","audio":""}`)}},
+		{name: "openai delta", event: StreamEvent{Payload: []byte(`{"type":"speech.audio.delta","audio":"aGVsbG8="}`)}},
+		{name: "mistral delta", event: StreamEvent{Name: "speech.audio.delta", Payload: []byte(`{"audio_data":"aGVsbG8="}`)}},
 		{name: "openai done", event: StreamEvent{Payload: []byte(`{"type":"speech.audio.done","usage":{"input_tokens":3,"output_tokens":8,"total_tokens":11}}`)}, disposition: StreamEventCompleted},
 		{name: "mistral done", event: StreamEvent{Name: "speech.audio.done", Payload: []byte(`{"usage":{"input_tokens":3,"output_tokens":8}}`)}, disposition: StreamEventCompleted},
 		{name: "error", event: StreamEvent{Name: "error", Payload: []byte(`{"error":{"message":"failed"}}`)}, disposition: StreamEventFailed},
+		{name: "untyped error", event: StreamEvent{Payload: []byte(`{"error":{"message":"failed"}}`)}, disposition: StreamEventFailed},
+		{name: "untyped empty error", event: StreamEvent{Payload: []byte(`{"error":{}}`)}, invalid: true},
+		{name: "untyped null error", event: StreamEvent{Payload: []byte(`{"error":null}`)}, invalid: true},
 		{name: "future event", event: StreamEvent{Payload: []byte(`{"type":"speech.metadata","value":"kept"}`)}},
 		{name: "conflicting event names", event: StreamEvent{Name: "speech.audio.done", Payload: []byte(`{"type":"speech.audio.delta","audio":"aGVsbG8="}`)}, invalid: true},
 		{name: "invalid event", event: StreamEvent{Payload: []byte(`null`)}, invalid: true},
@@ -109,9 +109,6 @@ func TestAudioSpeechClassifiesStreamLifecycleAndContent(t *testing.T) {
 			}
 			if err != nil || classification.Disposition != test.disposition {
 				t.Fatalf("classification=%+v err=%v", classification, err)
-			}
-			if got := content.ClassifyStreamContent(test.event); got.Produced != test.produced {
-				t.Fatalf("content=%+v, want produced=%t", got, test.produced)
 			}
 		})
 	}

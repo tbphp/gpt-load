@@ -18,10 +18,9 @@ const audioSpeechPath = "/v1/audio/speech"
 type AudioSpeech struct{}
 
 var (
-	_ Dialect                 = (*AudioSpeech)(nil)
-	_ ModelRewriter           = (*AudioSpeech)(nil)
-	_ StreamEventClassifier   = (*AudioSpeech)(nil)
-	_ StreamContentClassifier = (*AudioSpeech)(nil)
+	_ Dialect               = (*AudioSpeech)(nil)
+	_ ModelRewriter         = (*AudioSpeech)(nil)
+	_ StreamEventClassifier = (*AudioSpeech)(nil)
 )
 
 // NewAudioSpeech returns the dialect for speech synthesis requests.
@@ -94,9 +93,22 @@ func inspectAudioSpeechStreamFormat(body []byte) (string, error) {
 func (*AudioSpeech) RequiresTerminalEvent() bool { return true }
 
 func (*AudioSpeech) ClassifyStreamEvent(event StreamEvent) (StreamEventClassification, error) {
-	eventType, err := matchingStreamEventType(event, "Audio Speech")
-	if err != nil {
-		return StreamEventClassification{}, err
+	var object struct {
+		Type  string          `json:"type"`
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(event.Payload, &object); err != nil {
+		return StreamEventClassification{}, fmt.Errorf("decode Audio Speech stream event")
+	}
+	if event.Name != "" && object.Type != "" && event.Name != object.Type {
+		return StreamEventClassification{}, fmt.Errorf("Audio Speech stream event name conflicts with payload type")
+	}
+	if meaningfulJSONValue(object.Error) {
+		return StreamEventClassification{Disposition: StreamEventFailed}, nil
+	}
+	eventType := event.Name
+	if eventType == "" {
+		eventType = object.Type
 	}
 	if eventType == "" {
 		return StreamEventClassification{}, fmt.Errorf("audio speech stream event type is required")
@@ -109,22 +121,6 @@ func (*AudioSpeech) ClassifyStreamEvent(event StreamEvent) (StreamEventClassific
 	default:
 		return StreamEventClassification{Disposition: StreamEventContinue}, nil
 	}
-}
-
-func (*AudioSpeech) ClassifyStreamContent(event StreamEvent) StreamContent {
-	var object struct {
-		Type      string          `json:"type"`
-		Audio     json.RawMessage `json:"audio"`
-		AudioData json.RawMessage `json:"audio_data"`
-	}
-	if err := json.Unmarshal(event.Payload, &object); err != nil {
-		return StreamContent{Produced: true}
-	}
-	eventType := event.Name
-	if eventType == "" {
-		eventType = object.Type
-	}
-	return StreamContent{Produced: eventType == "speech.audio.delta" && anyProducedContentValue(object.Audio, object.AudioData)}
 }
 
 // RewriteRequestModel replaces the client model with the upstream model id.
