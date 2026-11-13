@@ -158,8 +158,6 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 
 ### Built-in channels
 
-Audio Speech supports OpenAI, OpenRouter, and Mistral, preserving each channel's native request and response format without conversion. OpenAI returns raw audio; only ordinary audio responses are supported, not SSE speech events or speech credential probes. Protocol-restricted AccessKeys must allow `audio-speech`; allowing only `openai-completions` does not grant speech access.
-
 - **Official and cloud** — OpenAI, Anthropic, Gemini, xAI, Azure OpenAI, AWS Bedrock, Google Vertex AI
 - **Model services** — DeepSeek, Moonshot AI, SiliconFlow, Zhipu AI, Alibaba, Volcengine, OpenRouter, Cline, Groq, Cerebras, Mistral, Nebius, Parasail, Wafer, Hugging Face (Chat), Cohere (text reranking), OpenCode Go, OpenCode Zen
 - **Subscription** — Codex, Claude, Antigravity, Grok

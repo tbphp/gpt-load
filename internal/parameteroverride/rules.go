@@ -248,6 +248,32 @@ func (rules Rules) ValidateResponsesContinuation() error {
 	return nil
 }
 
+// ValidateAudioSpeechStreaming 用于管理面保存；历史配置仍可加载并修正。
+func (rules Rules) ValidateAudioSpeechStreaming() error {
+	for _, entry := range rules.entries {
+		if entry.clientProtocol == "" || entry.clientProtocol == protocol.AudioSpeech {
+			if err := entry.validateAudioSpeechStreaming(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (entry rule) validateAudioSpeechStreaming() error {
+	for key := range entry.set {
+		if strings.EqualFold(key, "stream_format") {
+			return fmt.Errorf("parameter overrides cannot change stream_format")
+		}
+	}
+	for _, path := range entry.remove {
+		if strings.EqualFold(path[0], "stream_format") {
+			return fmt.Errorf("parameter overrides cannot change stream_format")
+		}
+	}
+	return nil
+}
+
 func (entry rule) validateResponsesContinuation(object *requestValue) error {
 	for key := range entry.set {
 		if strings.EqualFold(key, "previous_response_id") {
@@ -330,6 +356,13 @@ func (rules Rules) ApplyWithLimit(
 	if clientProtocol == protocol.OpenAIResponses {
 		for _, entry := range matched {
 			if err := entry.validateResponsesContinuation(object); err != nil {
+				return nil, false, err
+			}
+		}
+	}
+	if clientProtocol == protocol.AudioSpeech {
+		for _, entry := range matched {
+			if err := entry.validateAudioSpeechStreaming(); err != nil {
 				return nil, false, err
 			}
 		}

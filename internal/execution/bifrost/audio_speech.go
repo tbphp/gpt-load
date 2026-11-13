@@ -2,6 +2,7 @@ package bifrost
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
@@ -25,6 +26,7 @@ func prepareAudioSpeech(
 	provider schemas.ModelProvider,
 	directKey schemas.Key,
 	secrets []string,
+	stream bool,
 ) (preparedAttempt, *execution.AttemptResult) {
 	request, err := dialect.NewAudioSpeech().RewriteRequestModel(&dialect.ParsedRequest{
 		Method: spec.Method, Path: spec.Path, RawQuery: spec.RawQuery,
@@ -32,6 +34,28 @@ func prepareAudioSpeech(
 	}, spec.UpstreamModel)
 	if err != nil {
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid audio speech request body")
+		failure.Error.OriginHint = execution.ErrorOriginClient
+		failure.Error.ScopeHint = execution.ErrorScopeRequest
+		return preparedAttempt{}, &failure
+	}
+	var options struct {
+		Stream       bool   `json:"stream"`
+		StreamFormat string `json:"stream_format"`
+	}
+	if err := json.Unmarshal(request.Body, &options); err != nil {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid audio speech streaming options")
+		return preparedAttempt{}, &failure
+	}
+	// 只接受所选渠道的原生开关，不在 OpenAI 与 Mistral 格式之间转换。
+	upstreamStream := false
+	switch resolved.ProviderKind {
+	case channel.ProviderOpenAI:
+		upstreamStream = options.StreamFormat == "sse"
+	case channel.ProviderOpenAICompatible:
+		upstreamStream = options.Stream
+	}
+	if stream != upstreamStream {
+		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "audio speech streaming requires the channel's native streaming option")
 		failure.Error.OriginHint = execution.ErrorOriginClient
 		failure.Error.ScopeHint = execution.ErrorScopeRequest
 		return preparedAttempt{}, &failure
@@ -101,9 +125,8 @@ func encodedAudio(body []byte, limit int64) bool {
 	return err == nil || errors.Is(err, contentcoding.ErrDecodedBodyTooLarge)
 }
 
-// audioSpeechRequestShape reports whether the attempt is a unary native
-// speech request.
-func audioSpeechRequestShape(spec execution.AttemptSpec, stream bool) bool {
-	return !stream && spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationAudioSpeech &&
+// audioSpeechRequestShape 检查原生语音路径；流式开关由所选渠道单独验证。
+func audioSpeechRequestShape(spec execution.AttemptSpec) bool {
+	return spec.RouteMode == execution.RouteNative && spec.Operation == execution.OperationAudioSpeech &&
 		spec.Method == http.MethodPost && spec.Path == "/v1/audio/speech"
 }

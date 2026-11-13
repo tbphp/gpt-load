@@ -151,6 +151,36 @@ func TestGroupSettingsRejectNewContinuationOverridesButKeepLegacyReadable(t *tes
 	}
 }
 
+func TestGroupSettingsRejectSpeechStreamOverridesButKeepLegacyReadable(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("legacy-speech-stream")
+	group.Overrides = models.JSON(`{"parameter_overrides":[{"set":{"stream_format":"audio"}}]}`)
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db)); err != nil {
+		t.Fatalf("legacy stream_format blocked snapshot loading: %v", err)
+	}
+	if _, err := fixture.service.GetGroupSettings(t.Context(), group.ID); err != nil {
+		t.Fatalf("legacy stream_format prevented management access: %v", err)
+	}
+	before := fixture.manager.Current()
+	_, err := fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{
+			state.SettingParameterOverrides: []any{map[string]any{"set": map[string]any{"stream_format": "sse"}}},
+		}},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) || fixture.manager.Current() != before {
+		t.Fatalf("new speech stream override error=%v", err)
+	}
+	_, err = fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{Set: true, Value: config.Settings{}},
+	})
+	if err != nil {
+		t.Fatalf("legacy rule could not be corrected: %v", err)
+	}
+}
+
 func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 	t.Parallel()
 	fixture := newServiceFixture(t)
