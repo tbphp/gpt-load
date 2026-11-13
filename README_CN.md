@@ -158,8 +158,6 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 
 ### 内置渠道
 
-Audio Speech 支持 OpenAI、OpenRouter 和 Mistral 渠道，按各渠道原生格式透传请求和响应，不做格式转换。OpenAI 返回原始音频；仅支持普通音频响应，不支持 SSE 语音事件或语音凭据探测。限制了协议的访问密钥需允许 `audio-speech`，仅允许 `openai-completions` 不会获得语音权限。
-
 - **官方与云平台**：OpenAI、Anthropic、Gemini、xAI、Azure OpenAI、AWS Bedrock、Google Vertex AI
 - **常用模型服务**：DeepSeek、Moonshot AI、SiliconFlow、Zhipu AI、Alibaba、Volcengine、OpenRouter、Cline、Groq、Cerebras、Mistral、Nebius、Parasail、Wafer、Hugging Face（聊天）、Cohere（文本重排序）、OpenCode Go、OpenCode Zen
 - **订阅渠道**：Codex、Claude、Antigravity、Grok

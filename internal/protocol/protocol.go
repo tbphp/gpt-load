@@ -14,8 +14,8 @@ const (
 	Anthropic         Protocol = "anthropic"
 	Gemini            Protocol = "gemini"
 	GeminiEmbeddings  Protocol = "gemini-embeddings"
-	// AudioSpeech is POST /v1/audio/speech on any channel. The gateway reads
-	// only the model; each channel keeps its native request and response.
+	// AudioSpeech 表示各渠道的 POST /v1/audio/speech。网关读取模型与原生流式开关，
+	// 保留渠道原生的请求和响应格式。
 	AudioSpeech Protocol = "audio-speech"
 	// Mistral is the native surface for Mistral-only HTTP APIs. Chat,
 	// embeddings, and speech stay on the shared protocols.

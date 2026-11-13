@@ -141,6 +141,50 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 	}
 }
 
+func TestAudioSpeechStreamFormatCannotBeOverridden(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		match   map[string]any
+		set     map[string]any
+		remove  []any
+		allowed bool
+	}{
+		{name: "global set", set: map[string]any{"stream_format": "sse"}},
+		{name: "speech set", match: map[string]any{"protocol": "audio-speech"}, set: map[string]any{"STREAM_FORMAT": "audio"}},
+		{name: "speech remove", match: map[string]any{"protocol": "audio-speech"}, remove: []any{"/stream_format"}},
+		{name: "other protocol", match: map[string]any{"protocol": "openai-completions"}, set: map[string]any{"stream_format": "custom"}, allowed: true},
+		{name: "nested data", match: map[string]any{"protocol": "audio-speech"}, set: map[string]any{"metadata": map[string]any{"stream_format": "kept"}}, allowed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entry := map[string]any{}
+			if test.match != nil {
+				entry["match"] = test.match
+			}
+			if test.set != nil {
+				entry["set"] = test.set
+			}
+			if test.remove != nil {
+				entry["remove"] = test.remove
+			}
+			rules, err := Compile([]any{entry})
+			if err != nil {
+				t.Fatalf("legacy rules must still compile: %v", err)
+			}
+			clientProtocol, operation := protocol.AudioSpeech, execution.OperationAudioSpeech
+			if value, ok := test.match["protocol"].(string); ok {
+				clientProtocol = protocol.Protocol(value)
+			}
+			if clientProtocol == protocol.OpenAICompletions {
+				operation = execution.OperationChatCompletion
+			}
+			_, _, err = rules.Apply(clientProtocol, operation, "tts", []byte(`{"model":"tts","stream_format":"sse"}`))
+			if (err == nil) != test.allowed {
+				t.Fatalf("Apply error=%v, want allowed=%t", err, test.allowed)
+			}
+		})
+	}
+}
+
 func TestCompileAcceptsNumbersThatRoundTripThroughManagementUI(t *testing.T) {
 	for _, value := range []json.Number{
 		"9007199254740991",
