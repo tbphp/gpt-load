@@ -163,7 +163,7 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 
-OpenRouter のネイティブ Chat Completions および Responses リクエストでは、`only` と `allow_fallbacks` を含む `provider` オブジェクトを保持します。ゲートウェイの認証情報とフォールバック制御フィールドは引き続き除去します。
+OpenRouter のネイティブ Chat Completions および Responses リクエストと、プロトコル変換される Anthropic および Gemini リクエストでは、`only` と `allow_fallbacks` を含む `provider` オブジェクトを保持します。このオブジェクトはリクエスト本文または設定済みのパラメーター上書きルールで指定できます。ゲートウェイの認証情報とフォールバック制御フィールドは引き続き除去します。
 
 ## デプロイとデータ
 

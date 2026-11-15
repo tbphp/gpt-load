@@ -163,7 +163,7 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
-OpenRouter native Chat Completions and Responses requests preserve the `provider` object, including `only` and `allow_fallbacks`. Gateway credential and fallback controls remain filtered.
+OpenRouter preserves the `provider` object, including `only` and `allow_fallbacks`, on native Chat Completions and Responses requests and converted Anthropic and Gemini requests. The object can come from the request body or configured parameter overrides. Gateway credential and fallback controls remain filtered.
 
 ## Deployment and data
 
