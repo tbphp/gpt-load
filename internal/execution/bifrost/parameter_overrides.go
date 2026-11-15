@@ -60,7 +60,7 @@ func convertedParameterOverrides(spec execution.AttemptSpec) (map[string]any, er
 		return nil, fmt.Errorf("invalid overridden request body")
 	}
 	// 复用原生请求的控制字段清理，扩展参数不能接管凭据或 SDK 路由。
-	stripNativeControlFields(body)
+	stripNativeControlFields(body, false)
 	extras := make(map[string]any)
 	for _, name := range spec.ConfiguredParameters {
 		lower := strings.ToLower(name)
