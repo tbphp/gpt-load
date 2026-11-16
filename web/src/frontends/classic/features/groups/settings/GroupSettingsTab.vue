@@ -445,7 +445,11 @@ function updateHeaderRules(value: HeaderRulesDto): void {
     ...draft.value,
     overrides: {
       ...draft.value.overrides,
-      header_rules: { set: { ...value.set }, remove: [...value.remove] },
+      header_rules: {
+        set: { ...value.set },
+        remove: [...value.remove],
+        ...(value.default ? { default: { ...value.default } } : {}),
+      },
     },
   }
 }
@@ -459,6 +463,9 @@ async function toggleHeaderRulesOverride(): Promise<void> {
     overrides.header_rules = {
       set: { ...saved.value.effective.header_rules.set },
       remove: [...saved.value.effective.header_rules.remove],
+      ...(saved.value.effective.header_rules.default
+        ? { default: { ...saved.value.effective.header_rules.default } }
+        : {}),
     }
   }
   draft.value = { ...draft.value, overrides }
@@ -671,6 +678,7 @@ function onDeleted(): void {
 function headerSummary(): string {
   return t('group.settings.runtime.headerSummary', {
     set: Object.keys(displayedHeaderRules.value.set).length,
+    default: Object.keys(displayedHeaderRules.value.default ?? {}).length,
     remove: displayedHeaderRules.value.remove.length,
   })
 }

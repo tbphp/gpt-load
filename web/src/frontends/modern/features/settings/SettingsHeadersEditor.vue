@@ -17,6 +17,9 @@ const editor = ref<HTMLElement>()
 const { t } = useI18n()
 const actions = computed(() => [
   { value: 'set', label: t('settingsForm.headers.set') },
+  ...(props.setting === 'header_rules'
+    ? [{ value: 'default', label: t('settingsForm.headers.default') }]
+    : []),
   { value: 'remove', label: t('settingsForm.headers.remove') },
 ])
 async function addRule(): Promise<void> {
@@ -46,7 +49,9 @@ defineExpose({ addRule })
         :label-hidden="!isMobile"
         size="sm"
         :disabled="disabled"
-        @update:model-value="row.action = $event === 'remove' ? 'remove' : 'set'"
+        @update:model-value="
+          row.action = $event === 'remove' ? 'remove' : $event === 'default' ? 'default' : 'set'
+        "
       />
       <AppTextField
         v-model="row.name"
@@ -61,7 +66,7 @@ defineExpose({ addRule })
         spellcheck="false"
       />
       <AppTextField
-        v-if="row.action === 'set'"
+        v-if="row.action !== 'remove'"
         v-model="row.value"
         :label="t('settingsForm.headers.value')"
         :placeholder="t('settingsForm.headers.value')"

@@ -65,7 +65,10 @@ const headerRules = computed(() =>
     : props.base.settings.values.header_rules,
 )
 const headerRuleCount = computed(
-  () => Object.keys(headerRules.value.set).length + headerRules.value.remove.length,
+  () =>
+    Object.keys(headerRules.value.set).length +
+    headerRules.value.remove.length +
+    Object.keys(headerRules.value.default ?? {}).length,
 )
 const cors = computed(() =>
   corsOverridden.value ? props.draft.values.cors : props.base.settings.values.cors,

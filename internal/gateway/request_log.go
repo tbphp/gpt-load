@@ -975,6 +975,10 @@ func resolvedErrorSummarySecretValues(
 		appendSecret(value)
 		appendSecret(strings.ReplaceAll(value, "${API_KEY}", apiKey))
 	}
+	for _, value := range rules.Default {
+		appendSecret(value)
+		appendSecret(strings.ReplaceAll(value, "${API_KEY}", apiKey))
+	}
 	sort.SliceStable(secrets, func(left, right int) bool {
 		return len(secrets[left]) > len(secrets[right])
 	})
