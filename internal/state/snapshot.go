@@ -152,11 +152,12 @@ type TimeoutConfig struct {
 }
 
 type HeaderRules struct {
-	Set    map[string]string
-	Remove []string
+	Set     map[string]string
+	Remove  []string
+	Default map[string]string
 }
 
-// ConfiguredNames 标记显式设置或移除的字段，区分规则与客户端原始请求头。
+// ConfiguredNames 标记显式设置或移除的字段，兜底不覆盖订阅渠道自带的请求头。
 func (rules HeaderRules) ConfiguredNames() []string {
 	if len(rules.Set)+len(rules.Remove) == 0 {
 		return nil

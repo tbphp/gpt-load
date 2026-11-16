@@ -164,6 +164,11 @@ func applyControlHeaderRules(rules state.HeaderRules, apiKey string) http.Header
 	for _, name := range rules.Remove {
 		headers.Del(name)
 	}
+	for name, value := range rules.Default {
+		if strings.TrimSpace(headers.Get(name)) == "" {
+			headers.Set(name, strings.ReplaceAll(value, "${API_KEY}", apiKey))
+		}
+	}
 	headers.Set("Accept-Encoding", "identity")
 	return headers
 }

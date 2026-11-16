@@ -503,6 +503,7 @@ func cloneGroupView(group state.GroupView) state.GroupView {
 	group.Models = append([]state.ModelConfig(nil), group.Models...)
 	group.WeightManual = cloneWeight(group.WeightManual)
 	group.HeaderRules.Set = cloneStringMap(group.HeaderRules.Set)
+	group.HeaderRules.Default = cloneStringMap(group.HeaderRules.Default)
 	group.HeaderRules.Remove = append([]string(nil), group.HeaderRules.Remove...)
 	group.ResolvedTarget.TargetConfig = append([]byte(nil), group.ResolvedTarget.TargetConfig...)
 	group.ParameterOverrides = group.ParameterOverrides.Clone()

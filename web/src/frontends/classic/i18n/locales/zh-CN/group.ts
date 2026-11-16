@@ -346,7 +346,7 @@ export default {
         disabledValue: '关闭',
         editHeaderRules: '展开编辑 HeaderRules',
         valueFor: '{field}的覆盖值',
-        headerSummary: '{set} 条设置 · {remove} 条删除',
+        headerSummary: '{set} 条设置 · {remove} 条删除 · {default} 条兜底',
         headerRemove: '删除',
         headerRemoveHint: '保存后移除此 Header',
         headerStorageNoticeStart: '普通 HeaderRules 不是 Secret 存储；凭据值请使用',

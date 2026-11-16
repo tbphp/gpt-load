@@ -141,6 +141,7 @@ export const zhCN = {
   headers: {
     action: '操作',
     set: '设置',
+    default: '兜底',
     remove: '移除',
     name: 'Header 名称',
     value: 'Header 值',
@@ -331,6 +332,7 @@ export const enUS = {
   headers: {
     action: 'Action',
     set: 'Set',
+    default: 'Default',
     remove: 'Remove',
     name: 'Header name',
     value: 'Header value',
@@ -520,6 +522,7 @@ export const jaJP = {
   headers: {
     action: '操作',
     set: '設定',
+    default: '既定値',
     remove: '削除',
     name: 'ヘッダー名',
     value: 'ヘッダー値',

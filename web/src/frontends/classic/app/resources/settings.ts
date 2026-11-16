@@ -205,7 +205,7 @@ function invalidResponse(): never {
 
 function projectHeaderRules(value: unknown): HeaderRulesDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['set', 'remove'])
+  assertNoSecretLikeFields(record, ['set', 'remove', 'default'])
   const setRecord = projectRecord(record.set)
   const set: Record<string, string> = {}
   for (const [name, headerValue] of Object.entries(setRecord)) {
@@ -214,6 +214,16 @@ function projectHeaderRules(value: unknown): HeaderRulesDto {
   }
   return {
     set,
+    ...(record.default === undefined
+      ? {}
+      : {
+          default: Object.fromEntries(
+            Object.entries(projectRecord(record.default)).map(([name, value]) => [
+              name,
+              projectString(value, { allowEmpty: true }),
+            ]),
+          ),
+        }),
     remove: projectArray(record.remove, (name) => {
       const projected = projectString(name)
       if (projected.trim().length === 0 || projected !== projected.trim()) invalidResponse()

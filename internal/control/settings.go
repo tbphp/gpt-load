@@ -30,8 +30,9 @@ import (
 )
 
 type HeaderRulesResponse struct {
-	Set    map[string]string `json:"set"`
-	Remove []string          `json:"remove"`
+	Set     map[string]string `json:"set"`
+	Remove  []string          `json:"remove"`
+	Default map[string]string `json:"default,omitempty"`
 }
 
 type CORSConfigResponse struct {
@@ -394,6 +395,13 @@ func mapSettingsResponse(
 		set[name] = value
 	}
 	remove := append([]string{}, settings.HeaderRules.Remove...)
+	var defaults map[string]string
+	if len(settings.HeaderRules.Default) > 0 {
+		defaults = make(map[string]string, len(settings.HeaderRules.Default))
+		for name, value := range settings.HeaderRules.Default {
+			defaults[name] = value
+		}
+	}
 	responseSet := make(map[string]string, len(settings.ResponseHeaderRules.Set))
 	for name, value := range settings.ResponseHeaderRules.Set {
 		responseSet[name] = value
@@ -455,8 +463,9 @@ func mapSettingsResponse(
 			RequestTimeout:    durationSeconds(settings.RequestTimeout),
 			StreamIdleTimeout: durationSeconds(settings.StreamIdleTimeout),
 			HeaderRules: HeaderRulesResponse{
-				Set:    set,
-				Remove: remove,
+				Set:     set,
+				Default: defaults,
+				Remove:  remove,
 			},
 			CORS: CORSConfigResponse{
 				Enabled:          settings.CORS.Enabled,

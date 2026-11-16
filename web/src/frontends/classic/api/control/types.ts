@@ -99,6 +99,7 @@ export interface GroupSummaryDto {
 }
 
 export interface HeaderRulesDto {
+  default?: Record<string, string>
   set: Record<string, string>
   remove: string[]
 }

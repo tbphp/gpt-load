@@ -141,6 +141,7 @@ const groupRuntimeSettingFields = [...runtimeSettingFields, 'parameter_overrides
 export interface HeaderRulesDto {
   set: Record<string, string>
   remove: string[]
+  default?: Record<string, string>
 }
 
 export interface GroupRuntimeConfigDto {
@@ -307,7 +308,7 @@ function projectChannelParams(value: unknown): ChannelParamsDto {
 
 function projectHeaderRules(value: unknown): HeaderRulesDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['set', 'remove'])
+  assertNoSecretLikeFields(record, ['set', 'remove', 'default'])
   const setRecord = projectRecord(record.set)
   const set: Record<string, string> = {}
   for (const [name, headerValue] of Object.entries(setRecord)) {
@@ -316,6 +317,16 @@ function projectHeaderRules(value: unknown): HeaderRulesDto {
   }
   return {
     set,
+    ...(record.default === undefined
+      ? {}
+      : {
+          default: Object.fromEntries(
+            Object.entries(projectRecord(record.default)).map(([name, value]) => [
+              name,
+              projectString(value, { allowEmpty: true }),
+            ]),
+          ),
+        }),
     remove: projectArray(record.remove, projectNonBlankString),
   }
 }
