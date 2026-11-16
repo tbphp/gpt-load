@@ -2,25 +2,20 @@ package channel
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
 
-func TestModelflarePresetIsPrincipalPartnerWithVerifiedRoutes(t *testing.T) {
+func TestModelflarePresetKeepsVerifiedRoutesWithoutSponsorship(t *testing.T) {
 	registry := NewRegistry()
 	descriptor, ok := registry.Get(Modelflare)
 	if !ok {
 		t.Fatal("Get(modelflare) missing")
 	}
-	wantPartner := &PartnerDescriptor{
-		Tier:      PartnerPrincipal,
-		SignupURL: "https://modelflare.dev/sign-up?utm_source=gptload&utm_campaign=gptload",
-	}
-	if !reflect.DeepEqual(descriptor.Partner, wantPartner) {
-		t.Fatalf("modelflare partner = %#v, want %#v", descriptor.Partner, wantPartner)
+	if descriptor.Partner != nil {
+		t.Fatalf("modelflare sponsorship ended, partner = %#v, want nil", descriptor.Partner)
 	}
 	if descriptor.Connection.Type != "api_key" {
 		t.Fatalf("modelflare connection = %q", descriptor.Connection.Type)
