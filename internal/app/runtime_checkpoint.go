@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gpt-load/internal/platform/securefile"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"gpt-load/internal/health"
 	"gpt-load/internal/state"
@@ -32,6 +34,7 @@ type runtimeStateCheckpointDocument struct {
 // in DATA_DIR. The startup path consumes the file before parsing it so a
 // malformed or partially written file cannot be retried on every restart.
 type FileRuntimeStateCheckpoint struct {
+	mu               sync.Mutex
 	path             string
 	registry         *state.CredentialRegistry
 	stats            *health.StatsStore
@@ -57,6 +60,8 @@ func NewFileRuntimeStateCheckpoint(
 // Restore consumes the checkpoint file if present. Failures are returned to
 // the lifecycle owner, which continues startup with database-backed state.
 func (checkpoint *FileRuntimeStateCheckpoint) Restore(ctx context.Context) error {
+	checkpoint.mu.Lock()
+	defer checkpoint.mu.Unlock()
 	if err := contextError(ctx); err != nil {
 		return err
 	}
@@ -92,10 +97,10 @@ func (checkpoint *FileRuntimeStateCheckpoint) Restore(ctx context.Context) error
 	return nil
 }
 
-// Save serializes the current runtime state and writes it directly to the
-// fixed checkpoint file. A failed write is removed best-effort and returned so
-// the lifecycle owner can log it without blocking shutdown.
+// Save publishes complete runtime state through a secure sibling temporary file.
 func (checkpoint *FileRuntimeStateCheckpoint) Save(ctx context.Context) error {
+	checkpoint.mu.Lock()
+	defer checkpoint.mu.Unlock()
 	if err := contextError(ctx); err != nil {
 		return err
 	}
@@ -115,11 +120,7 @@ func (checkpoint *FileRuntimeStateCheckpoint) Save(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(checkpoint.path, payload, 0o600); err != nil {
-		_ = os.Remove(checkpoint.path)
-		return err
-	}
-	return nil
+	return securefile.WriteAtomic(checkpoint.path, payload)
 }
 
 func contextError(ctx context.Context) error {
