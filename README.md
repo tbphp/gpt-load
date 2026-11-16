@@ -203,6 +203,8 @@ Installing a newer Setup stops the service gracefully before updating it. Window
 
 ### Environment configuration
 
+System and group upstream request-header rules support **Set**, **Remove**, and **Default**. Default fills only missing, empty, or whitespace-only headers, preserving nonempty client values; credential probes and model discovery use the same rules. For example, default `User-Agent` to `Go-http-client/1.1`. The API accepts a `header_rules.default` object; a header may appear in only one of `set`, `remove`, or `default`, and a group override still replaces the whole ruleset. Without a custom default, ordinary channels retain the built-in `GPT-Load/<version>` UA.
+
 At startup, the application reads `.env` in the current directory; existing process environment variables take precedence. Unless noted otherwise, changes require restarting the process or container; see [`.env.example`](.env.example) for the common configuration template.
 
 <details>
@@ -229,7 +231,6 @@ At startup, the application reads `.env` in the current directory; existing proc
 | `HTTP_PROXY` | Empty | Environment proxy for HTTP upstream requests. |
 | `HTTPS_PROXY` | Empty | Environment proxy for HTTPS upstream requests. |
 | `NO_PROXY` | Empty | Comma-separated hosts, domains, or IPs that bypass the environment proxy. |
-| `UPSTREAM_USER_AGENT_FALLBACK` | Empty, uses `GPT-Load/<version>` | Fallback User-Agent for ordinary-channel API requests, credential probes, model discovery, and Responses WebSocket handshakes. Used only when the final UA is missing, empty, or whitespace-only after header rules; nonempty rule/client values take precedence. Example: `Go-http-client/1.1` (fixed, not protocol-dependent). Subscription adapter identities are unchanged. Restart after changes. |
 | `LOG_LEVEL` | `info` | Supports `panic`, `fatal`, `error`, `warn`, `warning`, `info`, `debug`, and `trace`; invalid values warn and fall back to `info`. |
 | `LOG_FORMAT` | `text` | Supports `text` and `json`; any other value fails startup. |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | Unset, initial default `true` | When unset, uses the persisted management UI setting; when set, forces Models.dev auto-sync on or off and makes the same UI option read-only. |

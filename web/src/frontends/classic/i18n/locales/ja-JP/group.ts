@@ -358,7 +358,7 @@ export default {
         disabledValue: '無効',
         editHeaderRules: 'HeaderRules を編集',
         valueFor: '{field} の上書き値',
-        headerSummary: '設定 {set} 件 · 削除 {remove} 件',
+        headerSummary: '設定 {set} 件 · 削除 {remove} 件 · 既定値 {default} 件',
         headerRemove: '削除',
         headerRemoveHint: '保存後にこのヘッダーを削除します',
         headerStorageNoticeStart:

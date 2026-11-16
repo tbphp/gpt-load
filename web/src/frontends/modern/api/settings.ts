@@ -108,6 +108,13 @@ export type SettingsPatch = Partial<{
 function readHeaders(value: unknown): HeaderRules {
   const row = record(value)
   return {
+    ...(row.default === undefined
+      ? {}
+      : {
+          default: Object.fromEntries(
+            Object.entries(record(row.default)).map(([key, value]) => [key, text(value)]),
+          ),
+        }),
     set: Object.fromEntries(
       Object.entries(record(row.set)).map(([key, value]) => [key, text(value)]),
     ),

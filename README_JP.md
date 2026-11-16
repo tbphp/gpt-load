@@ -203,6 +203,8 @@ Windows の一般ユーザーは代わりに `gpt-load-windows-setup.exe` を利
 
 ### 環境設定
 
+システムとグループの上流リクエストヘッダールールは「設定」「削除」「既定値」をサポートします。既定値はヘッダーが未指定、空、または空白のみの場合に適用され、クライアントの空でない値を保持します。認証情報の検証とモデル検出にも適用されます。例えば `User-Agent` の既定値を `Go-http-client/1.1` に設定できます。API は `header_rules.default` オブジェクトを使用し、同一ヘッダーを `set`、`remove`、`default` に重複指定できません。グループ設定は従来どおりルール全体を置き換えます。独自の既定値がない通常チャネルでは、組み込みの `GPT-Load/<version>` UA が維持されます。
+
 アプリケーションは起動時にカレントディレクトリの `.env` を読み込み、既存のプロセス環境変数を優先します。特記がない限り、変更後はプロセスまたはコンテナを再起動してください。一般的な設定テンプレートは [`.env.example`](.env.example) を参照してください。
 
 <details>
@@ -229,7 +231,6 @@ Windows の一般ユーザーは代わりに `gpt-load-windows-setup.exe` を利
 | `HTTP_PROXY` | 空 | HTTP アップストリームリクエストの環境プロキシ。 |
 | `HTTPS_PROXY` | 空 | HTTPS アップストリームリクエストの環境プロキシ。 |
 | `NO_PROXY` | 空 | 環境プロキシをバイパスするホスト、ドメイン、IP のカンマ区切りリスト。 |
-| `UPSTREAM_USER_AGENT_FALLBACK` | 空、`GPT-Load/<version>` を使用 | 通常チャネルの API リクエスト、認証情報テスト、モデル検出、Responses WebSocket ハンドシェイク用のフォールバック User-Agent。ヘッダールール適用後の UA が未指定・空・空白のみの場合に使用し、ルールやクライアントの空でない UA は維持します。例：`Go-http-client/1.1`（HTTP プロトコルに依存しない固定値）。サブスクリプションアダプターの識別情報は変更しません。変更後は再起動が必要です。 |
 | `LOG_LEVEL` | `info` | `panic`、`fatal`、`error`、`warn`、`warning`、`info`、`debug`、`trace` に対応します。無効な値は警告を出して `info` に戻ります。 |
 | `LOG_FORMAT` | `text` | `text` と `json` に対応します。それ以外の値では起動に失敗します。 |
 | `MODELS_DEV_AUTO_SYNC_ENABLED` | 未設定、初期既定値 `true` | 未設定時は管理画面に保存された設定を使用します。設定時は Models.dev の自動同期を強制的に有効または無効にし、管理画面の同名オプションを読み取り専用にします。 |

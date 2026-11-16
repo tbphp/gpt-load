@@ -600,45 +600,56 @@ func parseHeaderRulesWithPolicy(
 		return HeaderRules{}, fmt.Errorf("%s must be an object", settingName)
 	}
 	for key := range object {
-		if key != "set" && key != "remove" {
+		if key != "set" && key != "remove" && !(key == "default" && settingName == SettingHeaderRules) {
 			return HeaderRules{}, fmt.Errorf("unknown %s field %q", settingName, key)
 		}
 	}
 	seen := make(map[string]struct{})
-	if rawSet, exists := object["set"]; exists {
-		set, ok := rawSet.(map[string]any)
-		if !ok {
-			return HeaderRules{}, fmt.Errorf("%s.set must be an object", settingName)
-		}
-		for name, rawValue := range set {
-			if !validHTTPHeaderName(name) {
-				return HeaderRules{}, fmt.Errorf("%s.set contains invalid header name %q", settingName, name)
-			}
-			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			if forbidden != nil && forbidden(canonicalName) {
-				return HeaderRules{}, fmt.Errorf(
-					"%s.set cannot set forbidden header %q",
-					settingName,
-					canonicalName,
-				)
-			}
-			identity := strings.ToLower(name)
-			if _, duplicate := seen[identity]; duplicate {
-				return HeaderRules{}, fmt.Errorf(
-					"%s.set contains duplicate header %q",
-					settingName,
-					canonicalName,
-				)
-			}
-			seen[identity] = struct{}{}
-			text, ok := rawValue.(string)
+	for _, action := range []string{"set", "default"} {
+		if rawSet, exists := object[action]; exists {
+			set, ok := rawSet.(map[string]any)
 			if !ok {
-				return HeaderRules{}, fmt.Errorf("%s.set.%s must be a string", settingName, name)
+				return HeaderRules{}, fmt.Errorf("%s.%s must be an object", settingName, action)
 			}
-			if !validHTTPHeaderValue(text) {
-				return HeaderRules{}, fmt.Errorf("%s.set.%s contains invalid header value", settingName, name)
+			for name, rawValue := range set {
+				if !validHTTPHeaderName(name) {
+					return HeaderRules{}, fmt.Errorf("%s.%s contains invalid header name %q", settingName, action, name)
+				}
+				canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+				if forbidden != nil && forbidden(canonicalName) {
+					return HeaderRules{}, fmt.Errorf(
+						"%s.%s cannot set forbidden header %q",
+						settingName,
+						action,
+						canonicalName,
+					)
+				}
+				identity := strings.ToLower(name)
+				if _, duplicate := seen[identity]; duplicate {
+					return HeaderRules{}, fmt.Errorf(
+						"%s.%s contains duplicate header %q",
+						settingName,
+						action,
+						canonicalName,
+					)
+				}
+				seen[identity] = struct{}{}
+				text, ok := rawValue.(string)
+				if !ok {
+					return HeaderRules{}, fmt.Errorf("%s.%s.%s must be a string", settingName, action, name)
+				}
+				if !validHTTPHeaderValue(text) {
+					return HeaderRules{}, fmt.Errorf("%s.%s.%s contains invalid header value", settingName, action, name)
+				}
+				if action == "default" {
+					if rules.Default == nil {
+						rules.Default = make(map[string]string)
+					}
+					rules.Default[canonicalName] = text
+				} else {
+					rules.Set[canonicalName] = text
+				}
 			}
-			rules.Set[canonicalName] = text
 		}
 	}
 	if rawRemove, exists := object["remove"]; exists {
@@ -689,6 +700,12 @@ func cloneHeaderRules(source HeaderRules) HeaderRules {
 		cloned.Set[name] = value
 	}
 	cloned.Remove = append([]string(nil), source.Remove...)
+	if source.Default != nil {
+		cloned.Default = make(map[string]string, len(source.Default))
+		for name, value := range source.Default {
+			cloned.Default[name] = value
+		}
+	}
 	return cloned
 }
 

@@ -42,7 +42,11 @@ export const groupPolicyCountKeys: readonly GroupPolicyCountKey[] = [
 ]
 
 function cloneHeaders(value: HeaderRulesDto): HeaderRulesDto {
-  return { set: { ...value.set }, remove: [...value.remove] }
+  return {
+    set: { ...value.set },
+    remove: [...value.remove],
+    ...(value.default ? { default: { ...value.default } } : {}),
+  }
 }
 
 function cloneParameterValue(value: unknown): ParameterJSONValue {
@@ -95,6 +99,13 @@ function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
 
 function normalizeHeaders(value: HeaderRulesDto): HeaderRulesDto {
   return {
+    ...(value.default
+      ? {
+          default: Object.fromEntries(
+            Object.entries(value.default).sort(([a], [b]) => a.localeCompare(b)),
+          ),
+        }
+      : {}),
     set: Object.fromEntries(
       Object.entries(value.set).sort(([left], [right]) => left.localeCompare(right)),
     ),

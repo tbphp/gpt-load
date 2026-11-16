@@ -63,11 +63,21 @@ function normalizeRules(value: HeaderRulesDto): HeaderRulesDto {
     Object.entries(value.set).sort(([left], [right]) => compareHeaderNames(left, right)),
   )
   const remove = [...value.remove].sort(compareHeaderNames)
-  return { set, remove }
+  const defaults = Object.fromEntries(
+    Object.entries(value.default ?? {}).sort(([left], [right]) => compareHeaderNames(left, right)),
+  )
+  return { set, remove, ...(Object.keys(defaults).length ? { default: defaults } : {}) }
 }
 
 function createRows(value: HeaderRulesDto): RuleRow[] {
   return [
+    ...Object.entries(value.default ?? {}).map(([name, headerValue]) => ({
+      key: nextKey++,
+      action: 'default' as const,
+      name,
+      value: headerValue,
+      revealed: false,
+    })),
     ...Object.entries(value.set).map(([name, headerValue]) => ({
       key: nextKey++,
       action: 'set' as const,
@@ -89,6 +99,7 @@ function rulesFromRows(): HeaderRulesDto {
   const rules: HeaderRulesDto = { set: {}, remove: [] }
   for (const row of rows.value) {
     if (row.action === 'set') rules.set[row.name] = row.value
+    else if (row.action === 'default') (rules.default ??= {})[row.name] = row.value
     else rules.remove.push(row.name)
   }
   return rules
@@ -100,6 +111,11 @@ function sameRules(left: HeaderRulesDto, right: HeaderRulesDto): boolean {
 
 function rowsMatchRules(rows: readonly RuleRow[], rules: HeaderRulesDto): boolean {
   const expected = [
+    ...Object.entries(rules.default ?? {}).map(([name, value]) => ({
+      action: 'default' as const,
+      name,
+      value,
+    })),
     ...Object.entries(rules.set).map(([name, value]) => ({ action: 'set' as const, name, value })),
     ...rules.remove.map((name) => ({ action: 'remove' as const, name, value: '' })),
   ]
@@ -274,6 +290,15 @@ function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
               {{ t('common.headerRules.set') }}
             </button>
             <button
+              v-if="validationPolicy === 'request'"
+              type="button"
+              :aria-pressed="row.action === 'default'"
+              :disabled="props.disabled"
+              @click="setActionValue(row, 'default')"
+            >
+              {{ t('common.headerRules.default') }}
+            </button>
+            <button
               type="button"
               data-mode="remove"
               :aria-pressed="row.action === 'remove'"
@@ -284,7 +309,7 @@ function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
             </button>
           </div>
           <CompactFieldError
-            v-if="row.action === 'set'"
+            v-if="row.action !== 'remove'"
             :id="`header-value-${row.key}`"
             class="header-rule__value-field"
             :error="rowError(row, 'value')"
@@ -332,6 +357,9 @@ function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
             @change="setAction(row, $event)"
           >
             <option value="set">{{ t('common.headerRules.set') }}</option>
+            <option v-if="validationPolicy === 'request'" value="default">
+              {{ t('common.headerRules.default') }}
+            </option>
             <option value="remove">{{ t('common.headerRules.remove') }}</option>
           </select>
           <CompactFieldError
@@ -357,7 +385,7 @@ function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
             </template>
           </CompactFieldError>
           <CompactFieldError
-            v-if="row.action === 'set'"
+            v-if="row.action !== 'remove'"
             :id="`header-value-${row.key}`"
             class="header-rule__value-field"
             :error="rowError(row, 'value')"

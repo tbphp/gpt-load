@@ -33,7 +33,7 @@ import {
 export type HeaderSetting = 'header_rules' | 'response_header_rules'
 export interface HeaderRow {
   id: number
-  action: 'set' | 'remove'
+  action: 'set' | 'remove' | 'default'
   name: string
   value: string
 }
@@ -66,6 +66,12 @@ export function newHeader(): HeaderRow {
 }
 function headerRows(value: HeaderRules): HeaderRow[] {
   return [
+    ...Object.entries(value.default ?? {}).map(([name, value]): HeaderRow => ({
+      id: nextHeader++,
+      action: 'default',
+      name,
+      value,
+    })),
     ...Object.entries(value.set).map(([name, value]): HeaderRow => ({
       id: nextHeader++,
       action: 'set',
@@ -225,7 +231,7 @@ export function headerErrors(rows: HeaderRow[], key: HeaderSetting): Record<stri
     ) {
       errors[field + '.name'] = 'headerProtected'
     }
-    if (row.action === 'set' && /[\u0000-\u0008\u000a-\u001f\u007f]/u.test(row.value))
+    if (row.action !== 'remove' && /[\u0000-\u0008\u000a-\u001f\u007f]/u.test(row.value))
       errors[field + '.value'] = 'headerValue'
   })
   return errors
@@ -333,6 +339,15 @@ export function buildSettingsPatch(
     if (key in settingNumbers) patch[key] = Number(draft[key as SettingNumber])
     else if (key === 'header_rules' || key === 'response_header_rules') {
       patch[key] = {
+        ...(draft[key].some((row) => row.action === 'default')
+          ? {
+              default: Object.fromEntries(
+                draft[key]
+                  .filter((row) => row.action === 'default')
+                  .map((row) => [row.name.trim(), row.value]),
+              ),
+            }
+          : {}),
         set: Object.fromEntries(
           draft[key]
             .filter((row) => row.action === 'set')

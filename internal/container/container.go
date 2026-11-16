@@ -193,8 +193,8 @@ func BuildContainer(configure ...func(*dig.Container) error) (*dig.Container, er
 				audioSpeech, mistral,
 			)
 		},
-		func(registry *channel.Registry, cfg *config.Config) (*bifrostexecutor.RuntimeManager, error) {
-			return bifrostexecutor.NewManagedRuntime(registry, cfg.UpstreamUserAgentFallback)
+		func(registry *channel.Registry) (*bifrostexecutor.RuntimeManager, error) {
+			return bifrostexecutor.NewManagedRuntime(registry)
 		},
 		func(adapters *provideradapter.Registry, quotaRuntime *accessquota.Runtime, credentials *state.CredentialRegistry) *state.Manager {
 			manager := state.NewManager()

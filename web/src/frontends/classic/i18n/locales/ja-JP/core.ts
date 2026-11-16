@@ -145,6 +145,7 @@ export default {
       add: 'ルールを追加',
       action: '操作',
       set: '設定',
+      default: '既定値',
       remove: '削除',
       name: 'ヘッダー名',
       value: 'ヘッダー値',

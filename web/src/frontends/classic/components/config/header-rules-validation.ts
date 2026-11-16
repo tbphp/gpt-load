@@ -1,4 +1,4 @@
-export type HeaderRuleAction = 'set' | 'remove'
+export type HeaderRuleAction = 'set' | 'remove' | 'default'
 export type HeaderRuleValidationPolicy = 'request' | 'response'
 
 export interface HeaderRuleInput {

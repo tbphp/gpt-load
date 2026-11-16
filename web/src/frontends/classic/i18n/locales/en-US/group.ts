@@ -358,7 +358,7 @@ export default {
         disabledValue: 'Disabled',
         editHeaderRules: 'Edit HeaderRules',
         valueFor: 'Override value for {field}',
-        headerSummary: '{set} Set · {remove} Remove',
+        headerSummary: '{set} Set · {remove} Remove · {default} Default',
         headerRemove: 'Remove',
         headerRemoveHint: 'This Header will be removed after saving',
         headerStorageNoticeStart: 'Ordinary HeaderRules are not Secret storage; use',
