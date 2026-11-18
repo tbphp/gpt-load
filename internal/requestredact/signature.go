@@ -329,21 +329,39 @@ func restoreSignedString(value string, entry signatureString) (string, bool) {
 	return restored, utf8.ValidString(restored)
 }
 
-// signaturePosition 返回协议签名位置上的非空签名及其在对象里的路径：Claude 思考块、
-// Responses 推理文本、reasoning_details 条目、Gemini 兼容接口工具调用的 extra_content，以及 Gemini 片段。
-func signaturePosition(v gjson.Result) (gjson.Result, []any, bool) {
+// signatureArray 报告上游生成内容的对象（消息、推理项）直属的该字段数组是否可能含协议签名块。
+func signatureArray(field string) bool {
+	switch field {
+	case "content", "parts", "reasoning_details", "tool_calls":
+		return true
+	}
+	return false
+}
+
+// signaturePosition 返回协议签名位置上的上游签名及其在对象里的路径。只认响应侧会写入还原记录的位置，
+// v 是上游生成内容的对象直属数组 field 的元素：content 里的 Claude 思考块与 Responses 推理文本、
+// reasoning_details 条目、tool_calls 里 Gemini 兼容接口的 extra_content，以及 Gemini 的 parts。
+// 其他位置上形似签名块的内容按普通上游内容处理，否则网关还原到那里的明文会在下一轮原样外发。
+func signaturePosition(v gjson.Result, field string) (gjson.Result, []any, bool) {
 	var path []any
-	kind := v.Get("type").Str
-	switch {
-	case kind == "thinking" || kind == "reasoning_text" || strings.HasPrefix(kind, "reasoning."):
+	switch kind := v.Get("type").Str; {
+	case field == "content" && (kind == "thinking" || kind == "reasoning_text"), field == "reasoning_details":
 		path = []any{"signature"}
-	case v.Get("function").IsObject():
+	case field == "tool_calls":
 		path = []any{"extra_content", "google", "thought_signature"}
-	case v.Get("thoughtSignature").Exists():
+	case field == "parts" && v.Get("thoughtSignature").Exists():
 		path = []any{"thoughtSignature"}
-	default:
+	case field == "parts":
 		path = []any{"thought_signature"}
+	default:
+		return gjson.Result{}, nil, false
 	}
 	signature := PathValue(v, path)
-	return signature, path, signature.Type == gjson.String && signature.Str != ""
+	return signature, path, signature.Type == gjson.String && signature.Str != "" && !placeholderSignature(signature.Str)
+}
+
+// placeholderSignature 报告签名是否为 Gemini 文档给出的占位值。客户端转接其他来源的历史时填入，
+// 内容不是上游签过的，上游也不校验，按普通上游内容加密不会导致验签失败。
+func placeholderSignature(value string) bool {
+	return value == "skip_thought_signature_validator" || value == "context_engineering_is_the_way_to_go"
 }
