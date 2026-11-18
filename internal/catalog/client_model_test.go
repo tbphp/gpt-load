@@ -28,7 +28,7 @@ func TestCodexClientModelUsesGPT61SolTemplate(t *testing.T) {
 	if model["minimal_client_version"] != "0.153.0" || model["tool_mode"] != "code_mode_only" ||
 		model["multi_agent_version"] != "v2" || model["use_responses_lite"] != true ||
 		model["supports_reasoning_effort_updates"] != true || model["default_reasoning_level"] != "low" ||
-		model["context_window"] != json.Number("272000") || model["max_context_window"] != json.Number("872000") {
+		model["context_window"] != json.Number("500000") || model["max_context_window"] != json.Number("872000") {
 		t.Fatal("GPT-6.1 Sol did not retain its native capabilities")
 	}
 	assertCodexInstructionFields(t, model)

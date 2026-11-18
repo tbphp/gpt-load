@@ -205,12 +205,10 @@ async function submit(): Promise<void> {
         <summary>{{ t('auth.help.title') }}</summary>
         <div class="modern-login-help-content">
           <p>
-            <strong>{{ t('auth.help.accessKeyTitle') }}</strong
-            >{{ t('auth.help.accessKey') }}
+            <strong>{{ t('auth.help.accessKeyTitle') }}</strong>{{ t('auth.help.accessKey') }}
           </p>
           <p>
-            <strong>{{ t('auth.help.adminTitle') }}</strong
-            >{{ t('auth.help.admin') }}
+            <strong>{{ t('auth.help.adminTitle') }}</strong>{{ t('auth.help.admin') }}
           </p>
           <p>
             {{

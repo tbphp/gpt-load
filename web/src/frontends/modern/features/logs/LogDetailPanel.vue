@@ -249,8 +249,10 @@ function decisionRuleLabel(ruleID: string): string {
               <time>{{ logTime(log.completed_at_ms, locale, true) }}</time>
             </div>
             <div class="modern-log-request-identity">
-              <span>{{ t('logs.columns.request_id') }}</span
-              ><AppCopyValue :value="log.request_id" :label="t('logs.copyRequest')" />
+              <span>{{ t('logs.columns.request_id') }}</span><AppCopyValue
+                :value="log.request_id"
+                :label="t('logs.copyRequest')"
+              />
             </div>
             <div class="modern-log-request-identity">
               <span>{{ t('logs.columns.client_ip') }}</span>
@@ -534,8 +536,9 @@ function decisionRuleLabel(ruleID: string): string {
                 class="modern-log-attempt"
               >
                 <div class="modern-log-attempt-heading">
-                  <span class="modern-log-attempt-number">{{ n(attempt.sequence) }}</span
-                  ><AppChannelIcon
+                  <span class="modern-log-attempt-number">{{
+                    n(attempt.sequence)
+                  }}</span><AppChannelIcon
                     v-if="attempt.channel_id && channels?.has(attempt.channel_id)"
                     :icon="channels.get(attempt.channel_id)!.icon"
                     :name="channels.get(attempt.channel_id)!.name"

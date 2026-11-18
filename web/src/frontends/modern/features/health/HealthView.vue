@@ -302,8 +302,7 @@ useMessageSource(() =>
     >
       <template #header>
         <div class="modern-health-row modern-health-heading" aria-hidden="true">
-          <span>{{ t('health.object') }}</span
-          ><span>{{ t('health.group') }}</span
+          <span>{{ t('health.object') }}</span><span>{{ t('health.group') }}</span
           ><span>{{ t('health.problem') }}</span
           ><span>{{ t('health.impact') }}</span
           ><span>{{ t('health.recoveryColumn') }}</span
@@ -392,8 +391,7 @@ useMessageSource(() =>
             <div class="modern-health-stack" :data-label="t('health.problem')">
               <AppBadge :tone="row.severity" size="xs" dot>{{
                 t('health.kinds.' + row.kind)
-              }}</AppBadge
-              ><AppOverflowText :text="row.reason" class="modern-health-secondary" />
+              }}</AppBadge><AppOverflowText :text="row.reason" class="modern-health-secondary" />
             </div>
             <div class="modern-health-impact" :data-label="t('health.impact')">
               <AppOverflowText :text="row.impact" />

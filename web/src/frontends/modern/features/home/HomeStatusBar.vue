@@ -77,15 +77,15 @@ const uptime = computed(() => {
 <template>
   <section v-if="mobile" class="modern-home-mobile-status" :aria-label="t('home.overview')">
     <div class="modern-home-mobile-state">
-      <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge
-      ><span>{{ uptime }}</span>
+      <AppBadge :tone="state.tone" dot>{{ t(state.key) }}</AppBadge><span>{{ uptime }}</span>
     </div>
     <dl class="modern-home-mobile-facts" :class="{ 'is-read-only': !admin }">
       <div v-for="fact in facts.filter((item) => item.key !== 'concurrency')" :key="fact.key">
         <dt>{{ t('home.' + fact.key) }}</dt>
         <dd>
-          <RouterLink v-if="fact.to" :to="fact.to">{{ fact.value }}</RouterLink
-          ><span v-else>{{ fact.value }}</span>
+          <RouterLink v-if="fact.to" :to="fact.to">{{ fact.value }}</RouterLink><span v-else>{{
+            fact.value
+          }}</span>
         </dd>
       </div>
     </dl>
@@ -99,8 +99,9 @@ const uptime = computed(() => {
       v-if="facts.some((item) => item.key === 'concurrency')"
       class="modern-home-mobile-concurrency"
     >
-      <span>{{ t('concurrency.label') }}</span
-      ><strong>{{ facts.find((item) => item.key === 'concurrency')?.value }}</strong>
+      <span>{{ t('concurrency.label') }}</span><strong>{{
+        facts.find((item) => item.key === 'concurrency')?.value
+      }}</strong>
     </div>
   </section>
   <section v-else class="modern-home-status" :aria-label="t('home.overview')">

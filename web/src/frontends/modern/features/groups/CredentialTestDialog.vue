@@ -222,8 +222,7 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
           </div></AppNotice
         >
         <div class="modern-credential-test-actions">
-          <AppButton :disabled="pending" @click="close">{{ t('shell.close') }}</AppButton
-          ><AppButton
+          <AppButton :disabled="pending" @click="close">{{ t('shell.close') }}</AppButton><AppButton
             v-if="result?.proof"
             variant="outline"
             :loading="pending"

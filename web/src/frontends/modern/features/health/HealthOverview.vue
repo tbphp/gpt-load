@@ -54,8 +54,7 @@ const metrics = computed(() => [
 <template>
   <section v-if="mobile" class="modern-health-mobile-overview" :aria-label="t('health.overview')">
     <div class="modern-health-mobile-availability">
-      <span>{{ t('health.available') }}</span
-      ><strong
+      <span>{{ t('health.available') }}</span><strong
         >{{ count(report.counts.available) }} / {{ count(report.counts.credentials) }}</strong
       >
     </div>
@@ -78,8 +77,9 @@ const metrics = computed(() => [
       <div class="modern-health-availability-value">
         <span>{{ t('health.available') }}</span>
         <div>
-          <strong>{{ count(report.counts.available) }}</strong
-          ><span>/ {{ count(report.counts.credentials) }}</span>
+          <strong>{{ count(report.counts.available) }}</strong><span
+            >/ {{ count(report.counts.credentials) }}</span
+          >
         </div>
       </div>
       <AppSegmentedBar :segments="segments" :label="hint" />

@@ -172,8 +172,7 @@ function clear(): void {
             <div>
               <AppButton v-if="clearable && model" variant="ghost" size="xs" @click="clear">{{
                 t('ui.date.clear')
-              }}</AppButton
-              ><AppButton variant="ghost" size="xs" @click="open = false">{{
+              }}</AppButton><AppButton variant="ghost" size="xs" @click="open = false">{{
                 t('ui.cancel')
               }}</AppButton
               ><AppButton variant="primary" size="xs" :disabled="!valid" @click="apply">{{

@@ -90,8 +90,7 @@ const sections = computed(() =>
           <footer>
             <AppButton variant="ghost" size="xs" @click="$emit('all')">{{
               t('logs.showAllColumns')
-            }}</AppButton
-            ><AppButton variant="brand" size="xs" @click="$emit('reset')">{{
+            }}</AppButton><AppButton variant="brand" size="xs" @click="$emit('reset')">{{
               t('logs.defaultColumns')
             }}</AppButton>
           </footer>

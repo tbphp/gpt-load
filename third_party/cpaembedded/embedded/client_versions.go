@@ -8,12 +8,12 @@ import "github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded/modelcatalog"
 const (
 	// Codex 的执行身份与模型模板共用同一份客户端契约。
 	CodexClientVersion       = modelcatalog.ClientVersion
-	ClaudeClientVersion      = "2.1.319"
-	GrokClientVersion        = "1.0.77"
+	ClaudeClientVersion      = "2.1.327"
+	GrokClientVersion        = "1.0.88"
 	AntigravityClientVersion = "2.29.0"
 
 	claudeUserAgent          = "claude-cli/" + ClaudeClientVersion + " (external, cli)"
 	claudeBootstrapUserAgent = "claude-code/" + ClaudeClientVersion
-	// cl 取自 CPA v8.0.60 为 Hub 2.29.0 记录的 changelist，须随版本一起核对。
+	// cl 取自 CPA v8.0.77 为 Hub 2.29.0 记录的 changelist，须随版本一起核对。
 	antigravityUserAgent = "antigravity/hub/" + AntigravityClientVersion + " (aidev_client; os_type=darwin; arch=arm64; cl=1013060670)"
 )

@@ -71,8 +71,7 @@ function onEnter(event: KeyboardEvent) {
         @keydown.enter="onEnter"
       />
       <div v-if="rule" class="modern-redaction-quick-pattern">
-        <span>{{ t('requestRedaction.pattern') }}</span
-        ><code>{{ rule.pattern }}</code>
+        <span>{{ t('requestRedaction.pattern') }}</span><code>{{ rule.pattern }}</code>
       </div>
       <div>
         <AppButton size="sm" :disabled="disabled || !rule" @click="add">{{

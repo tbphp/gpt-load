@@ -321,8 +321,7 @@ useMessageSource(() =>
                   v-if="session.state.principalType === 'access_key'"
                   :icon="KeyRound"
                   tone="info"
-                  >{{ t('auth.readOnly') }}</AppBadge
-                ><AppearanceMenu /><AppButton
+                  >{{ t('auth.readOnly') }}</AppBadge><AppearanceMenu /><AppButton
                   :icon="LogOut"
                   variant="ghost"
                   :loading="loggingOut"

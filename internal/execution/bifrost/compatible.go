@@ -176,7 +176,16 @@ func preserveCompatibleToolTurnReasoning(messages []schemas.ChatMessage) {
 			if assistant == nil {
 				continue
 			}
-			if assistant.Reasoning != nil && *assistant.Reasoning != "" {
+			// SDK 自行合并回合时 reasoning 只保留首段，后续片段仅在 reasoning_details 中。
+			var texts []string
+			for _, detail := range assistant.ReasoningDetails {
+				if detail.Type == schemas.BifrostReasoningDetailsTypeText && detail.Text != nil && *detail.Text != "" {
+					texts = append(texts, *detail.Text)
+				}
+			}
+			if len(texts) > 0 {
+				reasoning = append(reasoning, texts...)
+			} else if assistant.Reasoning != nil && *assistant.Reasoning != "" {
 				reasoning = append(reasoning, *assistant.Reasoning)
 			}
 			for _, detail := range assistant.ReasoningDetails {
