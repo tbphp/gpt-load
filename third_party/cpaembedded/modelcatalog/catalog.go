@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 )
 
-const SourceCommit = "8e990d32bed1ab44d4c761097d5e51b53d95069b"
-const SHA256 = "81bca47653de1084b7efb8abe699d07b584792c7806d7f837b55be3263e82258"
+const SourceCommit = "829b3b7f5cb34ca0c568d753e481ae0e054b206b"
+const SHA256 = "55464990f6740eed2af66939e8b2320a9e8a801dee282f72b896cf52732e7060"
 
 //go:embed codex.json
 var snapshot []byte
