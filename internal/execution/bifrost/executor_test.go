@@ -855,8 +855,10 @@ func TestSanitizeNativeChatBodyPreservesExplicitStreamOptions(t *testing.T) {
 	t.Parallel()
 
 	body, err := sanitizeNativeChatBody(
-		[]byte(`{"model":"client","messages":[],"stream_options":{"include_usage":false,"vendor_option":"keep"}}`),
-		"upstream",
+		execution.AttemptSpec{
+			Body:          []byte(`{"model":"client","messages":[],"stream_options":{"include_usage":false,"vendor_option":"keep"}}`),
+			UpstreamModel: "upstream",
+		},
 		true,
 	)
 	if err != nil {

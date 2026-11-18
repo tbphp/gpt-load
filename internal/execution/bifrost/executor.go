@@ -1519,6 +1519,9 @@ func (r *Runtime) newSDKContext(parent context.Context, spec execution.AttemptSp
 		spec.ClientProtocol == protocol.Anthropic {
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
 	}
+	if spec.RouteMode == execution.RouteConverted && spec.ChannelID == string(channel.OpenRouter) {
+		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)
+	}
 	if spec.Operation == execution.OperationProbe &&
 		openAICompatibleBase(r.providerKind(spec)) {
 		bifrostContext.SetValue(schemas.BifrostContextKeyPassthroughExtraParams, true)

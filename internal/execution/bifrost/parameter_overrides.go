@@ -10,6 +10,7 @@ import (
 	"github.com/maximhq/bifrost/core/providers/gemini"
 	"github.com/maximhq/bifrost/core/providers/openai"
 
+	"gpt-load/internal/channel"
 	"gpt-load/internal/execution"
 	"gpt-load/internal/protocol"
 )
@@ -48,7 +49,8 @@ func sdkRequestFields(value reflect.Type) map[string]bool {
 }
 
 func convertedParameterOverrides(spec execution.AttemptSpec) (map[string]any, error) {
-	if spec.RouteMode != execution.RouteConverted || len(spec.ConfiguredParameters) == 0 {
+	allowProviderPreferences := spec.ChannelID == string(channel.OpenRouter)
+	if spec.RouteMode != execution.RouteConverted || len(spec.ConfiguredParameters) == 0 && !allowProviderPreferences {
 		return nil, nil
 	}
 	known := convertedRequestFields[spec.ClientProtocol]
@@ -60,9 +62,13 @@ func convertedParameterOverrides(spec execution.AttemptSpec) (map[string]any, er
 		return nil, fmt.Errorf("invalid overridden request body")
 	}
 	// 复用原生请求的控制字段清理，扩展参数不能接管凭据或 SDK 路由。
-	stripNativeControlFields(body)
+	stripNativeControlFields(body, allowProviderPreferences)
+	names := spec.ConfiguredParameters
+	if allowProviderPreferences {
+		names = append([]string{"provider"}, names...)
+	}
 	extras := make(map[string]any)
-	for _, name := range spec.ConfiguredParameters {
+	for _, name := range names {
 		lower := strings.ToLower(name)
 		if known[lower] {
 			continue

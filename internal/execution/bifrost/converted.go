@@ -127,10 +127,19 @@ func buildConvertedResponsesRequest(spec execution.AttemptSpec, provider schemas
 	if request.Params == nil {
 		request.Params = &schemas.ResponsesParameters{}
 	}
+	stripResponsesControlParams(request.Params)
 	if err := mergeConvertedParameterOverrides(spec, &request.Params.ExtraParams); err != nil {
 		return nil, err
 	}
-	stripResponsesControlParams(request.Params)
+	if spec.RouteMode == execution.RouteConverted && spec.ChannelID == string(channel.OpenRouter) {
+		// Only provider preferences use extra-parameter passthrough. The SDK
+		// still prepares and serializes the typed request before merging them.
+		preferences, exists := request.Params.ExtraParams["provider"]
+		request.Params.ExtraParams = nil
+		if exists {
+			request.Params.ExtraParams = map[string]any{"provider": preferences}
+		}
+	}
 	return request, nil
 }
 

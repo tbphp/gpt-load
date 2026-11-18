@@ -57,14 +57,14 @@ func nativeMessageProvider(providerKind channel.ProviderKind, spec execution.Att
 	return "", false
 }
 
-func sanitizeNativeChatBody(body []byte, upstreamModel string, stream ...bool) ([]byte, error) {
-	object, err := decodeNativeJSONObject(body)
+func sanitizeNativeChatBody(spec execution.AttemptSpec, stream ...bool) ([]byte, error) {
+	object, err := decodeNativeJSONObject(spec.Body)
 	if err != nil {
 		return nil, err
 	}
-	changed := stripNativeControlFields(object)
-	if !jsonStringEquals(object["model"], upstreamModel) {
-		if err := forceJSONModel(object, upstreamModel); err != nil {
+	changed := stripNativeControlFields(object, spec.ChannelID == string(channel.OpenRouter))
+	if !jsonStringEquals(object["model"], spec.UpstreamModel) {
+		if err := forceJSONModel(object, spec.UpstreamModel); err != nil {
 			return nil, err
 		}
 		changed = true
@@ -77,7 +77,7 @@ func sanitizeNativeChatBody(body []byte, upstreamModel string, stream ...bool) (
 		}
 	}
 	if !changed {
-		return append([]byte(nil), body...), nil
+		return append([]byte(nil), spec.Body...), nil
 	}
 	return encodeNativeJSONObject(object)
 }
@@ -88,7 +88,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		return nil, nil
 	case (spec.ClientProtocol == protocol.OpenAICompletions || spec.ClientProtocol == protocol.Anthropic) &&
 		spec.Operation == execution.OperationChatCompletion:
-		body, err := sanitizeNativeChatBody(spec.Body, spec.UpstreamModel, stream)
+		body, err := sanitizeNativeChatBody(spec, stream)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +100,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		}
 		return body, nil
 	case spec.ClientProtocol == protocol.Anthropic && spec.Operation == execution.OperationCountTokens:
-		return sanitizeNativeChatBody(spec.Body, spec.UpstreamModel)
+		return sanitizeNativeChatBody(spec)
 	case spec.ClientProtocol == protocol.Gemini && spec.Operation == execution.OperationChatCompletion:
 		object, err := decodeNativeJSONObject(spec.Body)
 		if err != nil {
@@ -108,7 +108,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 			// validate, while valid JSON is scrubbed below.
 			return append([]byte(nil), spec.Body...), nil
 		}
-		changed := stripNativeControlFields(object)
+		changed := stripNativeControlFields(object, false)
 		if !changed {
 			return append([]byte(nil), spec.Body...), nil
 		}
@@ -118,7 +118,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		if err != nil {
 			return append([]byte(nil), spec.Body...), nil
 		}
-		if !stripNativeControlFields(object) {
+		if !stripNativeControlFields(object, false) {
 			return append([]byte(nil), spec.Body...), nil
 		}
 		return encodeNativeJSONObject(object)
@@ -128,7 +128,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		if err != nil {
 			return nil, err
 		}
-		changed := stripNativeControlFields(object)
+		changed := stripNativeControlFields(object, spec.ChannelID == string(channel.OpenRouter))
 		if !jsonStringEquals(object["model"], spec.UpstreamModel) {
 			if err := forceJSONModel(object, spec.UpstreamModel); err != nil {
 				return nil, err
@@ -150,7 +150,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		if err != nil {
 			return nil, err
 		}
-		changed := stripNativeControlFields(object)
+		changed := stripNativeControlFields(object, false)
 		if !jsonStringEquals(object["model"], spec.UpstreamModel) {
 			if err := forceJSONModel(object, spec.UpstreamModel); err != nil {
 				return nil, err
@@ -173,7 +173,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		if err != nil {
 			return nil, err
 		}
-		changed := stripNativeControlFields(object)
+		changed := stripNativeControlFields(object, false)
 		if _, hasModel := object["model"]; hasModel && strings.TrimSpace(spec.UpstreamModel) != "" {
 			if !jsonStringEquals(object["model"], spec.UpstreamModel) {
 				if err := forceJSONModel(object, spec.UpstreamModel); err != nil {
@@ -194,7 +194,7 @@ func sanitizeNativeRequestBody(spec execution.AttemptSpec, stream bool) ([]byte,
 		if err != nil {
 			return nil, err
 		}
-		stripNativeControlFields(object)
+		stripNativeControlFields(object, false)
 		return encodeNativeJSONObject(object)
 	}
 }
@@ -252,9 +252,14 @@ func decodeNativeJSONObject(body []byte) (map[string]json.RawMessage, error) {
 	return object, nil
 }
 
-func stripNativeControlFields(object map[string]json.RawMessage) bool {
+func stripNativeControlFields(object map[string]json.RawMessage, allowProviderPreferences bool) bool {
 	changed := false
-	for key := range object {
+	for key, value := range object {
+		// OpenRouter's native provider object selects its upstream providers.
+		// Scalar gateway controls and case variants remain filtered.
+		if allowProviderPreferences && key == "provider" && bytes.HasPrefix(bytes.TrimSpace(value), []byte("{")) {
+			continue
+		}
 		normalized := strings.ReplaceAll(strings.ToLower(key), "-", "_")
 		switch normalized {
 		case "provider", "fallback", "fallbacks", "authorization", "proxy_authorization",
