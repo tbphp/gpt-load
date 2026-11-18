@@ -84,7 +84,7 @@ func TestConvertedOverridesPreserveSDKTargetFiltering(t *testing.T) {
 	runtime := &Runtime{}
 	ctx := runtime.newSDKContext(context.Background(), spec, schemas.Key{})
 	defer ctx.Cancel()
-	body, sdkErr := providerUtils.CheckContextAndGetRequestBody(ctx, request, func() (providerUtils.RequestBodyWithExtraParams, error) {
+	body, sdkErr := providerUtils.CheckContextAndGetRequestBody(ctx, request, func() (*openai.OpenAIResponsesRequest, error) {
 		return openai.ToOpenAIResponsesRequest(ctx, request), nil
 	})
 	if sdkErr != nil {
