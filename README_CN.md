@@ -153,8 +153,6 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 - **订阅渠道**：Codex、Claude、Antigravity、Grok
 - **自定义**：OpenAI Compatible（任意兼容中转）
 
-OpenRouter 的原生 Chat Completions 和 Responses 请求，以及经协议转换的 Anthropic 和 Gemini 请求，都会保留 `provider` 对象，包括 `only` 和 `allow_fallbacks`。该对象可以来自请求体或配置的参数覆盖规则。网关凭据和回退控制字段仍会被过滤。
-
 ## 部署与数据
 
 Docker Compose 默认使用应用管理的 SQLite，数据存放在 `gpt-load-data` 具名卷中，包含数据库、`auth.key` 和 `encryption.key`。

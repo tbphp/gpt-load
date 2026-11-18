@@ -153,8 +153,6 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 - **Subscription** — Codex, Claude, Antigravity, Grok
 - **Custom** — OpenAI Compatible (any compatible relay)
 
-OpenRouter preserves the `provider` object, including `only` and `allow_fallbacks`, on native Chat Completions and Responses requests and converted Anthropic and Gemini requests. The object can come from the request body or configured parameter overrides. Gateway credential and fallback controls remain filtered.
-
 ## Deployment and data
 
 Docker Compose uses application-managed SQLite by default. Data lives in the `gpt-load-data` named volume and includes the database, `auth.key`, and `encryption.key`.

@@ -153,8 +153,6 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 - **サブスクリプション**：Codex、Claude、Antigravity、Grok
 - **カスタム**：OpenAI Compatible（任意の互換中継）
 
-OpenRouter のネイティブ Chat Completions および Responses リクエストと、プロトコル変換される Anthropic および Gemini リクエストでは、`only` と `allow_fallbacks` を含む `provider` オブジェクトを保持します。このオブジェクトはリクエスト本文または設定済みのパラメーター上書きルールで指定できます。ゲートウェイの認証情報とフォールバック制御フィールドは引き続き除去します。
-
 ## デプロイとデータ
 
 Docker Compose は既定でアプリケーション管理の SQLite を使用します。データは `gpt-load-data` という名前付きボリュームに保存され、データベース、`auth.key`、`encryption.key` を含みます。
