@@ -93,24 +93,81 @@ func TestSignatureRecordRoundTrip(t *testing.T) {
 
 func TestApplyLeavesUnrecordedSignedContentUnchanged(t *testing.T) {
 	cipher := signedTestCipher(t, 3)
-	signed := []string{
-		`{"type":"thinking","thinking":"test with bob@example.com","signature":"SIG"}`,
-		`{"functionCall":{"name":"lookup_user","args":{"email":"bob@example.com"}},"thoughtSignature":"SIG"}`,
-		`{"type":"reasoning.text","text":"bob@example.com","signature":"SIG"}`,
-		`{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"email\":\"bob@example.com\"}"},"extra_content":{"google":{"thought_signature":"SIG"}}}`,
+	chatUser := `{"role":"user","content":"alice@example.com"}`
+	signed := []struct{ body, block, user, signed string }{
+		{`{"messages":[` + chatUser + `,{"role":"assistant","content":[%s]}]}`, "messages.1.content.0", "messages.0.content",
+			`{"type":"thinking","thinking":"test with bob@example.com","signature":"SIG"}`},
+		{`{"contents":[{"role":"user","parts":[{"text":"alice@example.com"}]},{"role":"model","parts":[%s]}]}`, "contents.1.parts.0", "contents.0.parts.0.text",
+			`{"functionCall":{"name":"lookup_user","args":{"email":"bob@example.com"}},"thoughtSignature":"SIG"}`},
+		{`{"messages":[` + chatUser + `,{"role":"assistant","content":"ok","reasoning_details":[%s]}]}`, "messages.1.reasoning_details.0", "messages.0.content",
+			`{"type":"reasoning.text","text":"bob@example.com","signature":"SIG"}`},
+		{`{"messages":[` + chatUser + `,{"role":"assistant","tool_calls":[%s]}]}`, "messages.1.tool_calls.0", "messages.0.content",
+			`{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"email\":\"bob@example.com\"}"},"extra_content":{"google":{"thought_signature":"SIG"}}}`},
+		{`{"input":[` + chatUser + `,{"type":"reasoning","summary":[],"content":[%s]}]}`, "input.1.content.0", "input.0.content",
+			`{"type":"reasoning_text","text":"bob@example.com","signature":"SIG"}`},
 	}
 	for mode, compiled := range signedTestRules(t) {
-		for _, block := range signed {
-			body := `{"messages":[{"role":"user","content":"alice@example.com"},{"role":"assistant","content":[` + block + `]}]}`
-			got, err := compiled.ApplyWithCipher([]byte(body), cipher)
+		for _, tc := range signed {
+			got, err := compiled.ApplyWithCipher([]byte(strings.Replace(tc.body, "%s", tc.signed, 1)), cipher)
 			if err != nil {
-				t.Fatalf("%s %s: %v", mode, block, err)
+				t.Fatalf("%s %s: %v", mode, tc.signed, err)
 			}
-			if out := gjson.GetBytes(got, "messages.1.content.0").Raw; out != block {
-				t.Errorf("%s: signed content changed:\n got: %s\nwant: %s", mode, out, block)
+			if out := gjson.GetBytes(got, tc.block).Raw; out != tc.signed {
+				t.Errorf("%s: signed content changed:\n got: %s\nwant: %s", mode, out, tc.signed)
 			}
-			if mode != "none" && gjson.GetBytes(got, "messages.0.content").Str == "alice@example.com" {
-				t.Errorf("%s: unsigned user content was not protected", mode)
+			if mode != "none" && gjson.GetBytes(got, tc.user).Str == "alice@example.com" {
+				t.Errorf("%s: unsigned user content was not protected: %s", mode, got)
+			}
+		}
+	}
+}
+
+// Gemini 文档给出的两个占位签名不是上游签过的内容，上游也不校验：按普通上游内容脱敏，签名原样保留。
+func TestApplyRedactsPlaceholderSignedContent(t *testing.T) {
+	cipher := signedTestCipher(t, 3)
+	for _, placeholder := range []string{"skip_thought_signature_validator", "context_engineering_is_the_way_to_go"} {
+		bodies := map[string]string{
+			"gemini thoughtSignature":  `{"contents":[{"role":"model","parts":[{"functionCall":{"name":"send","args":{"to":"alice@example.com"}},"thoughtSignature":"` + placeholder + `"}]}]}`,
+			"gemini thought_signature": `{"contents":[{"role":"model","parts":[{"text":"alice@example.com","thought_signature":"` + placeholder + `"}]}]}`,
+			"chat tool call":           `{"messages":[{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"send","arguments":"{\"to\":\"alice@example.com\"}"},"extra_content":{"google":{"thought_signature":"` + placeholder + `"}}}]}]}`,
+		}
+		for mode, compiled := range signedTestRules(t) {
+			if mode == "none" {
+				continue
+			}
+			for name, body := range bodies {
+				got, err := compiled.ApplyWithCipher([]byte(body), cipher)
+				if err != nil || strings.Contains(string(got), "alice@example.com") || !strings.Contains(string(got), placeholder) {
+					t.Errorf("%s/%s/%s: placeholder-signed content = %s / %v", mode, placeholder, name, got, err)
+				}
+			}
+		}
+	}
+}
+
+// 签名只认响应侧会写入还原记录的协议位置；其他位置上形似签名块的内容按普通上游内容脱敏，
+// 否则网关还原到这些位置的明文会在下一轮原样外发。
+func TestApplyRedactsSignatureLookalikesOutsideProtocolPositions(t *testing.T) {
+	cipher := signedTestCipher(t, 3)
+	bodies := map[string]string{
+		"chat thinking_blocks":         `{"messages":[{"role":"assistant","content":"ok","thinking_blocks":[{"type":"thinking","thinking":"alice@example.com","signature":"SIG"}]}]}`,
+		"text block thought_signature": `{"messages":[{"role":"assistant","content":[{"type":"text","text":"alice@example.com","thought_signature":"SIG"}]}]}`,
+		"gemini part in content":       `{"messages":[{"role":"assistant","content":[{"functionCall":{"name":"send","args":{"to":"alice@example.com"}},"thoughtSignature":"SIG"}]}]}`,
+		"reasoning detail in content":  `{"messages":[{"role":"assistant","content":[{"type":"reasoning.text","text":"alice@example.com","signature":"SIG"}]}]}`,
+		"tool call in content":         `{"messages":[{"role":"assistant","content":[{"id":"c1","type":"function","function":{"name":"send","arguments":"{\"to\":\"alice@example.com\"}"},"extra_content":{"google":{"thought_signature":"SIG"}}}]}]}`,
+		// 同名数组不在模型消息的直属字段上，也不是协议位置。
+		"nested parts":         `{"messages":[{"role":"assistant","content":"ok","extra":{"parts":[{"text":"alice@example.com","thoughtSignature":"SIG"}]}}]}`,
+		"nested content":       `{"messages":[{"role":"assistant","content":"ok","extra":{"content":[{"type":"thinking","thinking":"alice@example.com","signature":"SIG"}]}}]}`,
+		"array inside content": `{"messages":[{"role":"assistant","content":[[{"type":"thinking","thinking":"alice@example.com","signature":"SIG"}]]}]}`,
+	}
+	for mode, compiled := range signedTestRules(t) {
+		if mode == "none" {
+			continue
+		}
+		for name, body := range bodies {
+			got, err := compiled.ApplyWithCipher([]byte(body), cipher)
+			if err != nil || strings.Contains(string(got), "alice@example.com") {
+				t.Errorf("%s/%s: content outside protocol signature positions was not redacted: %s / %v", mode, name, got, err)
 			}
 		}
 	}

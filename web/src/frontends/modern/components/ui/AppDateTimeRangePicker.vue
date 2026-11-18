@@ -216,10 +216,13 @@ function submit(preset: DateRangePreset | undefined): void {
             <div>
               <AppButton variant="ghost" size="xs" @click="open = false">{{
                 t('ui.cancel')
-              }}</AppButton
-              ><AppButton variant="primary" size="xs" :disabled="!valid" @click="apply">{{
-                t('ui.date.apply')
-              }}</AppButton>
+              }}</AppButton><AppButton
+                variant="primary"
+                size="xs"
+                :disabled="!valid"
+                @click="apply"
+                >{{ t('ui.date.apply') }}</AppButton
+              >
             </div>
           </footer>
         </component></component

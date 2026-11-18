@@ -88,8 +88,7 @@ function onEnter(event: KeyboardEvent) {
         </template>
       </FormField>
       <div v-if="rule" class="redaction-quick-pattern">
-        <span>{{ t('requestRedaction.pattern') }}</span
-        ><code>{{ rule.pattern }}</code>
+        <span>{{ t('requestRedaction.pattern') }}</span><code>{{ rule.pattern }}</code>
       </div>
       <div>
         <AppButton size="sm" :disabled="disabled || !rule" @click="add">{{

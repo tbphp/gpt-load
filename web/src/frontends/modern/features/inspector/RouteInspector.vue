@@ -366,8 +366,9 @@ defineExpose({ refresh, pending, updatedAt })
       >
     </form>
     <div v-if="groupsFailed || keysFailed" class="modern-inspector-feedback" role="alert">
-      <span>{{ t('inspector.optionsFailed') }}</span
-      ><AppButton size="xs" @click="retryOptions">{{ t('ui.retry') }}</AppButton>
+      <span>{{ t('inspector.optionsFailed') }}</span><AppButton size="xs" @click="retryOptions">{{
+        t('ui.retry')
+      }}</AppButton>
     </div>
     <AppCollectionState
       v-if="!result && (query.isFetching.value || query.isError.value)"
@@ -393,8 +394,7 @@ defineExpose({ refresh, pending, updatedAt })
           }}</span>
         </div>
         <div class="modern-inspector-request">
-          <span>{{ result.accessKey.name }}</span
-          ><AppIcon :icon="ArrowRight" size="sm" />
+          <span>{{ result.accessKey.name }}</span><AppIcon :icon="ArrowRight" size="sm" />
           <AppProtocolTag :protocol="result.protocol" /><AppOverflowText
             :text="result.model ?? '—'"
           />
@@ -442,10 +442,12 @@ defineExpose({ refresh, pending, updatedAt })
           tabindex="0"
         >
           <div class="modern-inspector-columns modern-inspector-head" role="row">
-            <span role="columnheader">{{ t('inspector.group') }}</span
-            ><span role="columnheader">{{ t('inspector.upstream') }}</span>
-            <span role="columnheader">{{ t('inspector.mode') }}</span
-            ><span role="columnheader">{{ t('inspector.status') }}</span>
+            <span role="columnheader">{{ t('inspector.group') }}</span><span role="columnheader">{{
+              t('inspector.upstream')
+            }}</span>
+            <span role="columnheader">{{ t('inspector.mode') }}</span><span role="columnheader">{{
+              t('inspector.status')
+            }}</span>
             <span role="columnheader">{{ t('inspector.credentials') }}</span>
             <AppTooltip :label="t('inspector.shareHint')"
               ><span role="columnheader" tabindex="0">{{ t('inspector.share') }}</span></AppTooltip
@@ -541,16 +543,19 @@ defineExpose({ refresh, pending, updatedAt })
                         : 'neutral'
                   "
                   dot
-                  >{{ t('inspector.' + status(group)) }}</AppBadge
-                ><AppOverflowText v-if="group.reason" :text="reasonLabel(group.reason, t)" />
+                  >{{ t('inspector.' + status(group)) }}</AppBadge><AppOverflowText
+                  v-if="group.reason"
+                  :text="reasonLabel(group.reason, t)"
+                />
               </div>
               <span role="cell" :data-label="t('inspector.credentials')"
                 >{{ n(group.credentials.filter((row) => row.available).length) }} /
                 {{ n(group.credentials.length) }}</span
               >
               <div class="modern-inspector-share" role="cell" :data-label="t('inspector.share')">
-                <span>{{ active(group) ? percentage(share(group), locale) : '—' }}</span
-                ><AppProgressBar
+                <span>{{
+                  active(group) ? percentage(share(group), locale) : '—'
+                }}</span><AppProgressBar
                   :label="t('inspector.share')"
                   :value="share(group)"
                   :tone="active(group) ? 'info' : 'neutral'"

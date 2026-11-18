@@ -428,8 +428,7 @@ const resetCreditsTooltip = computed(() => {
         class="home-subscription-mini__num"
         :class="`home-subscription-mini__num--${leadTone ?? 'unknown'}`"
       >
-        <strong>{{ n(lead.percent) }}</strong
-        ><span aria-hidden="true">%</span>
+        <strong>{{ n(lead.percent) }}</strong><span aria-hidden="true">%</span>
       </span>
       <span
         v-else-if="lead && lead.window.remaining !== undefined"

@@ -15,10 +15,6 @@ func Modelflare() spec.Module {
 			Icon:        "modelflare",
 			SearchTerms: []string{"havenbyte"},
 			Description: "Native multi-protocol API gateway",
-			Partner: spec.Partner{
-				Tier:      spec.PartnerPrincipal,
-				SignupURL: "https://modelflare.dev/sign-up?utm_source=gptload&utm_campaign=gptload",
-			},
 			Connection: spec.Connection{
 				Type:            spec.ConnectionAPIKey,
 				CredentialInput: "batch_text",

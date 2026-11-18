@@ -250,8 +250,7 @@ useLoadingActivity(() => filtering.value || props.loading)
     >
       <template v-if="models.length" #header>
         <div class="modern-create-model-labels" aria-hidden="true">
-          <span>{{ t('groupCreate.modelID') }}</span
-          ><span>{{ t('groupCreate.alias') }}</span>
+          <span>{{ t('groupCreate.modelID') }}</span><span>{{ t('groupCreate.alias') }}</span>
         </div>
       </template>
       <AppCollectionState

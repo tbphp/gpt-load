@@ -176,14 +176,12 @@ const lastActive = computed(() =>
     <AppChannelIcon :icon="group.channelIcon" :mark="group.channelMark" :name="group.channelName" />
     <div class="modern-group-mobile-content">
       <div class="modern-group-mobile-title">
-        <strong>{{ group.name }}</strong
-        ><AppIcon :icon="ChevronRight" size="sm" />
+        <strong>{{ group.name }}</strong><AppIcon :icon="ChevronRight" size="sm" />
       </div>
       <div class="modern-group-mobile-meta">
         <AppBadge :tone="tone" variant="plain" size="xs" dot>{{
           t(`groups.row.state.${state}`)
-        }}</AppBadge
-        ><span>{{ group.channelName }}</span>
+        }}</AppBadge><span>{{ group.channelName }}</span>
       </div>
       <div class="modern-group-mobile-facts">
         <span
@@ -274,8 +272,7 @@ const lastActive = computed(() =>
           :aria-controls="`${id}-models`"
           @click="emit('expand')"
         >
-          <strong>{{ n(group.modelCount) }}</strong
-          ><AppIcon
+          <strong>{{ n(group.modelCount) }}</strong><AppIcon
             :icon="expanded ? ChevronUp : ChevronDown"
             size="xs"
             :label="t(expanded ? 'groups.board.collapse' : 'groups.board.expand')"

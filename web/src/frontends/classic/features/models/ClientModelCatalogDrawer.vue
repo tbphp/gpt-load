@@ -121,8 +121,9 @@ async function submit(): Promise<void> {
     <template #filters>
       <div class="catalog-controls">
         <div class="catalog-toolbar">
-          <span>{{ t('models.clientCatalog.selectedCount', { count: n(selected.length) }) }}</span
-          ><AppButton
+          <span>{{
+            t('models.clientCatalog.selectedCount', { count: n(selected.length) })
+          }}</span><AppButton
             variant="secondary"
             size="xs"
             :disabled="saving || sort.active.value || !base"
@@ -179,10 +180,12 @@ async function submit(): Promise<void> {
           size="xs"
           :disabled="saving || results.every((model) => picked.includes(model.clientModel))"
           @click="selectResults"
-          >{{ t('models.clientCatalog.selectResults') }}</AppButton
-        ><AppButton size="xs" :disabled="saving || !picked.length" @click="confirmAdd">{{
-          t('models.clientCatalog.add', { count: n(picked.length) })
-        }}</AppButton>
+          >{{ t('models.clientCatalog.selectResults') }}</AppButton><AppButton
+          size="xs"
+          :disabled="saving || !picked.length"
+          @click="confirmAdd"
+          >{{ t('models.clientCatalog.add', { count: n(picked.length) }) }}</AppButton
+        >
       </div>
     </div>
     <InlineFeedback v-if="query.isError.value && !base" tone="danger"

@@ -488,8 +488,7 @@ onScopeDispose(() => {
     >
       <template #header
         ><div class="modern-access-row modern-access-head" aria-hidden="true">
-          <span>{{ t('accessKeys.name') }}</span
-          ><span>{{ t('accessKeys.key') }}</span
+          <span>{{ t('accessKeys.name') }}</span><span>{{ t('accessKeys.key') }}</span
           ><span>{{ t('accessKeys.restrictions') }}</span
           ><span>{{ t('rpm.hourPeakShort') }}</span
           ><span>{{ t('accessKeys.state') }}</span
