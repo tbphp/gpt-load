@@ -36,8 +36,11 @@ const bodyId = useId()
             :aria-controls="bodyId"
             @click="expanded = !expanded"
           >
-            <span>{{ title }}</span
-            ><AppIcon :icon="ChevronDown" size="sm" :class="{ 'is-expanded': expanded }" />
+            <span>{{ title }}</span><AppIcon
+              :icon="ChevronDown"
+              size="sm"
+              :class="{ 'is-expanded': expanded }"
+            />
           </button>
           <AppTooltip v-if="hint" touchable :label="hint">
             <span

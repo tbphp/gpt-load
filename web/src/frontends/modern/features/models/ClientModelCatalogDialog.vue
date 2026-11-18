@@ -150,8 +150,7 @@ function escape(event: Event): void {
         <div class="modern-client-catalog-toolbar">
           <span>{{
             t('modelManager.clientCatalog.selectedCount', { count: n(selected.length) })
-          }}</span
-          ><ClientCatalogPicker
+          }}</span><ClientCatalogPicker
             :names="options"
             :disabled="saving || sort.active.value"
             @add="add"
@@ -328,8 +327,7 @@ function escape(event: Event): void {
           <div class="modern-client-catalog-footer-actions">
             <AppButton size="sm" :disabled="saving || sort.active.value" @click="close">{{
               t('ui.cancel')
-            }}</AppButton
-            ><AppButton
+            }}</AppButton><AppButton
               type="submit"
               variant="primary"
               size="sm"

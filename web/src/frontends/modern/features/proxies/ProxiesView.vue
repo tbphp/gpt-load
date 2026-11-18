@@ -692,8 +692,7 @@ onScopeDispose(() => {
             <div class="modern-proxy-mobile-state">
               <AppBadge :tone="row.enabled ? 'success' : 'neutral'" variant="plain" size="xs" dot>{{
                 t(row.enabled ? 'proxies.enabled' : 'proxies.disabled')
-              }}</AppBadge
-              ><span>{{ row.scheme.toUpperCase() }}</span
+              }}</AppBadge><span>{{ row.scheme.toUpperCase() }}</span
               ><AppBadge v-if="row.global" tone="brand" size="xs">{{
                 t('proxies.global')
               }}</AppBadge

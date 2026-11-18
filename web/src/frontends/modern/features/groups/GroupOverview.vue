@@ -78,8 +78,7 @@ useLoadingActivity(() => props.loading)
       >
     </div>
     <div class="modern-group-overview-availability">
-      <span>{{ t('groups.credentials.available') }}</span
-      ><span
+      <span>{{ t('groups.credentials.available') }}</span><span
         ><strong>{{ n(group.credentials.available) }}</strong> /
         {{ n(group.credentials.total) }}</span
       >
