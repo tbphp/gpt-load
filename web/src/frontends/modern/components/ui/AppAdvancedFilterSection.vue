@@ -35,8 +35,9 @@ watch(
       :aria-controls="contentId"
       @click="expanded = !expanded"
     >
-      <span>{{ title }}</span
-      ><AppBadge v-if="activeCount" size="xs" tone="brand">{{ activeCount }}</AppBadge>
+      <span>{{ title }}</span><AppBadge v-if="activeCount" size="xs" tone="brand">{{
+        activeCount
+      }}</AppBadge>
       <AppIcon :icon="ChevronDown" size="sm" :class="{ 'is-expanded': expanded }" />
     </AppButton>
     <h3 v-else>{{ title }}</h3>

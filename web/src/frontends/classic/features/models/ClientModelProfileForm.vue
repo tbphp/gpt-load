@@ -179,8 +179,7 @@ function defaultReasoning(value: string): void {
       <div class="catalog-profile__heading">
         <label :for="`${prefix}-default`">{{
           t('models.profile.fields.defaultReasoningLevel')
-        }}</label
-        ><span class="catalog-profile__reset"
+        }}</label><span class="catalog-profile__reset"
           ><AppTooltip
             v-if="draft.custom.default_reasoning_level"
             :content="
@@ -218,8 +217,7 @@ function defaultReasoning(value: string): void {
       <div class="catalog-profile__heading">
         <span :id="`${prefix}-${group.field}-label`">{{
           t(`models.profile.fields.${labels[group.field]}`)
-        }}</span
-        ><span class="catalog-profile__reset"
+        }}</span><span class="catalog-profile__reset"
           ><AppTooltip
             v-if="draft.custom[group.field]"
             :content="t('models.profile.restoreField', { value: automatic(group.field) })"

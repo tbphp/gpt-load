@@ -19,12 +19,12 @@
   },
   "dependencies": {
     "@internationalized/date": "3.12.4",
-    "@lucide/vue": "1.72.0",
+    "@lucide/vue": "1.73.0",
     "@tanstack/vue-query": "5.107.1",
     "reka-ui": "2.11.0",
     "vue": "3.5.45",
     "vue-i18n": "11.4.18",
-    "vue-router": "5.5.0"
+    "vue-router": "5.5.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.5",
@@ -34,7 +34,7 @@
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-vue": "10.12.1",
-    "prettier": "3.10.0",
+    "prettier": "3.10.1",
     "tailwindcss": "4.3.5",
     "typescript": "6.0.3",
     "vite": "8.3.8",

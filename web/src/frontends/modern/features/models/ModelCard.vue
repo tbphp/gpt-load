@@ -75,8 +75,9 @@ function hiddenGroupsLabel(source: ModelSource): string {
       ><AppIcon :icon="ChevronRight" size="sm"
     /></AppButton>
     <div class="modern-model-mobile-meta">
-      <span>{{ t('modelManager.protocolCount', { count: n(model.protocols.length) }) }}</span
-      ><span>{{ t('modelManager.sourceCount', { count: n(model.sources.length) }) }}</span
+      <span>{{
+        t('modelManager.protocolCount', { count: n(model.protocols.length) })
+      }}</span><span>{{ t('modelManager.sourceCount', { count: n(model.sources.length) }) }}</span
       ><span v-if="admin">{{ t('modelManager.groupCount', { count: n(groupCount) }) }}</span>
     </div>
     <div

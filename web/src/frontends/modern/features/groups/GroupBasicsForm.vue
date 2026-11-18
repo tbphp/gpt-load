@@ -243,8 +243,11 @@ useMessageSource(() =>
           :error="attempted && priceInvalid ? t('groups.edit.priceError') : undefined"
         />
         <div class="modern-group-settings-enabled">
-          <span>{{ t('groups.edit.enabled') }}</span
-          ><AppSwitch v-model="enabled" :label="t('groups.edit.enabled')" :disabled="saving" />
+          <span>{{ t('groups.edit.enabled') }}</span><AppSwitch
+            v-model="enabled"
+            :label="t('groups.edit.enabled')"
+            :disabled="saving"
+          />
         </div>
         <slot />
       </div>

@@ -553,8 +553,7 @@ onScopeDispose(() => {
               />
             </div>
             <div class="modern-access-secret-heading">
-              <span>{{ t(base ? 'accessKeys.replacement' : 'accessKeys.key') }}</span
-              ><AppButton
+              <span>{{ t(base ? 'accessKeys.replacement' : 'accessKeys.key') }}</span><AppButton
                 :icon="RefreshCw"
                 variant="ghost"
                 size="xs"
@@ -594,8 +593,7 @@ onScopeDispose(() => {
               >{{ t('accessKeys.' + strength) }}</AppBadge
             >
             <div class="modern-access-setting">
-              <span>{{ t('accessKeys.expirationMode') }}</span
-              ><AppSegmentedControl
+              <span>{{ t('accessKeys.expirationMode') }}</span><AppSegmentedControl
                 v-model="expiryMode"
                 :label="t('accessKeys.expirationMode')"
                 :options="expirationOptions"
@@ -617,8 +615,7 @@ onScopeDispose(() => {
               :error="fieldError('expires')"
             />
             <div class="modern-access-setting">
-              <span>{{ t('accessKeys.recordRequestBody.label') }}</span
-              ><AppSwitch
+              <span>{{ t('accessKeys.recordRequestBody.label') }}</span><AppSwitch
                 :model-value="draft.recordRequestBody"
                 :label="t('accessKeys.recordRequestBody.label')"
                 :aria-describedby="recordNoteId"
@@ -646,8 +643,7 @@ onScopeDispose(() => {
             compact
           >
             <div class="modern-access-setting">
-              <span>{{ t('accessKeys.groups') }}</span
-              ><AppSegmentedControl
+              <span>{{ t('accessKeys.groups') }}</span><AppSegmentedControl
                 v-model="draft.modes.groups"
                 :label="t('accessKeys.groups')"
                 :options="scopeOptions"
@@ -677,8 +673,7 @@ onScopeDispose(() => {
               ></AppMultiSelect
             >
             <div class="modern-access-setting">
-              <span>{{ t('accessKeys.protocols') }}</span
-              ><AppSegmentedControl
+              <span>{{ t('accessKeys.protocols') }}</span><AppSegmentedControl
                 v-model="draft.modes.protocols"
                 :label="t('accessKeys.protocols')"
                 :options="scopeOptions"
@@ -708,8 +703,7 @@ onScopeDispose(() => {
               /></template>
             </AppMultiSelect>
             <div class="modern-access-setting">
-              <span>{{ t('accessKeys.models') }}</span
-              ><AppSegmentedControl
+              <span>{{ t('accessKeys.models') }}</span><AppSegmentedControl
                 v-model="draft.modes.models"
                 :label="t('accessKeys.models')"
                 :options="scopeOptions"
@@ -776,8 +770,7 @@ onScopeDispose(() => {
               />
             </div>
             <div class="modern-access-setting">
-              <span>{{ t('accessKeys.source') }}</span
-              ><AppSegmentedControl
+              <span>{{ t('accessKeys.source') }}</span><AppSegmentedControl
                 v-model="draft.source"
                 :label="t('accessKeys.source')"
                 :options="[
@@ -825,8 +818,7 @@ onScopeDispose(() => {
           <div class="modern-access-editor-actions">
             <AppButton v-if="dirty" size="sm" variant="ghost" :disabled="pending" @click="revert">{{
               t('groupDetail.revert')
-            }}</AppButton
-            ><AppButton
+            }}</AppButton><AppButton
               type="submit"
               variant="primary"
               size="sm"
