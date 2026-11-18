@@ -329,10 +329,19 @@ func restoreSignedString(value string, entry signatureString) (string, bool) {
 	return restored, utf8.ValidString(restored)
 }
 
+// signatureArray 报告上游生成内容的对象（消息、推理项）直属的该字段数组是否可能含协议签名块。
+func signatureArray(field string) bool {
+	switch field {
+	case "content", "parts", "reasoning_details", "tool_calls":
+		return true
+	}
+	return false
+}
+
 // signaturePosition 返回协议签名位置上的上游签名及其在对象里的路径。只认响应侧会写入还原记录的位置，
-// field 是对象所在数组的字段名：content 里的 Claude 思考块与 Responses 推理文本、reasoning_details 条目、
-// tool_calls 里 Gemini 兼容接口的 extra_content，以及 Gemini 的 parts。其他位置上形似签名块的内容
-// 按普通上游内容处理，否则网关还原到那里的明文会在下一轮原样外发。
+// v 是上游生成内容的对象直属数组 field 的元素：content 里的 Claude 思考块与 Responses 推理文本、
+// reasoning_details 条目、tool_calls 里 Gemini 兼容接口的 extra_content，以及 Gemini 的 parts。
+// 其他位置上形似签名块的内容按普通上游内容处理，否则网关还原到那里的明文会在下一轮原样外发。
 func signaturePosition(v gjson.Result, field string) (gjson.Result, []any, bool) {
 	var path []any
 	switch kind := v.Get("type").Str; {

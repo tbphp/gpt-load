@@ -155,6 +155,10 @@ func TestApplyRedactsSignatureLookalikesOutsideProtocolPositions(t *testing.T) {
 		"gemini part in content":       `{"messages":[{"role":"assistant","content":[{"functionCall":{"name":"send","args":{"to":"alice@example.com"}},"thoughtSignature":"SIG"}]}]}`,
 		"reasoning detail in content":  `{"messages":[{"role":"assistant","content":[{"type":"reasoning.text","text":"alice@example.com","signature":"SIG"}]}]}`,
 		"tool call in content":         `{"messages":[{"role":"assistant","content":[{"id":"c1","type":"function","function":{"name":"send","arguments":"{\"to\":\"alice@example.com\"}"},"extra_content":{"google":{"thought_signature":"SIG"}}}]}]}`,
+		// 同名数组不在模型消息的直属字段上，也不是协议位置。
+		"nested parts":         `{"messages":[{"role":"assistant","content":"ok","extra":{"parts":[{"text":"alice@example.com","thoughtSignature":"SIG"}]}}]}`,
+		"nested content":       `{"messages":[{"role":"assistant","content":"ok","extra":{"content":[{"type":"thinking","thinking":"alice@example.com","signature":"SIG"}]}}]}`,
+		"array inside content": `{"messages":[{"role":"assistant","content":[[{"type":"thinking","thinking":"alice@example.com","signature":"SIG"}]]}]}`,
 	}
 	for mode, compiled := range signedTestRules(t) {
 		if mode == "none" {

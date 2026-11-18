@@ -462,11 +462,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 	// 上游生成、随历史回传的内容（助手消息、推理与各类工具调用）按字段整体加密，
 	// 与响应侧整体还原对应，只跳过协议字段。
 	inModel := false
-	// inSigned 表示正在按普通上游内容处理客户端改动过的签名内容，内部不再识别签名。
-	inSigned := false
 	var walk func(gjson.Result, bool, bool, int, bool) error
-	// visit 另带 v 所在的字段名（数组元素取数组的字段名），用来识别协议签名位置。
-	var visit func(gjson.Result, string, bool, bool, int, bool) error
 	var toolResult func(gjson.Result, int) error
 	// 签名内容由上游生成，必须逐字节还给上游：签名块与记录完全一致时按位置换回上游原文和原签名；
 	// 普通签名说明网关没有往里还原过内容，原样发回；有任何改动、新增或签名之后才到的内容时，
@@ -500,9 +496,24 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			}
 			return nil
 		}
-		inSigned = true
-		defer func() { inSigned = false }()
 		return walk(v, content, false, depth, questions)
+	}
+	// signedArray 遍历上游生成内容的对象（消息、推理项）直属的协议数组：只有这些元素可能是签名块，
+	// 与响应侧写入还原记录的位置一致；更深处同名的数组和对象都按普通上游内容处理。
+	signedArray := func(array gjson.Result, field string, depth int, questions bool) error {
+		if depth > 64 {
+			return ErrContent
+		}
+		var failure error
+		array.ForEach(func(_, element gjson.Result) bool {
+			if signature, path, found := signaturePosition(element, field); element.IsObject() && found {
+				failure = signed(element, signature, path, true, depth+1, questions)
+			} else {
+				failure = walk(element, true, false, depth+1, questions)
+			}
+			return failure == nil
+		})
+		return failure
 	}
 	toolResult = func(value gjson.Result, depth int) error {
 		if depth > 64 {
@@ -535,9 +546,6 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 		return walk(value, true, false, depth, false)
 	}
 	walk = func(v gjson.Result, content, data bool, depth int, questions bool) error {
-		return visit(v, "", content, data, depth, questions)
-	}
-	visit = func(v gjson.Result, field string, content, data bool, depth int, questions bool) error {
 		if depth > 64 {
 			return ErrContent
 		}
@@ -573,23 +581,23 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				return nil
 			}
 		}
-		if !data && inModel && !inSigned && v.IsObject() {
-			if signature, path, found := signaturePosition(v, field); found {
-				return signed(v, signature, path, content, depth, questions)
-			}
-		}
+		signedRoot := false
 		if !data && !inModel && v.IsObject() && modelAuthored(v) {
-			inModel = true
+			inModel, signedRoot = true, true
 			defer func() { inModel = false }()
 		}
 		var failure error
 		v.ForEach(func(k, child gjson.Result) bool {
 			if v.IsArray() || data {
-				failure = visit(child, field, content, data, depth+1, questions)
+				failure = walk(child, content, data, depth+1, questions)
 				return failure == nil
 			}
 			if inModel && ProtocolField(k.Str) {
 				return true
+			}
+			if signedRoot && child.IsArray() && signatureArray(k.Str) {
+				failure = signedArray(child, k.Str, depth+1, questions)
+				return failure == nil
 			}
 			switch k.Str {
 			case "questions":
@@ -639,7 +647,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				if jsonToolResults && (v.Get("role").Str == "tool" || v.Get("role").Str == "function" || v.Get("type").Str == "tool_result") {
 					failure = toolResult(child, depth+1)
 				} else {
-					failure = visit(child, k.Str, true, false, depth+1, questions)
+					failure = walk(child, true, false, depth+1, questions)
 				}
 			case "prompt":
 				if !child.IsObject() {
@@ -659,7 +667,7 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 			case "text", "system", "system_instruction", "systemInstruction", "instructions", "query", "thinking", "reasoning", "reasoning_content", "summary", "code", "refusal", "description", "title", "documents", "texts":
 				failure = walk(child, true, questions && depth == 2 && k.Str == "instructions", depth+1, questions)
 			default:
-				failure = visit(child, k.Str, inModel, false, depth+1, questions)
+				failure = walk(child, inModel, false, depth+1, questions)
 			}
 			return failure == nil
 		})
