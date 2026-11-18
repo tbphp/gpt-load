@@ -580,8 +580,9 @@ useMessageSource(() => (error.value ? { text: error.value, tone: 'danger' } : un
         </template>
         <template v-if="headersMode === 'override'">
           <div v-if="headers.length" class="modern-advanced-header-labels" aria-hidden="true">
-            <span>{{ t('groupDetail.headerName') }}</span
-            ><span>{{ t('groupDetail.headerValue') }}</span>
+            <span>{{ t('groupDetail.headerName') }}</span><span>{{
+              t('groupDetail.headerValue')
+            }}</span>
           </div>
           <div v-for="header in headers" :key="header.key" class="modern-advanced-header-row">
             <AppTextField

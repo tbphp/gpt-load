@@ -64,8 +64,9 @@ const total = computed(
 <template>
   <div class="modern-log-receipt">
     <div v-if="receipt" class="modern-log-receipt-meta">
-      <span>{{ t('logs.pricingModel') }}</span
-      ><AppOverflowText :text="receipt.rule.model_id" /><span
+      <span>{{ t('logs.pricingModel') }}</span><AppOverflowText
+        :text="receipt.rule.model_id"
+      /><span
         >{{ t('logs.columns.pricing_mode') }} ·
         {{
           te('logs.values.' + receipt.pricing_mode)
@@ -76,8 +77,7 @@ const total = computed(
     </div>
     <div class="modern-log-receipt-scroll">
       <div class="modern-log-price-row modern-log-price-head">
-        <span>{{ t('logs.priceItem') }}</span
-        ><span>{{ t('logs.quantity') }}</span
+        <span>{{ t('logs.priceItem') }}</span><span>{{ t('logs.quantity') }}</span
         ><span>{{ t('logs.unitPrice') }}</span
         ><span>{{ t('logs.amount') }}</span>
       </div>

@@ -280,8 +280,7 @@ function addPreset() {
               audit.rules.length + missingPresetRules.length > 16
             "
             @click="addPreset"
-            >{{ t('requestAudit.addPreset') }}</AppButton
-          ><AppButton
+            >{{ t('requestAudit.addPreset') }}</AppButton><AppButton
             size="compact"
             variant="secondary"
             :disabled="controlsDisabled || audit.rules.length >= 16"

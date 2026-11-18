@@ -110,8 +110,7 @@ function percent(window?: CostWindow): number | undefined {
       <div v-if="row.cost_limit_rules.length" class="modern-home-key-quotas">
         <div v-for="rule in row.cost_limit_rules" :key="rule.id" class="modern-home-key-quota">
           <div>
-            <strong>{{ title(rule) }}</strong
-            ><span>{{
+            <strong>{{ title(rule) }}</strong><span>{{
               windows.get(rule.id!)
                 ? t('home.remaining', {
                     remaining: money(windows.get(rule.id!)!.remaining_usd),

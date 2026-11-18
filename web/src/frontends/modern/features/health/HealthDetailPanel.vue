@@ -147,8 +147,7 @@ function period(seconds: number): string {
           >
             <div class="modern-health-recent">
               <div v-for="item in recent" :key="item.label">
-                <span>{{ t('health.' + item.label) }}</span
-                ><strong>{{ count(item.value) }}</strong>
+                <span>{{ t('health.' + item.label) }}</span><strong>{{ count(item.value) }}</strong>
               </div>
             </div>
             <dl class="modern-health-facts">
@@ -190,8 +189,7 @@ function period(seconds: number): string {
               <header>
                 <strong>{{
                   t(rule.kind === 'total' ? 'health.totalQuota' : 'health.periodicQuota')
-                }}</strong
-                ><span v-if="rule.period">{{ period(rule.period) }}</span>
+                }}</strong><span v-if="rule.period">{{ period(rule.period) }}</span>
               </header>
               <dl class="modern-health-rule-amounts">
                 <div>

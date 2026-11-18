@@ -591,10 +591,11 @@ function decisionRuleLabel(ruleID: string): string {
           <div>
             <dt>{{ t('monitor.logs.drawer.clientModel') }}</dt>
             <dd class="log-detail__model-value">
-              <code>{{ log.client_model ?? '—' }}</code
-              ><small v-if="reasoningLabel(log.reasoning)" class="log-detail__reasoning">{{
-                reasoningLabel(log.reasoning)
-              }}</small>
+              <code>{{ log.client_model ?? '—' }}</code><small
+                v-if="reasoningLabel(log.reasoning)"
+                class="log-detail__reasoning"
+                >{{ reasoningLabel(log.reasoning) }}</small
+              >
             </dd>
           </div>
         </dl>
@@ -751,8 +752,7 @@ function decisionRuleLabel(ruleID: string): string {
           <div>
             <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
             <dd class="log-detail__model-value">
-              <code>{{ log.upstream_model ?? '—' }}</code
-              ><small
+              <code>{{ log.upstream_model ?? '—' }}</code><small
                 v-if="
                   upstreamReasoningLabel(
                     finalAttempt?.reasoning ?? null,
