@@ -44,6 +44,10 @@ export const protocolCatalog = [
     supportsProtocolOnlyRouting: false,
   },
   {
+    value: 'gemini-decisions',
+    supportsProtocolOnlyRouting: false,
+  },
+  {
     value: 'mistral',
     supportsProtocolOnlyRouting: true,
   },

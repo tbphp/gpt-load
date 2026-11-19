@@ -53,6 +53,7 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 			methods: []string{http.MethodGet},
 			path:    "/v1beta/models",
 		},
+		{name: "data.gemini.decisions", methods: []string{http.MethodPost}, path: "/v1beta/decisions"},
 		{
 			name:    "data.models",
 			methods: []string{http.MethodGet},
@@ -214,6 +215,12 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 			name: "Gemini models", endpoint: "data.gemini.models",
 			method: http.MethodGet, path: "/v1beta/models",
 			want:      route{Protocol: protocol.Gemini, Kind: endpointModels},
+			validPath: true,
+		},
+		{
+			name: "Gemini decisions", endpoint: "data.gemini.decisions",
+			method: http.MethodPost, path: "/v1beta/decisions",
+			want:      route{Protocol: protocol.GeminiDecisions, Kind: endpointForward},
 			validPath: true,
 		},
 		{

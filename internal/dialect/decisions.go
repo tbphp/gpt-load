@@ -22,13 +22,25 @@ func NewDecisions() *Decisions { return &Decisions{} }
 func (*Decisions) Protocol() protocol.Protocol { return protocol.Decisions }
 
 func (d *Decisions) InspectRequest(request *ParsedRequest) (RequestMetadata, error) {
-	if request == nil || request.Method != http.MethodPost || request.Path != decisionsPath {
-		return RequestMetadata{}, fmt.Errorf("decisions requires POST %s", decisionsPath)
+	metadata, err := inspectDecisionsRequest(request, d.Protocol(), decisionsPath)
+	if err != nil {
+		return RequestMetadata{}, err
+	}
+	if err := validateDecisionsInput(request.Body); err != nil {
+		return RequestMetadata{}, err
+	}
+	return metadata, nil
+}
+
+// inspectDecisionsRequest 校验决策类协议共有的请求外形：指定路径的 POST、JSON 请求体、必填 model，且不支持流式。
+func inspectDecisionsRequest(request *ParsedRequest, clientProtocol protocol.Protocol, path string) (RequestMetadata, error) {
+	if request == nil || request.Method != http.MethodPost || request.Path != path {
+		return RequestMetadata{}, fmt.Errorf("%s requires POST %s", clientProtocol, path)
 	}
 	if value := request.Header.Get("Content-Type"); strings.TrimSpace(value) != "" {
 		mediaType, _, err := mime.ParseMediaType(value)
 		if err != nil || !strings.EqualFold(mediaType, "application/json") {
-			return RequestMetadata{}, fmt.Errorf("decisions requires application/json")
+			return RequestMetadata{}, fmt.Errorf("%s requires application/json", clientProtocol)
 		}
 	}
 	metadata, err := inspectJSONRequestFields(request.Body, true, false)
@@ -36,10 +48,7 @@ func (d *Decisions) InspectRequest(request *ParsedRequest) (RequestMetadata, err
 		return RequestMetadata{}, err
 	}
 	if metadata.Stream {
-		return RequestMetadata{}, fmt.Errorf("decisions does not support streaming")
-	}
-	if err := validateDecisionsInput(request.Body); err != nil {
-		return RequestMetadata{}, err
+		return RequestMetadata{}, fmt.Errorf("%s does not support streaming", clientProtocol)
 	}
 	metadata.Operation = execution.OperationDecisionsCreate
 	metadata.RouteRequirement = execution.RouteRequirementNative
@@ -179,6 +188,11 @@ func validDecisionContent(raw json.RawMessage, allowNull bool) bool {
 }
 
 func (d *Decisions) RewriteRequestModel(request *ParsedRequest, model string) (*ParsedRequest, error) {
+	return rewriteDecisionsRequestModel(d, request, model)
+}
+
+// rewriteDecisionsRequestModel 按所属协议校验请求后改写 model，并去掉不能发往上游的凭据与回退控制字段。
+func rewriteDecisionsRequestModel(d Dialect, request *ParsedRequest, model string) (*ParsedRequest, error) {
 	if err := validateModelRewriteTarget(model, false); err != nil {
 		return nil, err
 	}
@@ -229,6 +243,10 @@ func decisionsControlField(name string) bool {
 }
 
 func (*Decisions) RewriteResponseModel(body []byte, model string) ([]byte, error) {
+	return rewriteDecisionsResponseModel(body, model)
+}
+
+func rewriteDecisionsResponseModel(body []byte, model string) ([]byte, error) {
 	if err := validateModelRewriteTarget(model, false); err != nil {
 		return nil, err
 	}

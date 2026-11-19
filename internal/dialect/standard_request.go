@@ -81,6 +81,10 @@ func standardRequest(
 		selected = NewGeminiEmbeddings()
 		request.Path = geminiGenerationPrefix + model + geminiEmbedContentSuffix
 		body = map[string]any{"content": map[string]any{"parts": []any{}}}
+	case protocol.GeminiDecisions:
+		selected = NewGeminiDecisions()
+		request.Path = geminiDecisionsPath
+		body = map[string]any{"model": model, "input": "", "questions": map[string]any{}}
 	default:
 		return nil, nil, fmt.Errorf("unsupported data protocol %q", clientProtocol)
 	}

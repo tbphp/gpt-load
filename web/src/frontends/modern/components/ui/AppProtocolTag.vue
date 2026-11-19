@@ -75,6 +75,9 @@ const label = computed(() => protocolLabel(value.value, t))
 .modern-protocol-tag[data-protocol='gemini-embeddings'] {
   --modern-protocol-color: var(--modern-protocol-gemini-embeddings);
 }
+.modern-protocol-tag[data-protocol='gemini-decisions'] {
+  --modern-protocol-color: var(--modern-protocol-gemini-decisions);
+}
 .modern-protocol-empty {
   color: var(--modern-control-placeholder);
 }

@@ -295,6 +295,8 @@ func TestRulesUseFixedOperationAllowlist(t *testing.T) {
 		{protocol.Gemini, execution.OperationChatCompletion, true},
 		{protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, true},
 		{protocol.GeminiEmbeddings, execution.OperationProbe, false},
+		{protocol.GeminiDecisions, execution.OperationDecisionsCreate, true},
+		{protocol.GeminiDecisions, execution.OperationProbe, false},
 		{protocol.OpenAICompletions, execution.OperationListModels, false},
 		{protocol.OpenAIResponses, execution.OperationResponsesCompact, false},
 		{protocol.OpenAIResponses, execution.OperationResponsesInputTokens, false},

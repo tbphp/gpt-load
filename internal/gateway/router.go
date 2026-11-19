@@ -12,6 +12,7 @@ const (
 	anthropicMessagesPath       = "/v1/messages"
 	geminiModelsPath            = "/v1beta/models"
 	geminiGenerationPattern     = geminiModelsPath + "/:model_action"
+	geminiDecisionsPath         = "/v1beta/decisions"
 	modelsPath                  = "/v1/models"
 	openAIResponsesPath         = "/v1/responses"
 	responsesResourcePattern    = openAIResponsesPath + "/*resource_path"
@@ -82,6 +83,7 @@ func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 			path:    geminiModelsPath,
 			resolve: staticRoute(protocol.Gemini, endpointModels),
 		},
+		{name: "data.gemini.decisions", methods: []string{http.MethodPost}, path: geminiDecisionsPath, resolve: staticRoute(protocol.GeminiDecisions, endpointForward)},
 		{
 			name:    "data.models",
 			methods: []string{http.MethodGet},

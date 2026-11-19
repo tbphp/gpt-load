@@ -81,6 +81,8 @@ func modelRewriter(clientProtocol protocol.Protocol) (dialect.ModelRewriter, err
 		return dialect.NewGemini(), nil
 	case protocol.GeminiEmbeddings:
 		return dialect.NewGeminiEmbeddings(), nil
+	case protocol.GeminiDecisions:
+		return dialect.NewGeminiDecisions(), nil
 	default:
 		return nil, fmt.Errorf("unsupported client protocol")
 	}

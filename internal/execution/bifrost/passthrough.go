@@ -773,7 +773,8 @@ func usageEvidenceFromPassthroughForSpec(
 ) (*execution.UsageEvidence, error) {
 	// 搜索不计模型用量；转换路由由转换器提供证据，原生 OpenAI Embeddings 不经过透传。
 	if spec.Operation == execution.OperationWebSearch || spec.ClientProtocol == protocol.OpenAIImages || spec.ClientProtocol == protocol.OpenAIEmbeddings ||
-		spec.ClientProtocol == protocol.Rerank || spec.ClientProtocol == protocol.Decisions {
+		spec.ClientProtocol == protocol.Rerank || spec.ClientProtocol == protocol.Decisions ||
+		spec.ClientProtocol == protocol.GeminiDecisions {
 		return nil, nil
 	}
 	return usageEvidenceFromPassthrough(source)

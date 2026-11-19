@@ -57,6 +57,7 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 		{value: Anthropic, known: true, enabled: true},
 		{value: Gemini, known: true, enabled: true},
 		{value: GeminiEmbeddings, known: true, enabled: true},
+		{value: GeminiDecisions, known: true, enabled: true},
 		{value: Protocol("openai"), known: false, enabled: false},
 		{value: Protocol("openai-response"), known: false, enabled: false},
 		{value: Protocol("unknown"), known: false, enabled: false},
@@ -124,6 +125,7 @@ func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.
 		Anthropic,
 		Gemini,
 		GeminiEmbeddings,
+		GeminiDecisions,
 		Mistral,
 	}
 	if len(first) != len(want) {

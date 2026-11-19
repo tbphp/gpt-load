@@ -7,6 +7,7 @@ export const protocolOrder = [
   'openai-images',
   'openai-embeddings',
   'gemini-embeddings',
+  'gemini-decisions',
   'codex-live',
   'rerank',
   'decisions',

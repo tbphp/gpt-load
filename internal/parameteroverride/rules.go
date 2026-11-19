@@ -402,7 +402,7 @@ func supports(clientProtocol protocol.Protocol, operation execution.Operation) b
 		return operation == execution.OperationImagesGenerate
 	case protocol.Rerank:
 		return operation == execution.OperationRerank
-	case protocol.Decisions:
+	case protocol.Decisions, protocol.GeminiDecisions:
 		return operation == execution.OperationDecisionsCreate
 	case protocol.AudioSpeech:
 		return operation == execution.OperationAudioSpeech

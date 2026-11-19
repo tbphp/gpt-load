@@ -39,7 +39,7 @@ func redactOutboundRequest(c *requestredact.Compiled, clientProtocol protocol.Pr
 	mediaType, params, _ := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if mediaType == "multipart/form-data" {
 		body, err = redactMultipart(c, request.Body, params["boundary"], bodyLimit, cipher...)
-	} else if clientProtocol == protocol.Decisions {
+	} else if clientProtocol == protocol.Decisions || clientProtocol == protocol.GeminiDecisions {
 		if len(cipher) != 0 && cipher[0] != nil {
 			body, err = c.ApplyDecisionsWithCipher(request.Body, cipher[0])
 		} else {

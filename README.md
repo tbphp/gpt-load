@@ -141,6 +141,7 @@ When working over SSH or from a remote browser, the browser's `localhost` may no
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
+| Gemini Decisions        | `POST /v1beta/decisions`                                           |
 
 ### Built-in channels
 

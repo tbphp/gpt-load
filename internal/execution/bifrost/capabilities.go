@@ -97,6 +97,9 @@ func nativeRouteImplemented(
 		if clientProtocol == protocol.GeminiEmbeddings {
 			return operation == execution.OperationEmbeddingsCreate || operation == execution.OperationProbe
 		}
+		if clientProtocol == protocol.GeminiDecisions {
+			return operation == execution.OperationDecisionsCreate || operation == execution.OperationProbe
+		}
 		return clientProtocol == protocol.Gemini && standardProtocolOperation(clientProtocol, operation)
 	case channel.ProviderMultiProtocolGateway:
 		switch clientProtocol {

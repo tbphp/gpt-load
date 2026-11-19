@@ -141,6 +141,7 @@ Codex、Claude、Antigravity 的 OAuth 客户端使用固定回调端口。Compo
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
+| Gemini Decisions        | `POST /v1beta/decisions`                                           |
 
 ### 内置渠道
 

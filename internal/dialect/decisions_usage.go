@@ -10,6 +10,11 @@ import (
 var _ UsageExtractor = (*Decisions)(nil)
 
 func (*Decisions) ExtractUsage(body []byte) (usage.Result, error) {
+	return extractDecisionsUsage(body, []string{"input_tokens", "prompt_tokens"}, []string{"output_tokens", "completion_tokens"})
+}
+
+// extractDecisionsUsage 读取决策响应的 usage；不同决策协议只是输入、输出 token 的字段名不同。
+func extractDecisionsUsage(body []byte, inputFields, outputFields []string) (usage.Result, error) {
 	root, err := decodeJSONObject(body)
 	if err != nil {
 		return usage.Result{}, fmt.Errorf("decode decisions usage response")
@@ -24,9 +29,9 @@ func (*Decisions) ExtractUsage(body []byte) (usage.Result, error) {
 		return result, nil
 	}
 
-	input, inputDiagnostics := decisionsUsageAlias(object, "input_tokens", "prompt_tokens")
+	input, inputDiagnostics := decisionsUsageAlias(object, inputFields...)
 	diagnostics.Merge(inputDiagnostics)
-	output, outputDiagnostics := decisionsUsageAlias(object, "output_tokens", "completion_tokens")
+	output, outputDiagnostics := decisionsUsageAlias(object, outputFields...)
 	diagnostics.Merge(outputDiagnostics)
 	if input == nil || output == nil {
 		diagnostics.Add(usage.DiagnosticMissingRequiredField)
@@ -53,21 +58,31 @@ func (*Decisions) ExtractUsage(body []byte) (usage.Result, error) {
 	return result, nil
 }
 
-func decisionsUsageAlias(object map[string]json.RawMessage, primary, fallback string) (*int64, usage.Diagnostics) {
-	primaryValue, primaryDiagnostics := usageInteger(object, primary, false)
-	fallbackValue, fallbackDiagnostics := usageInteger(object, fallback, false)
-	primaryDiagnostics.Merge(fallbackDiagnostics)
-	if !usageIntegerUsable(primaryDiagnostics) {
-		return nil, primaryDiagnostics
+// decisionsUsageAlias 按顺序读取同义字段，取第一个出现的值；同时出现且取值不同时视为不一致。
+func decisionsUsageAlias(object map[string]json.RawMessage, names ...string) (*int64, usage.Diagnostics) {
+	var value *int64
+	var diagnostics usage.Diagnostics
+	inconsistent := false
+	for _, name := range names {
+		candidate, candidateDiagnostics := usageInteger(object, name, false)
+		diagnostics.Merge(candidateDiagnostics)
+		if candidate == nil {
+			continue
+		}
+		if value == nil {
+			value = candidate
+		} else if *value != *candidate {
+			inconsistent = true
+		}
 	}
-	if primaryValue != nil && fallbackValue != nil && *primaryValue != *fallbackValue {
-		primaryDiagnostics.Add(usage.DiagnosticInconsistentTotal)
-		return nil, primaryDiagnostics
+	if !usageIntegerUsable(diagnostics) {
+		return nil, diagnostics
 	}
-	if primaryValue != nil {
-		return primaryValue, primaryDiagnostics
+	if inconsistent {
+		diagnostics.Add(usage.DiagnosticInconsistentTotal)
+		return nil, diagnostics
 	}
-	return fallbackValue, primaryDiagnostics
+	return value, diagnostics
 }
 
 func (*Decisions) NewUsageStreamExtractor() UsageStreamExtractor {

@@ -141,6 +141,7 @@ SSH やリモートブラウザ経由で操作する場合、ブラウザの `lo
 | Anthropic Messages      | `POST /v1/messages`                                                |
 | Gemini                  | `/v1beta/models/...`                                               |
 | Gemini Embeddings       | `POST /v1beta/models/{model}:embedContent` / `:batchEmbedContents` |
+| Gemini Decisions        | `POST /v1beta/decisions`                                           |
 
 ### 組み込みチャネル
 
