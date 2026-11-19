@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 )
 
@@ -143,38 +142,6 @@ func TestAtomicWriteFirstPublicationAndReplacement(t *testing.T) {
 			t.Fatalf("%q %v", got, e)
 		}
 	}
-}
-func TestAtomicWriteConcurrentReaders(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "checkpoint.json")
-	if e := WriteAtomic(p, []byte(`{"value":"old"}`)); e != nil {
-		t.Fatal(e)
-	}
-	done := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			b, e := readAtomicTestTarget(p)
-			if e != nil || !json.Valid(b) {
-				t.Errorf("invalid target %q %v", b, e)
-				return
-			}
-		}
-	}()
-	for i := 0; i < 100; i++ {
-		if e := WriteAtomic(p, []byte(fmt.Sprintf(`{"value":%d}`, i))); e != nil {
-			t.Error(e)
-			break
-		}
-	}
-	close(done)
-	wg.Wait()
 }
 func TestAtomicWriteCreateRealFailure(t *testing.T) {
 	dir := t.TempDir()

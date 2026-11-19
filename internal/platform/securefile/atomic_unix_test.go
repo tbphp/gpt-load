@@ -4,8 +4,11 @@ package securefile
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -47,4 +50,36 @@ func TestAtomicWriteUnixRenameFailure(t *testing.T) {
 	}
 }
 
-func readAtomicTestTarget(p string) ([]byte, error) { return os.ReadFile(p) }
+// Unix replacement remains available while readers hold the previous inode.
+func TestAtomicWriteConcurrentReaders(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "checkpoint.json")
+	if e := WriteAtomic(p, []byte(`{"value":"old"}`)); e != nil {
+		t.Fatal(e)
+	}
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			b, e := os.ReadFile(p)
+			if e != nil || !json.Valid(b) {
+				t.Errorf("invalid target %q %v", b, e)
+				return
+			}
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		if e := WriteAtomic(p, []byte(fmt.Sprintf(`{"value":%d}`, i))); e != nil {
+			t.Error(e)
+			break
+		}
+	}
+	close(done)
+	wg.Wait()
+}
