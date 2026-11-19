@@ -51,6 +51,8 @@ const (
 	OpenCodeGo       ID = "opencode_go"
 	OpenCodeZen      ID = "opencode_zen"
 	Modelflare       ID = "modelflare"
+	Modelink         ID = "modelink"
+	Fenno            ID = "fenno"
 )
 
 // ProviderKind is the single dispatch key used to resolve a ProviderAdapter.
