@@ -174,6 +174,30 @@ func TestRedactionCoversDecisionsStateWithoutChangingQuestionIdentifiers(t *test
 	}
 }
 
+// Google 允许题名为任意 [A-Za-z0-9_-]+，与字段名同名的题目也要按题目脱敏。
+func TestRedactionCoversDecisionsQuestionsNamedLikeFields(t *testing.T) {
+	cipher := syntheticRedactionCipher(t)
+	replace, err := Compile([]Rule{{Pattern: "private-value", Replacement: "[VALUE]"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypt, err := Compile([]Rule{{Pattern: "private-value", Mode: ModeEncrypt}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"signature", "source", "prompt", "metadata", "state", "questions"} {
+		body := []byte(`{"model":"public","input":"public","questions":{"` + name + `":{"type":"choice","instructions":"private-value","criteria":{"a":"private-value","b":"public"}}}}`)
+		replaced, err := replace.ApplyDecisions(body)
+		if err != nil || bytes.Contains(replaced, []byte("private-value")) || !bytes.Contains(replaced, []byte(`"questions":{"`+name+`":{"type":"choice"`)) {
+			t.Fatalf("replace %s: got=%s / %v", name, replaced, err)
+		}
+		encrypted, err := encrypt.ApplyDecisionsWithCipher(body, cipher)
+		if err != nil || bytes.Contains(encrypted, []byte("private-value")) {
+			t.Fatalf("encrypt %s: got=%s / %v", name, encrypted, err)
+		}
+	}
+}
+
 func TestRedactionPreservesResponsesToolOutputContentBlockMetadata(t *testing.T) {
 	c, _ := Compile([]Rule{{Pattern: `private|[0-9]+|input_image|input_file`, Replacement: "[VALUE]"}})
 	body := []byte(`{"input":[{"type":"function_call_output","call_id":"call-123","output":[{"type":"input_text","text":"private 123"},{"type":"input_image","file_id":"file-123","image_url":"https://example.com/private/123"},{"type":"input_file","file_id":"file-456","file_data":"private123","filename":"private123.txt"}]}]}`)

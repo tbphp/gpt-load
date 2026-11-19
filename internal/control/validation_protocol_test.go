@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -281,5 +283,51 @@ func TestGatewayMalformedProbeDoesNotRecoverCredential(t *testing.T) {
 				t.Errorf("valid response: calls = %d; recovery events = %v", calls.Load(), worker.recorder.events())
 			}
 		})
+	}
+}
+
+// Google 对模型不支持的方法只返回 404 NOT_FOUND 和说明文案，没有可识别的错误码；
+// 仅含决策模型的分组要据此继续改用其他原生协议探测，直到决策协议成功。
+func TestValidationFallsBackToGeminiDecisionsAfterGoogleMethodNotFound(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1beta/decisions" {
+			_, _ = io.WriteString(w, `{"answers":{"ready":{"noul":0.98}},"usage":{"total_input_tokens":8,"total_output_tokens":0}}`)
+			return
+		}
+		_, method, _ := strings.Cut(r.URL.Path, ":")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprintf(w, `{"error":{"code":404,"message":"models/gemini-decision-1 is not found for API version v1beta, or is not supported for %s. Call ListModels to see the list of available models and their supported methods.","status":"NOT_FOUND"}}`, method)
+	}))
+	defer server.Close()
+	params, err := json.Marshal(map[string]string{"base_url": server.URL + "/v1beta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := state.GroupView{ID: 1, Models: []state.ModelConfig{{ID: "gemini-decision-1"}}}
+	setValidationChannel(&group, channel.Gemini, params)
+	worker := newValidationWorkerForTest(validationSnapshot(map[uint]state.GroupView{1: group}), []state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}}, &validationProbeRecorder{})
+	runtime, err := bifrost.NewRuntime(t.Context(), worker.channels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(runtime.Shutdown)
+	if err := runtime.Reconcile([]provideradapter.RuntimeTarget{{Target: group.ResolvedTarget}}); err != nil {
+		t.Fatal(err)
+	}
+	worker.executor = runtime
+	worker.Validate(t.Context())
+	mu.Lock()
+	defer mu.Unlock()
+	if len(paths) < 2 || paths[len(paths)-1] != "/v1beta/decisions" ||
+		!slices.Equal(worker.recorder.events(), []string{"registry.recover:7", "stats.reset:7"}) {
+		t.Fatalf("upstream paths = %v; recovery events = %v", paths, worker.recorder.events())
 	}
 }

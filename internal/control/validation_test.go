@@ -96,51 +96,6 @@ func TestValidationWorkerFallsBackToGeminiEmbeddingsForEmbeddingOnlyModel(t *tes
 	}
 }
 
-func TestValidationWorkerFallsBackToGeminiDecisionsForDecisionOnlyModel(t *testing.T) {
-	t.Parallel()
-
-	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{
-			1: validationGroup(
-				[]protocol.Protocol{protocol.Gemini},
-				"gemini-decision-1",
-				nil,
-			),
-		}),
-		[]state.CredentialRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
-		&validationProbeRecorder{},
-	)
-	var attempts []execution.AttemptSpec
-	worker.executor = scriptedDiscoveryExecutor{execute: func(
-		_ context.Context,
-		spec execution.AttemptSpec,
-	) execution.AttemptResult {
-		attempts = append(attempts, spec.Clone())
-		if spec.ClientProtocol != protocol.GeminiDecisions {
-			return validationStartedProbeFailure(
-				http.StatusNotFound,
-				execution.FailureHintModelUnavailable,
-				execution.ErrorScopeModel,
-				"model_not_found",
-				"not supported for generateContent",
-			)
-		}
-		return execution.AttemptResult{
-			DispatchState: execution.DispatchMaybeSent, ResponseStarted: true,
-			StatusCode: http.StatusOK, Header: http.Header{},
-		}
-	}}
-
-	worker.Validate(context.Background())
-
-	last := len(attempts) - 1
-	if last < 1 || attempts[last].ClientProtocol != protocol.GeminiDecisions ||
-		attempts[last].Operation != execution.OperationProbe ||
-		attempts[last].UpstreamModel != "gemini-decision-1" {
-		t.Fatalf("probe attempts = %#v", attempts)
-	}
-}
-
 func TestValidationWorkerFallsBackToEmbeddingsAfterExplicitModelRejection(t *testing.T) {
 	t.Parallel()
 

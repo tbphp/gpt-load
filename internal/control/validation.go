@@ -377,10 +377,14 @@ func validationProbeNeedsProtocolFallback(result execution.AttemptResult) bool {
 			return true
 		}
 	}
+	summary := strings.ToLower(evidence.Summary)
+	// Google 对模型不支持的方法只返回 404 NOT_FOUND（"... or is not supported for generateContent"），没有可识别的错误码。
+	if status == http.StatusNotFound && strings.Contains(summary, "or is not supported for ") {
+		return true
+	}
 	if evidence.Hint != execution.FailureHintRequestRejected {
 		return false
 	}
-	summary := strings.ToLower(evidence.Summary)
 	for _, marker := range []string{
 		"not a chat model",
 		"does not support chat completions",

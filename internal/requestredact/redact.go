@@ -592,6 +592,11 @@ func (c *Compiled) apply(body []byte, data, decisions bool, depth int, patchCoun
 				failure = walk(child, content, data, depth+1, questions)
 				return failure == nil
 			}
+			// 决策题目的键是调用方自定义的题名（Google 允许任意 [A-Za-z0-9_-]+），不能当字段名分派。
+			if questions && depth == 1 {
+				failure = walk(child, false, false, depth+1, questions)
+				return failure == nil
+			}
 			if inModel && ProtocolField(k.Str) {
 				return true
 			}
