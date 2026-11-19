@@ -90,6 +90,16 @@ func externalModelName(model ModelConfig) string {
 	return strings.TrimSpace(model.ID)
 }
 
+// supportsDecisions 判断模型能否承接内部决策调用（Jev 或 Google 原生决策协议）。
+func supportsDecisions(target channel.ResolvedTarget, modelID string) bool {
+	for _, clientProtocol := range jev.Protocols() {
+		if _, supported := target.ModeForModel(clientProtocol, execution.OperationDecisionsCreate, modelID); supported {
+			return true
+		}
+	}
+	return false
+}
+
 type AccessKeyConfig struct {
 	ConcurrencyLimit  *int64
 	KeyPrefix         string
@@ -279,11 +289,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			continue
 		}
 		for _, model := range group.Models {
-			if _, supported := target.ModeForModel(
-				protocol.Decisions,
-				execution.OperationDecisionsCreate,
-				model.ID,
-			); supported {
+			if supportsDecisions(target, model.ID) {
 				decisionModels[externalModelName(model)] = struct{}{}
 			}
 		}
@@ -302,7 +308,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 				continue
 			}
 			for _, model := range group.Models {
-				if _, supported := target.ModeForModel(protocol.Decisions, execution.OperationDecisionsCreate, model.ID); supported && externalModelName(model) == shared.Model {
+				if supportsDecisions(target, model.ID) && externalModelName(model) == shared.Model {
 					available = true
 				}
 			}

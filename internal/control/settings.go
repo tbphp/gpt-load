@@ -22,7 +22,6 @@ import (
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestaudit"
 	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
@@ -498,12 +497,14 @@ func decisionModelNames(snapshot *state.ConfigSnapshot) []string {
 	if snapshot == nil {
 		return []string{}
 	}
-	byOperation := snapshot.ExecutionCandidates[protocol.Decisions]
-	byModel := byOperation[execution.OperationDecisionsCreate]
-	names := make([]string, 0, len(byModel))
-	for name, targets := range byModel {
-		if strings.TrimSpace(name) != "" && len(targets) > 0 {
-			names = append(names, name)
+	seen := map[string]bool{}
+	names := []string{}
+	for _, clientProtocol := range jev.Protocols() {
+		for name, targets := range snapshot.ExecutionCandidates[clientProtocol][execution.OperationDecisionsCreate] {
+			if strings.TrimSpace(name) != "" && len(targets) > 0 && !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
 		}
 	}
 	sort.Strings(names)

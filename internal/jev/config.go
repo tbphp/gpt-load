@@ -8,11 +8,18 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"gpt-load/internal/protocol"
 )
 
 var ErrInvalidConfig = errors.New("invalid experimental configuration")
 
 const SettingKey = "jev"
+
+// Protocols 返回内部决策调用可用的原生决策协议，按优先级排列：同一模型两种都可用时沿用 Jev。
+func Protocols() []protocol.Protocol {
+	return []protocol.Protocol{protocol.Decisions, protocol.GeminiDecisions}
+}
 
 type Config struct {
 	Model          string `json:"model"`

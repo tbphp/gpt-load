@@ -39,7 +39,7 @@ export const zhCN = {
     system: '系统信息',
   },
   sectionHelp: {
-    redaction: '配置发送给上游与 JEV 的文本脱敏规则',
+    redaction: '配置发送给上游与决策模型的文本脱敏规则',
     routing: '路由选择与请求亲和',
     connection: '代理、超时和失败处理',
     browser: '跨域访问与请求头规则',
@@ -55,7 +55,7 @@ export const zhCN = {
     default_group_concurrency_limit: '分组默认并发上限',
     codex_live_mode: '实时语音',
     request_redaction: '请求脱敏',
-    jev: 'JEV 公共配置',
+    jev: '决策模型公共配置',
     request_audit: '智能护栏',
     route_strategy: '路由策略',
     auto_model: '自动模型',
@@ -84,10 +84,10 @@ export const zhCN = {
     default_group_concurrency_limit: '每个分组独立继承此值；分组可单独覆盖。0 表示不限。',
     codex_live_mode:
       '分组可覆盖此默认值。直连要求客户端能访问上游；中继需要配置公网媒体地址及 UDP 端口。关闭仅停用语音。',
-    request_redaction: '配置发送给上游与 JEV 的文本脱敏规则',
+    request_redaction: '配置发送给上游与决策模型的文本脱敏规则',
     jev: '自动模型与语义审计共用。请求文本会发送到所选分组；语义审计需要明确指定分组。',
-    request_audit: '使用 JEV 按自定义规则拦截或告警。',
-    auto_model: 'Jev 选择预设，现有调度选择分组和凭据。',
+    request_audit: '使用决策模型按自定义规则拦截或告警。',
+    auto_model: '决策模型选择预设，现有调度选择分组和凭据。',
     route_strategy:
       '原生优先先选择原生协议；混合权重让原生与转换候选按有效权重竞争，请求亲和仍生效。',
     affinity_enabled: '复用上次命中的路由目标；分组可单独覆盖。',
@@ -220,7 +220,7 @@ export const enUS = {
     system: 'System information',
   },
   sectionHelp: {
-    redaction: 'Configure text redaction for upstream providers and JEV',
+    redaction: 'Configure text redaction for upstream providers and the decision model',
     routing: 'Route selection and request affinity',
     connection: 'Proxy, timeouts and failure handling',
     browser: 'Cross-origin access and header rules',
@@ -236,7 +236,7 @@ export const enUS = {
     default_group_concurrency_limit: 'Default group concurrency limit',
     codex_live_mode: 'Live voice',
     request_redaction: 'Request redaction',
-    jev: 'Shared JEV configuration',
+    jev: 'Shared decision model configuration',
     request_audit: 'AI Guardrails',
     route_strategy: 'Routing strategy',
     auto_model: 'Automatic models',
@@ -268,13 +268,14 @@ export const enUS = {
 
     codex_live_mode:
       'Groups can override this default. Direct mode requires client access to upstream media. Relay mode requires a reachable media IP and UDP ports. Off disables voice only.',
-    request_redaction: 'Configure text redaction for upstream providers and JEV',
+    request_redaction: 'Configure text redaction for upstream providers and the decision model',
     jev: 'Used by automatic models and semantic auditing. Request text is sent to this route; semantic auditing requires an explicit group.',
-    request_audit: 'Use JEV to block or warn on custom rules.',
+    request_audit: 'Use the decision model to block or warn on custom rules.',
     route_strategy:
       'Native first prefers native protocols. Weighted mix lets native and converted candidates compete by effective weight. Request affinity still applies.',
     affinity_enabled: 'Reuse the previously selected route. Individual groups may override this.',
-    auto_model: 'Jev selects a preset; existing scheduling chooses the Group and credential.',
+    auto_model:
+      'The decision model selects a preset; existing scheduling chooses the Group and credential.',
     affinity_ttl: 'Default lifetime of affinity records.',
     affinity_capacity: 'Maximum affinity records, from 1 to 1,000,000.',
     responses_websocket_enabled:
@@ -410,7 +411,7 @@ export const jaJP = {
     system: 'システム情報',
   },
   sectionHelp: {
-    redaction: '上流と JEV に送信するテキストのマスキングルールを設定',
+    redaction: '上流と判定モデルに送信するテキストのマスキングルールを設定',
     routing: 'ルート選択とリクエスト親和性',
     connection: 'プロキシ、タイムアウト、失敗時の処理',
     browser: 'クロスオリジンアクセスとヘッダールール',
@@ -426,7 +427,7 @@ export const jaJP = {
     default_group_concurrency_limit: 'グループのデフォルト同時実行数上限',
     codex_live_mode: 'リアルタイム音声',
     request_redaction: 'リクエストのマスキング',
-    jev: 'JEV 共通設定',
+    jev: '判定モデル共通設定',
     request_audit: 'AI ガードレール',
     route_strategy: 'ルーティング方式',
     auto_model: '自動モデル',
@@ -458,13 +459,13 @@ export const jaJP = {
 
     codex_live_mode:
       'グループで既定値を上書きできます。直接接続はクライアントから上流への通信が必要です。中継には到達可能なメディア IP と UDP ポートが必要です。無効にしてもテキストは利用できます。',
-    request_redaction: '上流と JEV に送信するテキストのマスキングルールを設定',
+    request_redaction: '上流と判定モデルに送信するテキストのマスキングルールを設定',
     jev: '自動モデルと意味監査で共用します。リクエスト本文を選択したグループに送信します。意味監査にはグループの指定が必要です。',
-    request_audit: 'JEV が独自ルールでブロックまたは警告します。',
+    request_audit: '判定モデルが独自ルールでブロックまたは警告します。',
     route_strategy:
       'ネイティブ優先は元のプロトコルを優先し、重み付き混合は変換候補も含めて選択します。親和性は引き続き適用されます。',
     affinity_enabled: '前回選択したルートを再利用します。グループごとに上書きできます。',
-    auto_model: 'Jev がプリセットを選び、既存の経路がグループと認証情報を選択します。',
+    auto_model: '判定モデルがプリセットを選び、既存の経路がグループと認証情報を選択します。',
     affinity_ttl: '親和性レコードの既定保持時間。',
     affinity_capacity: '親和性レコードの上限。1～1,000,000 件。',
     responses_websocket_enabled:

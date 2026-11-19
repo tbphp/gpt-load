@@ -1,14 +1,15 @@
 export const zhCN = {
   title: '自动模型',
-  help: '使用 Jev 判断当前任务，再由现有调度选择上游',
+  help: '使用决策模型判断当前任务，再由现有调度选择上游',
   experimentalSection: '实验性功能',
   experimentalSectionHelp: '实验性功能默认关闭，行为与配置可能在后续版本中调整。',
   experimental:
-    '实验性功能：判断可能不准确或不稳定，并增加首次响应等待和判断费用。任务文本与部分上下文将发送至所选 Jev 渠道；判断失败时使用兜底预设。',
+    '实验性功能：判断可能不准确或不稳定，并增加首次响应等待和判断费用。任务文本与部分上下文将发送至所选决策模型；判断失败时使用兜底预设。',
   enabled: '启用自动模型',
   decisionModel: '判断模型',
-  decisionModelHint: '选择已在分组中配置、且支持 Decisions 协议的对外模型名称。',
-  decisionModelEmpty: '暂无可用的 Decisions 模型。请先在分组中配置 Jev 或 OpenRouter 渠道及模型。',
+  decisionModelHint:
+    '选择已在分组中配置、且支持 Decisions 或 Gemini Decisions 协议的对外模型名称。',
+  decisionModelEmpty: '暂无可用的决策模型。请先在分组中配置 Jev、OpenRouter 或 Gemini 渠道及模型。',
   timeout: '判断超时（秒，1–60）',
   entries: '自动模型与预设',
   permissionsHint:
@@ -48,7 +49,7 @@ export const zhCN = {
   decisionCost: '判断费用',
   decisionPriceItem: '判断',
   sources: {
-    jev: 'Jev 判断命中',
+    jev: '决策模型判断命中',
     binding: '沿用上一响应',
     task_cache: '沿用同一任务',
     single_preset: '唯一可用预设',
@@ -64,7 +65,7 @@ export const zhCN = {
   },
   reasons: {
     task_missing: '未提取到新的用户任务',
-    non_text_task: '当前任务只有 Jev 无法读取的非文本内容',
+    non_text_task: '当前任务只有决策模型无法读取的非文本内容',
     task_too_large: '当前任务超过判断上下文限制',
     request_too_large: '判断请求超过大小限制',
     unsupported_operation: '请求类型不支持自动判断',
@@ -90,17 +91,18 @@ export const zhCN = {
 }
 export const enUS = {
   title: 'Automatic models',
-  help: 'Jev classifies the current task; existing scheduling selects the upstream',
+  help: 'The decision model classifies the current task; existing scheduling selects the upstream',
   experimentalSection: 'Experimental features',
   experimentalSectionHelp:
     'Experimental features are disabled by default, and their behavior or configuration may change.',
   experimental:
-    'Experimental: classification may be inaccurate or unstable, adding initial latency and decision cost. Task text and limited context are sent to the selected Jev service. Failed decisions use the fallback preset.',
+    'Experimental: classification may be inaccurate or unstable, adding initial latency and decision cost. Task text and limited context are sent to the selected decision model. Failed decisions use the fallback preset.',
   enabled: 'Enable automatic models',
   decisionModel: 'Decision model',
-  decisionModelHint: 'Choose a public model configured in a Group with native Decisions support.',
+  decisionModelHint:
+    'Choose a public model configured in a Group with native Decisions or Gemini Decisions support.',
   decisionModelEmpty:
-    'No Decisions model is available. Configure a Jev or OpenRouter Group and model first.',
+    'No decision model is available. Configure a Jev, OpenRouter or Gemini Group and model first.',
   timeout: 'Decision timeout (seconds, 1–60)',
   entries: 'Automatic models and presets',
   permissionsHint:
@@ -141,7 +143,7 @@ export const enUS = {
   decisionCost: 'Decision cost',
   decisionPriceItem: 'Decision',
   sources: {
-    jev: 'Selected by Jev',
+    jev: 'Selected by decision model',
     binding: 'Reused previous response',
     task_cache: 'Reused the same task selection',
     single_preset: 'Only available preset',
@@ -157,7 +159,8 @@ export const enUS = {
   },
   reasons: {
     task_missing: 'No new user task could be extracted',
-    non_text_task: 'The current task contains only non-text content that Jev cannot read',
+    non_text_task:
+      'The current task contains only non-text content that the decision model cannot read',
     task_too_large: 'The current task exceeds the decision context limit',
     request_too_large: 'The decision request exceeds the size limit',
     unsupported_operation: 'This request type does not support automatic decisions',
@@ -183,17 +186,18 @@ export const enUS = {
 }
 export const jaJP = {
   title: '自動モデル',
-  help: 'Jev が現在のタスクを判定し、既存のスケジューラーが上流を選択',
+  help: '判定モデルが現在のタスクを判定し、既存のスケジューラーが上流を選択',
   experimentalSection: '実験的機能',
   experimentalSectionHelp:
     '実験的機能は初期状態で無効です。動作や設定は今後のバージョンで変更される場合があります。',
   experimental:
-    '実験的機能です。判定は不正確または不安定になる場合があり、初回応答の遅延と判定料金が増えます。タスクのテキストと限定的な文脈を選択した Jev サービスへ送信し、判定失敗時はフォールバックを使います。',
+    '実験的機能です。判定は不正確または不安定になる場合があり、初回応答の遅延と判定料金が増えます。タスクのテキストと限定的な文脈を選択した判定モデルへ送信し、判定失敗時はフォールバックを使います。',
   enabled: '自動モデルを有効化',
   decisionModel: '判定モデル',
-  decisionModelHint: 'Decisions に対応するグループで設定済みの公開モデル名を選択します。',
+  decisionModelHint:
+    'Decisions または Gemini Decisions に対応するグループで設定済みの公開モデル名を選択します。',
   decisionModelEmpty:
-    '利用可能な Decisions モデルがありません。先に Jev または OpenRouter のグループとモデルを設定してください。',
+    '利用可能な判定モデルがありません。先に Jev、OpenRouter または Gemini のグループとモデルを設定してください。',
   timeout: '判定タイムアウト（秒、1–60）',
   entries: '自動モデルとプリセット',
   permissionsHint:
@@ -234,7 +238,7 @@ export const jaJP = {
   decisionCost: '判定料金',
   decisionPriceItem: '判定',
   sources: {
-    jev: 'Jev 判定で選択',
+    jev: '判定モデルで選択',
     binding: '前の応答の選択を継続',
     task_cache: '同じタスクの選択を再利用',
     single_preset: '利用可能な唯一のプリセット',
@@ -250,7 +254,7 @@ export const jaJP = {
   },
   reasons: {
     task_missing: '新しいユーザータスクを抽出できませんでした',
-    non_text_task: '現在のタスクは Jev が読み取れない非テキスト内容のみです',
+    non_text_task: '現在のタスクは判定モデルが読み取れない非テキスト内容のみです',
     task_too_large: '現在のタスクが判定コンテキストの上限を超えています',
     request_too_large: '判定リクエストがサイズ上限を超えています',
     unsupported_operation: 'このリクエスト種別は自動判定に対応していません',
