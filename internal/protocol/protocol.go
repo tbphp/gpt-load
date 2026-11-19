@@ -14,6 +14,9 @@ const (
 	Anthropic         Protocol = "anthropic"
 	Gemini            Protocol = "gemini"
 	GeminiEmbeddings  Protocol = "gemini-embeddings"
+	// GeminiDecisions 表示 Google Gemini 原生 Decisions（POST /v1beta/decisions），
+	// 与 Jev 格式的 Decisions 是两套请求格式。
+	GeminiDecisions Protocol = "gemini-decisions"
 	// AudioSpeech 表示各渠道的 POST /v1/audio/speech。网关读取模型与原生流式开关，
 	// 保留渠道原生的请求和响应格式。
 	AudioSpeech Protocol = "audio-speech"
@@ -25,7 +28,7 @@ const (
 func (p Protocol) Valid() bool {
 	switch p {
 	case OpenAICompletions, OpenAIResponses, OpenAIImages, OpenAIEmbeddings, CodexLive, Rerank, Decisions,
-		AudioSpeech, Anthropic, Gemini, GeminiEmbeddings, Mistral:
+		AudioSpeech, Anthropic, Gemini, GeminiEmbeddings, GeminiDecisions, Mistral:
 		return true
 	default:
 		return false
@@ -35,7 +38,7 @@ func (p Protocol) Valid() bool {
 func (p Protocol) DataPlaneEnabled() bool {
 	switch p {
 	case OpenAICompletions, OpenAIResponses, OpenAIImages, OpenAIEmbeddings, CodexLive, Rerank, Decisions,
-		AudioSpeech, Anthropic, Gemini, GeminiEmbeddings, Mistral:
+		AudioSpeech, Anthropic, Gemini, GeminiEmbeddings, GeminiDecisions, Mistral:
 		return true
 	default:
 		return false
@@ -59,6 +62,7 @@ func DataPlaneProtocols() []Protocol {
 		Anthropic,
 		Gemini,
 		GeminiEmbeddings,
+		GeminiDecisions,
 		Mistral,
 	}
 }

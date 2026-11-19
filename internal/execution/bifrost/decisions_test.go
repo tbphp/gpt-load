@@ -207,6 +207,7 @@ func TestDecisionsTargetsUseChannelDefaults(t *testing.T) {
 	}{
 		{channelID: channel.Jev, baseURL: "https://api.typesafe.ai/v1", path: "/systemone"},
 		{channelID: channel.OpenRouter, baseURL: "https://openrouter.ai/api", path: "/alpha/decisions"},
+		{channelID: channel.Gemini, baseURL: "https://generativelanguage.googleapis.com/v1beta", path: "/decisions"},
 	} {
 		resolved, err := registry.Resolve(test.channelID, nil)
 		if err != nil {

@@ -51,6 +51,8 @@ func Gemini() spec.Module {
 				spec.NewRoute(protocol.Gemini, execution.OperationProbe, execution.RouteNative),
 				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationEmbeddingsCreate, execution.RouteNative),
 				spec.NewRoute(protocol.GeminiEmbeddings, execution.OperationProbe, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiDecisions, execution.OperationDecisionsCreate, execution.RouteNative),
+				spec.NewRoute(protocol.GeminiDecisions, execution.OperationProbe, execution.RouteNative),
 			},
 		},
 	}
