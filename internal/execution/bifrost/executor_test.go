@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/maximhq/bifrost/core/schemas"
 
 	"gpt-load/internal/channel"
@@ -185,34 +186,62 @@ func TestRuntimeBoundsUnaryResponsesBeforeMaterialization(t *testing.T) {
 		}
 	})
 
-	t.Run("native compressed response fails closed without materialization", func(t *testing.T) {
-		var compressed bytes.Buffer
-		writer := gzip.NewWriter(&compressed)
-		_, _ = writer.Write([]byte(`{"model":"upstream-model","padding":"` + strings.Repeat("x", 4096) + `"}`))
+	t.Run("native compressed response restores content encoding without materialization", func(t *testing.T) {
+		plain := []byte(`{"model":"upstream-model","padding":"` + strings.Repeat("x", 4096) + `"}`)
+		var gzipped bytes.Buffer
+		writer := gzip.NewWriter(&gzipped)
+		_, _ = writer.Write(plain)
 		if err := writer.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if int64(compressed.Len()) >= limit {
-			t.Fatalf("compressed fixture = %d bytes, want below %d", compressed.Len(), limit)
+		zstdEncoder, err := zstd.NewWriter(nil)
+		if err != nil {
+			t.Fatal(err)
 		}
-		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-			response.Header().Set("Content-Type", "application/json")
-			response.Header().Set("Content-Encoding", "gzip")
-			_, _ = response.Write(compressed.Bytes())
-		}))
-		defer server.Close()
+		zstded := zstdEncoder.EncodeAll(plain, nil)
+		if err := zstdEncoder.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for _, test := range []struct {
+			encoding string
+			status   int
+			body     []byte
+		}{
+			{encoding: "gzip", status: http.StatusOK, body: gzipped.Bytes()},
+			{encoding: "zstd", status: http.StatusOK, body: zstded},
+			{encoding: "gzip", status: http.StatusTooManyRequests, body: gzipped.Bytes()},
+		} {
+			t.Run(fmt.Sprintf("%s %d", test.encoding, test.status), func(t *testing.T) {
+				if int64(len(test.body)) >= limit {
+					t.Fatalf("compressed fixture = %d bytes, want below %d", len(test.body), limit)
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+					// SDK 透传会丢弃 Content-Encoding，但保留原始压缩正文。
+					response.Header().Set("Content-Type", "application/json")
+					response.Header().Set("Content-Encoding", test.encoding)
+					response.WriteHeader(test.status)
+					_, _ = response.Write(test.body)
+				}))
+				defer server.Close()
 
-		runtime := newProtocolTestRuntime(t, testRuntimeOptions{
-			allowPrivateNetwork:       true,
-			maxUnaryResponseBodyBytes: limit,
-		})
-		spec := compatibleSpec(server.URL)
-		spec.ClientModel = spec.UpstreamModel
-		result := runtime.Execute(context.Background(), spec)
-		if result.Error == nil || result.Error.Kind != execution.ErrorKindInternal ||
-			result.Error.Summary != "encoded upstream response cannot be safely forwarded" ||
-			len(result.Body) != 0 {
-			t.Fatalf("compressed native result = %+v body=%d", result, len(result.Body))
+				runtime := newProtocolTestRuntime(t, testRuntimeOptions{
+					allowPrivateNetwork:       true,
+					maxUnaryResponseBodyBytes: limit,
+				})
+				spec := compatibleSpec(server.URL)
+				spec.ClientModel = spec.UpstreamModel
+				result := runtime.Execute(context.Background(), spec)
+				if result.StatusCode != test.status || result.Header.Get("Content-Encoding") != test.encoding ||
+					!bytes.Equal(result.Body, test.body) {
+					t.Fatalf("compressed native result = %+v error=%+v body=%d", result, result.Error, len(result.Body))
+				}
+				if test.status == http.StatusOK && result.Error != nil {
+					t.Fatalf("compressed native success error = %+v", result.Error)
+				}
+				if test.status != http.StatusOK && (result.Error == nil || result.Error.Kind != execution.ErrorKindHTTP) {
+					t.Fatalf("compressed native error evidence = %+v", result.Error)
+				}
+			})
 		}
 	})
 

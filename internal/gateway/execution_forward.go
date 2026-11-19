@@ -107,7 +107,8 @@ func (forwarder *ExecutionForwarder) Forward(
 	result := upstreamFromExecutionResult(ctx, input, executionResult)
 	result = forwarder.prepareBufferedResult(input, result)
 	if (input.ClientProtocol == protocol.OpenAIImages ||
-		embeddingsProtocol(input.ClientProtocol) || input.ClientProtocol == protocol.Rerank) && input.ObserveUsage &&
+		embeddingsProtocol(input.ClientProtocol) || input.ClientProtocol == protocol.Rerank ||
+		encodedNativeResponse(input, executionResult.Header)) && input.ObserveUsage &&
 		result.HasResponse() && result.StatusCode >= http.StatusOK &&
 		result.StatusCode < http.StatusMultipleChoices &&
 		executionResult.Usage == nil && result.Usage.State == usage.StateMissing && forwarder.usageCapture != nil {
@@ -130,6 +131,15 @@ func (forwarder *ExecutionForwarder) Forward(
 		result.ClassificationBody = nil
 	}
 	return result
+}
+
+// encodedNativeResponse 报告原生响应是否带压缩编码；SDK 无法从压缩正文读出用量，需从解码后的正文补提。
+func encodedNativeResponse(input ForwardInput, headers http.Header) bool {
+	if input.RouteMode != execution.RouteNative {
+		return false
+	}
+	encoding, err := contentcoding.ParseContentEncoding(headerFieldValues(headers, "Content-Encoding"))
+	return err == nil && encoding != contentcoding.Identity
 }
 
 func invalidExecutionAttemptResult(result execution.AttemptResult) UpstreamResult {
