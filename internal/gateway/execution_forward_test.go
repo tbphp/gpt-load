@@ -1949,6 +1949,50 @@ func TestStreamErrorFailureHintDoesNotTreatGenericForbiddenAsInvalidCredential(t
 	}
 }
 
+func TestExecutionForwarderCapturesCompressedNativeUsageAfterDecoding(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte(`{"id":"chatcmpl-1","object":"chat.completion","model":"upstream","choices":[],"usage":{"prompt_tokens":11,"completion_tokens":5,"total_tokens":16}}`)
+	executorUsage := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 2, Output: 1}}
+	for _, test := range []struct {
+		name     string
+		mode     execution.RouteMode
+		evidence *execution.UsageEvidence
+		want     usage.Result
+	}{
+		{name: "native body usage", mode: execution.RouteNative, want: usage.Result{
+			State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 11, Output: 5},
+		}},
+		{name: "executor usage wins", mode: execution.RouteNative,
+			evidence: &execution.UsageEvidence{Normalized: executorUsage}, want: executorUsage},
+		{name: "converted body is not usage evidence", mode: execution.RouteConverted,
+			want: usage.Result{State: usage.StateMissing}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			compressed := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
+			executor := fakeExecutionExecutor{unary: func(context.Context, execution.AttemptSpec) execution.AttemptResult {
+				return execution.AttemptResult{
+					DispatchState: execution.DispatchMaybeSent, ResponseStarted: true, StatusCode: http.StatusOK,
+					Header: http.Header{"Content-Type": {"application/json"}, "Content-Encoding": {"gzip"}},
+					Body:   compressed, Usage: test.evidence,
+				}
+			}}
+			input := executionForwardInput()
+			input.RouteMode = test.mode
+			input.ObserveUsage = true
+			result := NewExecutionForwarder(executor).Forward(t.Context(), input)
+			if result.Err != nil || result.StatusCode != http.StatusOK ||
+				result.Header.Get("Content-Encoding") != "" || !bytes.Contains(result.Body, []byte(`"prompt_tokens":11`)) {
+				t.Fatalf("Forward() = %#v", result)
+			}
+			if !reflect.DeepEqual(result.Usage, test.want) {
+				t.Fatalf("usage = %#v, want %#v", result.Usage, test.want)
+			}
+		})
+	}
+}
+
 func TestExecutionForwarderObservesDecodedModelWithoutReplacingExecutorEvidence(t *testing.T) {
 	for _, tc := range []struct {
 		name                string

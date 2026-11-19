@@ -67,11 +67,11 @@ func TestAudioSpeechGatewayKeepsEachChannelNativeFormat(t *testing.T) {
 			want: []string{"\x1f\x8b\x00\x00pcm-samples"}, status: http.StatusOK, calls: 1,
 		},
 		{
-			name: "openrouter gzip audio rejected", channelID: channel.OpenRouter, basePath: "/api", upstreamPath: "/api/v1/audio/speech",
+			name: "openrouter gzip audio decoded", channelID: channel.OpenRouter, basePath: "/api", upstreamPath: "/api/v1/audio/speech",
 			body:          `{"model":"public","input":"hello","voice":"alloy","response_format":"mp3"}`,
 			upstreamModel: "openai/gpt-4o-mini-tts", upstreamField: `"voice":"alloy"`,
 			contentType: "audio/mpeg", encoding: "gzip", upstream: gzipForTest("ID3\x04\x00\x00binary-audio"),
-			filters: speechOnly, status: http.StatusBadGateway, calls: 1,
+			want: []string{"ID3\x04\x00\x00binary-audio"}, filters: speechOnly, status: http.StatusOK, calls: 1,
 		},
 		{
 			name: "mistral json", channelID: channel.Mistral, basePath: "/v1", upstreamPath: "/v1/audio/speech",

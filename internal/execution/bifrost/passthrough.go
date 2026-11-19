@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/execution/geminiembedding"
 	"gpt-load/internal/execution/geminiimage"
 	"gpt-load/internal/execution/responsemodel"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 )
@@ -425,9 +426,14 @@ complete:
 	if spec.ClientProtocol != protocol.OpenAIImages {
 		bodyBytes = bytes.Clone(bodyBytes)
 	}
-	if headers.Get("Content-Encoding") == "" && looksLikeEncodedResponse(bodyBytes) &&
-		(!audioSpeechAudio(spec, headers) || encodedAudio(bodyBytes, r.unaryResponseBodyLimit(spec))) {
-		return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
+	if encoding, encoded := sniffContentCoding(bodyBytes); encoded && headers.Get("Content-Encoding") == "" &&
+		(!audioSpeechAudio(spec, headers) || encodedAudio(encoding, bodyBytes, r.unaryResponseBodyLimit(spec))) {
+		if prepared.mode != channel.RouteNative {
+			return startedUnaryFailure(status, headers, execution.ErrorKindInternal, "encoded upstream response cannot be safely forwarded")
+		}
+		// 上游忽略 Accept-Encoding: identity 时，SDK 透传会丢掉 Content-Encoding 但保留压缩正文；
+		// 补回标记，由网关在体积上限内解码后照常脱敏、改写模型并补提用量。
+		headers.Set("Content-Encoding", string(encoding))
 	}
 	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)
 	if responsemodel.IsConversation(spec.ClientProtocol, spec.Operation) {
@@ -554,9 +560,15 @@ func (r *Runtime) executeNativeHead(
 	}
 }
 
-func looksLikeEncodedResponse(body []byte) bool {
-	return len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b ||
-		len(body) >= 4 && body[0] == 0x28 && body[1] == 0xb5 && body[2] == 0x2f && body[3] == 0xfd
+// sniffContentCoding 按魔数识别正文是否为 gzip 或 zstd 压缩数据。
+func sniffContentCoding(body []byte) (contentcoding.Encoding, bool) {
+	switch {
+	case len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b:
+		return contentcoding.Gzip, true
+	case len(body) >= 4 && body[0] == 0x28 && body[1] == 0xb5 && body[2] == 0x2f && body[3] == 0xfd:
+		return contentcoding.Zstd, true
+	}
+	return contentcoding.Identity, false
 }
 
 func (r *Runtime) executeNativeStream(

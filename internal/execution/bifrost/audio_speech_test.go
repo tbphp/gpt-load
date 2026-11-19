@@ -105,7 +105,7 @@ func TestAudioSpeechKeepsEachChannelNativeFormat(t *testing.T) {
 	}
 }
 
-func TestAudioSpeechRejectsCompressedAudioWithoutEncoding(t *testing.T) {
+func TestAudioSpeechRestoresCompressedAudioEncoding(t *testing.T) {
 	t.Parallel()
 	audio := []byte("ID3\x04\x00\x00binary-audio")
 	var gzipped bytes.Buffer
@@ -144,8 +144,9 @@ func TestAudioSpeechRejectsCompressedAudioWithoutEncoding(t *testing.T) {
 			spec = freezeTestAttempt(spec)
 			runtime := newProtocolTestRuntime(t, testRuntimeOptions{allowPrivateNetwork: true})
 			result := runtime.Execute(context.Background(), spec)
-			if result.Error == nil || result.Error.Kind != execution.ErrorKindInternal {
-				t.Fatalf("result = %+v error = %+v; want compressed audio rejected", result, result.Error)
+			if result.Error != nil || result.StatusCode != http.StatusOK ||
+				result.Header.Get("Content-Encoding") != encoding || !bytes.Equal(result.Body, body) {
+				t.Fatalf("result = %+v error = %+v; want compressed audio labelled %s", result, result.Error, encoding)
 			}
 		})
 	}

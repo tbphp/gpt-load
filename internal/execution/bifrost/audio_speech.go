@@ -116,11 +116,7 @@ func audioSpeechAudio(spec execution.AttemptSpec, headers http.Header) bool {
 // encodedAudio reports whether an audio body that starts with gzip or zstd
 // magic really is compressed. The SDK drops Content-Encoding from passthrough
 // headers but keeps the raw body, so only a body that decodes counts.
-func encodedAudio(body []byte, limit int64) bool {
-	encoding := contentcoding.Gzip
-	if body[0] == 0x28 {
-		encoding = contentcoding.Zstd
-	}
+func encodedAudio(encoding contentcoding.Encoding, body []byte, limit int64) bool {
 	_, err := contentcoding.DecodeLimited(encoding, body, limit)
 	return err == nil || errors.Is(err, contentcoding.ErrDecodedBodyTooLarge)
 }

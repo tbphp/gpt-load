@@ -848,6 +848,60 @@ func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
 	}
 }
 
+// 上游忽略 Accept-Encoding: identity 返回压缩正文时，SDK 透传会丢掉 Content-Encoding（#986）。
+func TestHandlerDecodesCompressedNativeResponseWithDroppedEncoding(t *testing.T) {
+	serve := func(t *testing.T, encoding contentcoding.Encoding, plain []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		compressed := encodeContentCodingForGatewayTest(t, encoding, plain)
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("Content-Encoding", string(encoding))
+			_, _ = writer.Write(compressed)
+		}))
+		t.Cleanup(upstream.Close)
+		engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "public-model",
+			dialect.NewSet(dialect.NewOpenAI()),
+			dialectGatewayGroup{
+				id: 1, name: "compressed", upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
+				models: []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
+			},
+		)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"public-model"}`))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		return recorder
+	}
+
+	plain := []byte(`{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"provider-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`)
+	for _, encoding := range []contentcoding.Encoding{contentcoding.Gzip, contentcoding.Zstd} {
+		t.Run(string(encoding), func(t *testing.T) {
+			recorder := serve(t, encoding, plain)
+			var body struct {
+				Model   string `json:"model"`
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
+			}
+			if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Encoding") != "" ||
+				json.Unmarshal(recorder.Body.Bytes(), &body) != nil || body.Model != "public-model" ||
+				len(body.Choices) != 1 || body.Choices[0].Message.Content != "ok" {
+				t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+			}
+		})
+	}
+
+	t.Run("decoded body over limit fails closed", func(t *testing.T) {
+		padding := strings.Repeat("x", int(execution.DefaultUnaryResponseBodyLimitBytes))
+		recorder := serve(t, contentcoding.Gzip, []byte(`{"model":"provider-model","padding":"`+padding+`"}`))
+		if recorder.Code != http.StatusBadGateway || strings.Contains(recorder.Body.String(), "xxxx") {
+			t.Fatalf("response = %d headers=%v body=%.200s", recorder.Code, recorder.Header(), recorder.Body.String())
+		}
+	})
+}
+
 func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	rawResponse := []byte("{\n  \"model\" : \"same-model\", \"n\": 9007199254740993\n}\n")
 	var receivedHeader http.Header
