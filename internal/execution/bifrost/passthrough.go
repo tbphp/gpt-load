@@ -426,6 +426,7 @@ complete:
 	if spec.ClientProtocol != protocol.OpenAIImages {
 		bodyBytes = bytes.Clone(bodyBytes)
 	}
+	restoredEncoding := contentcoding.Identity
 	if encoding, encoded := sniffContentCoding(bodyBytes); encoded && headers.Get("Content-Encoding") == "" &&
 		(!audioSpeechAudio(spec, headers) || encodedAudio(encoding, bodyBytes, r.unaryResponseBodyLimit(spec))) {
 		if prepared.mode != channel.RouteNative {
@@ -434,6 +435,7 @@ complete:
 		// 上游忽略 Accept-Encoding: identity 时，SDK 透传会丢掉 Content-Encoding 但保留压缩正文；
 		// 补回标记，由网关在体积上限内解码后照常脱敏、改写模型并补提用量。
 		headers.Set("Content-Encoding", string(encoding))
+		restoredEncoding = encoding
 	}
 	model := openAIResponseModel(bodyBytes, spec.UpstreamModel)
 	if responsemodel.IsConversation(spec.ClientProtocol, spec.Operation) {
@@ -490,7 +492,14 @@ complete:
 			Usage:             usageEvidence,
 		}
 	}
-	evidence := passthroughHTTPError(status, headers, bodyBytes, prepared.secrets)
+	evidenceBody := bodyBytes
+	if restoredEncoding != contentcoding.Identity {
+		// 错误码决定是否重试与套用分组错误规则，需从解压后的正文读取。
+		if plain, err := contentcoding.DecodeLimited(restoredEncoding, bodyBytes, maxStreamErrorEvidenceBytes); err == nil {
+			evidenceBody = plain
+		}
+	}
+	evidence := passthroughHTTPError(status, headers, evidenceBody, prepared.secrets)
 	return execution.AttemptResult{
 		DispatchState:     execution.DispatchMaybeSent,
 		ResponseStarted:   true,

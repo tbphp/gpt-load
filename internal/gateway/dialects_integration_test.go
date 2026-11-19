@@ -902,6 +902,41 @@ func TestHandlerDecodesCompressedNativeResponseWithDroppedEncoding(t *testing.T)
 	})
 }
 
+func TestHandlerDoesNotRetryCompressedRequestRejection(t *testing.T) {
+	plain := []byte(`{"error":{"message":"maximum context length exceeded","type":"invalid_request_error","code":"context_length_exceeded"}}`)
+	for _, encoding := range []contentcoding.Encoding{contentcoding.Identity, contentcoding.Gzip, contentcoding.Zstd} {
+		t.Run(string(encoding), func(t *testing.T) {
+			body := plain
+			if encoding != contentcoding.Identity {
+				body = encodeContentCodingForGatewayTest(t, encoding, plain)
+			}
+			var calls atomic.Int64
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				writer.Header().Set("Content-Type", "application/json")
+				if encoding != contentcoding.Identity {
+					writer.Header().Set("Content-Encoding", string(encoding))
+				}
+				writer.WriteHeader(http.StatusBadRequest)
+				_, _ = writer.Write(body)
+			}))
+			defer upstream.Close()
+			engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "gpt-4o",
+				dialect.NewSet(dialect.NewOpenAI()),
+				dialectGatewayGroup{id: 1, name: "rejecting", upstreamURL: upstream.URL, apiKeys: []string{"sk-one", "sk-two"}},
+			)
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || calls.Load() != 1 ||
+				!strings.Contains(recorder.Body.String(), "context_length_exceeded") {
+				t.Fatalf("response = %d calls=%d body=%s", recorder.Code, calls.Load(), recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	rawResponse := []byte("{\n  \"model\" : \"same-model\", \"n\": 9007199254740993\n}\n")
 	var receivedHeader http.Header
