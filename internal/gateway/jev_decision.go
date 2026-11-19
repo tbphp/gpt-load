@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"gpt-load/internal/dialect"
@@ -39,7 +40,6 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 
 	model := config.Model
 	query := scheduler.Query{
-		ClientProtocol:   protocol.Decisions,
 		Operation:        execution.OperationDecisionsCreate,
 		RouteRequirement: execution.RouteRequirementNative,
 		ExternalModel:    &model,
@@ -47,7 +47,14 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 	if config.GroupID != 0 {
 		query.AccessKey.Filters.Groups = map[uint]struct{}{config.GroupID: {}}
 	}
-	groupIDs := scheduler.CandidateGroupIDsForQuery(snapshot, query)
+	// 决策模型配在 Gemini 分组时改走 Google 原生决策协议。
+	var groupIDs []uint
+	for _, clientProtocol := range jev.Protocols() {
+		query.ClientProtocol = clientProtocol
+		if groupIDs = scheduler.CandidateGroupIDsForQuery(snapshot, query); len(groupIDs) > 0 {
+			break
+		}
+	}
 	refs := handler.registry.CaptureActiveCredentialRefs(groupIDs)
 	allowedIDs := make(map[uint]struct{}, len(refs))
 	allowedRefs := make(map[uint]state.CredentialRef, len(refs))
@@ -108,8 +115,13 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		decision.Reason = "proxy_unavailable"
 		return decision, result
 	}
+	payload, path, decisionDialect, err := nativeDecisionsRequest(query.ClientProtocol, payload)
+	if err != nil {
+		decision.Reason = "invalid_request"
+		return decision, result
+	}
 	body, _, err := selection.Group.ParameterOverrides.ApplyWithLimit(
-		protocol.Decisions,
+		query.ClientProtocol,
 		execution.OperationDecisionsCreate,
 		model,
 		payload,
@@ -125,11 +137,10 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 	}
 	request := &dialect.ParsedRequest{
 		Method: http.MethodPost,
-		Path:   decisionsPath,
+		Path:   path,
 		Header: http.Header{"Content-Type": {"application/json"}},
 		Body:   body,
 	}
-	decisionDialect := dialect.NewDecisions()
 	metadata, err := decisionDialect.InspectRequest(request)
 	if err != nil {
 		decision.Reason = "invalid_request"
@@ -153,7 +164,7 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 		CredentialSecrets: credential.secrets, Request: request,
 		ExternalModel: model, UpstreamModelID: optionalModelValue(selection.UpstreamModelID),
 		RequestID: requestID, AttemptID: requestID + ":1", AttemptSequence: 1,
-		ClientProtocol: protocol.Decisions, Operation: execution.OperationDecisionsCreate,
+		ClientProtocol: query.ClientProtocol, Operation: execution.OperationDecisionsCreate,
 		RouteRequirement: execution.RouteRequirementNative,
 		ChannelID:        string(selection.ChannelID), RouteMode: execution.RouteMode(selection.RouteMode),
 		TargetConfig: selection.ResolvedTarget.TargetConfig,
@@ -255,15 +266,84 @@ func (handler *Handler) executeJevDecision(ctx context.Context, snapshot *state.
 	return decision, result
 }
 
+// nativeDecisionsRequest 给出所选决策协议的原生请求体、路径与方言；
+// 内部功能按 Jev 格式组装请求，走 Google 时改写成 Google 原生格式。
+func nativeDecisionsRequest(clientProtocol protocol.Protocol, payload []byte) ([]byte, string, dialect.Dialect, error) {
+	if clientProtocol != protocol.GeminiDecisions {
+		return payload, decisionsPath, dialect.NewDecisions(), nil
+	}
+	body, err := geminiDecisionsPayload(payload)
+	return body, geminiDecisionsPath, dialect.NewGeminiDecisions(), err
+}
+
+// geminiDecisionsPayload 把 Jev 格式的决策请求改写成 Google 格式。两边题型和答案格式一致，
+// 只有 Google 的 input 与题目说明只收文本：state 序列化进 input，非文本说明序列化成 JSON 文本。
+func geminiDecisionsPayload(payload []byte) ([]byte, error) {
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &request); err != nil {
+		return nil, err
+	}
+	// 提示词按 state 书写，保留这层键，Google 看到的字段名与 Jev 一致。
+	wrapped, err := json.Marshal(map[string]json.RawMessage{"state": request["state"]})
+	if err != nil {
+		return nil, err
+	}
+	if request["input"], err = decisionsText(wrapped); err != nil {
+		return nil, err
+	}
+	delete(request, "state")
+	var questions map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(request["questions"], &questions); err != nil {
+		return nil, err
+	}
+	for _, question := range questions {
+		if instructions := bytes.TrimSpace(question["instructions"]); len(instructions) > 0 && instructions[0] != '"' {
+			if question["instructions"], err = decisionsText(instructions); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if request["questions"], err = json.Marshal(questions); err != nil {
+		return nil, err
+	}
+	return json.Marshal(request)
+}
+
+// decisionsText 把 JSON 值转成 JSON 文本字符串；不做 HTML 转义，<、>、& 原样交给上游和脱敏规则。
+func decisionsText(value json.RawMessage) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	var text bytes.Buffer
+	encoder := json.NewEncoder(&text)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(decoded); err != nil {
+		return nil, err
+	}
+	return json.Marshal(strings.TrimSuffix(text.String(), "\n"))
+}
+
 func sameDecisionContent(before, after []byte) bool {
 	var a, b map[string]json.RawMessage
 	if json.Unmarshal(before, &a) != nil || json.Unmarshal(after, &b) != nil {
 		return false
 	}
-	for _, field := range []string{"state", "questions"} {
+	// Jev 的上下文在 state，Google 的在 input，两种格式共用同一检查。
+	for _, field := range []string{"state", "input", "questions"} {
+		beforeRaw, beforeExists := a[field]
+		afterRaw, afterExists := b[field]
+		if beforeExists != afterExists {
+			return false
+		}
+		if !beforeExists {
+			continue
+		}
 		var av, bv any
-		beforeDecoder := json.NewDecoder(bytes.NewReader(a[field]))
-		afterDecoder := json.NewDecoder(bytes.NewReader(b[field]))
+		beforeDecoder := json.NewDecoder(bytes.NewReader(beforeRaw))
+		afterDecoder := json.NewDecoder(bytes.NewReader(afterRaw))
 		beforeDecoder.UseNumber()
 		afterDecoder.UseNumber()
 		if beforeDecoder.Decode(&av) != nil || afterDecoder.Decode(&bv) != nil {

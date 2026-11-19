@@ -9,19 +9,21 @@ import (
 
 	"gpt-load/internal/automodel"
 	"gpt-load/internal/execution"
-	"gpt-load/internal/protocol"
+	"gpt-load/internal/jev"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
 
 func decisionRouteOptions(snapshot *state.ConfigSnapshot) []DecisionRouteOption {
 	byGroup := map[uint]map[string]bool{}
-	for model, targets := range snapshot.ExecutionCandidates[protocol.Decisions][execution.OperationDecisionsCreate] {
-		for _, target := range targets {
-			if byGroup[target.GroupID] == nil {
-				byGroup[target.GroupID] = map[string]bool{}
+	for _, clientProtocol := range jev.Protocols() {
+		for model, targets := range snapshot.ExecutionCandidates[clientProtocol][execution.OperationDecisionsCreate] {
+			for _, target := range targets {
+				if byGroup[target.GroupID] == nil {
+					byGroup[target.GroupID] = map[string]bool{}
+				}
+				byGroup[target.GroupID][model] = true
 			}
-			byGroup[target.GroupID][model] = true
 		}
 	}
 	options := []DecisionRouteOption{}
