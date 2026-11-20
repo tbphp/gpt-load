@@ -1219,19 +1219,21 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 	case channel.ProviderOpenAI, channel.ProviderOpenAICompatible, channel.ProviderAlibaba:
 		return spec.Path, nil
 	case channel.ProviderMultiProtocolGateway:
-		if spec.ClientProtocol != protocol.Gemini && spec.ClientProtocol != protocol.GeminiEmbeddings {
-			return spec.Path, nil
+		path := spec.Path
+		if (spec.ClientProtocol == protocol.Gemini || spec.ClientProtocol == protocol.GeminiEmbeddings) &&
+			spec.Operation != execution.OperationListModels {
+			marker := "/models/"
+			modelStart := strings.Index(path, marker)
+			colon := strings.LastIndex(path, ":")
+			if modelStart < 0 || colon <= modelStart+len(marker) {
+				return "", fmt.Errorf("invalid multi-protocol gateway Gemini model path")
+			}
+			path = path[:modelStart+len(marker)] + url.PathEscape(spec.UpstreamModel) + path[colon:]
 		}
-		if spec.Operation == execution.OperationListModels {
-			return spec.Path, nil
+		if spec.ChannelID == string(channel.Modelink) {
+			path = modelinkNativePath(spec.ClientProtocol, path)
 		}
-		marker := "/models/"
-		modelStart := strings.Index(spec.Path, marker)
-		colon := strings.LastIndex(spec.Path, ":")
-		if modelStart < 0 || colon <= modelStart+len(marker) {
-			return "", fmt.Errorf("invalid multi-protocol gateway Gemini model path")
-		}
-		return spec.Path[:modelStart+len(marker)] + url.PathEscape(spec.UpstreamModel) + spec.Path[colon:], nil
+		return path, nil
 	case channel.ProviderAnthropic:
 		return spec.Path, nil
 	case channel.ProviderDeepSeek:
@@ -1265,6 +1267,20 @@ func nativePassthroughPath(spec execution.AttemptSpec, providerKind channel.Prov
 		return vertexNativeGeminiPath(spec.UpstreamModel, spec.Path[colon+1:])
 	default:
 		return "", fmt.Errorf("unsupported native channel")
+	}
+}
+
+// modelinkNativePath maps standard client paths to Modelink's native endpoints.
+func modelinkNativePath(clientProtocol protocol.Protocol, path string) string {
+	switch clientProtocol {
+	case protocol.OpenAIResponses, protocol.OpenAIImages:
+		return "/bypass/openai" + path
+	case protocol.Anthropic:
+		return "/bypass/anthropic" + path
+	case protocol.Gemini:
+		return "/bypass/vertex/v1" + strings.TrimPrefix(path, "/v1beta")
+	default:
+		return path
 	}
 }
 

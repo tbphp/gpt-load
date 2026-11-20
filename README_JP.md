@@ -32,6 +32,14 @@ API キー、サブスクリプションアカウント、トラフィック制�
 <table>
 <tbody>
 <tr>
+<td width="180"><a href="https://www.qiniu.com/ai/free-models/conatus-2026?utm_source=gpt_load&amp;utm_medium=oss&amp;utm_campaign=comatus_202611&amp;utm_content=readme" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/qiniu-sponsor.png" alt="Qiniu Cloud" width="150"></a></td>
+<td><strong>Qiniu Cloud の本プロジェクトへのご支援に感謝します！</strong><br>Qiniu Cloud（02567.HK）が提供する企業向け MaaS プラットフォームです。世界の主要モデル 150 種類以上を一か所から利用でき、主要なモデル提供元のプロトコルに対応しています。テキスト、画像、音声、動画、ファイルなどのマルチモーダル処理に対応し、180 万人を超える企業の開発者に利用されています。<br><strong>新規法人ユーザーは 2,000 万トークンを無料で受け取れます。年末キャンペーンでは、新規ユーザーは<a href="https://www.qiniu.com/ai/free-models/conatus-2026?utm_source=gpt_load&amp;utm_medium=oss&amp;utm_campaign=comatus_202611&amp;utm_content=readme" target="_blank" rel="sponsored noopener noreferrer">1 日あたり最大 10 億トークンを無料で利用できます</a>。</strong></td>
+</tr>
+<tr>
+<td width="180"><a href="https://api.fenno.ai/?utm_source=gpt_load&amp;utm_medium=oss&amp;utm_campaign=fenno_202611&amp;utm_content=readme" target="_blank" rel="sponsored noopener noreferrer"><img src="./screenshot/fenno-sponsor.jpg" alt="Fenno.ai" width="150"></a></td>
+<td><strong>Fenno.ai の本プロジェクトへのご支援に感謝します！</strong><br>Fenno.ai はコーディング向けの API ゲートウェイで、Codex の中継を主力としています。GPT、Claude、Grok などのコーディング用モデルを 1 つの API キーで利用でき、OpenAI と Anthropic の両プロトコルに対応。Codex、Claude Code、Cline、OpenCode などの主要な開発ツールに直接接続できます。中国国内と海外の法人向けに、法人間決済と請求書発行に対応しています。<br><strong>新規ユーザーは<a href="https://api.fenno.ai/?utm_source=gpt_load&amp;utm_medium=oss&amp;utm_campaign=fenno_202611&amp;utm_content=readme" target="_blank" rel="sponsored noopener noreferrer">1.99 ドルで 50 ドル分のクレジットを試せます</a>。友人を紹介すると最大 20% の紹介報酬を獲得でき、紹介するほど報酬が増えます。</strong></td>
+</tr>
+<tr>
 <td width="180"><a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=gpt_load" target="_blank" rel="noopener noreferrer"><img src="./screenshot/ofoxai.svg" alt="OfoxAI" width="150"></a></td>
 <td><strong>OfoxAI：テキスト・画像・動画 AI を一つのプラットフォームで</strong><br>OfoxAI は、複数のプロバイダーのテキスト・画像・動画モデルを集約する AI API プラットフォームです。OpenAI 互換 API と Anthropic・Gemini のネイティブ API に対応。開発者は一つのプラットフォームから AI アプリ、エージェント、コンテンツ制作向けのモデルを利用し、タスクに合った機能を選べます。 <a href="https://ofox.ai/?utm_source=github&amp;utm_medium=sponsorship&amp;utm_content=gpt_load" target="_blank" rel="noopener noreferrer">OfoxAI のモデルと API を見る →</a></td>
 </tr>

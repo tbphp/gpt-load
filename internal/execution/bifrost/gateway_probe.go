@@ -37,6 +37,9 @@ func prepareGatewayProtocolProbe(
 		failure := notSentUnaryFailure(execution.ErrorKindInvalidRequest, "invalid multi-protocol gateway probe target")
 		return preparedAttempt{}, &failure
 	}
+	if resolved.ChannelID == channel.Modelink {
+		path = modelinkNativePath(spec.ClientProtocol, path)
+	}
 	return protocolProbeAttempt(spec, provider, directKey, secrets, baseURL, path, body), nil
 }
 
