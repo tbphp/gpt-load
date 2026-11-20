@@ -121,8 +121,10 @@ const tooltipLabel = computed(() => {
   border-radius: var(--modern-radius-small);
   background: var(--modern-subtle);
   color: var(--modern-muted);
+  font-family: var(--modern-font-mono);
   font-size: var(--modern-channel-mark-ratio);
   font-weight: var(--modern-weight-semibold);
   line-height: var(--modern-leading-compact);
+  white-space: nowrap;
 }
 </style>
