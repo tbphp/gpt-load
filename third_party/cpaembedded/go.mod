@@ -6,11 +6,11 @@ require (
 	github.com/andybalholm/brotli v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/router-for-me/CLIProxyAPI/v8 v8.0.77
+	github.com/router-for-me/CLIProxyAPI/v8 v8.0.78
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.20.4
 	github.com/tidwall/sjson v1.2.10
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -50,11 +50,11 @@ require (
 	go.etcd.io/bbolt v1.5.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
