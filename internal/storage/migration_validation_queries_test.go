@@ -16,9 +16,10 @@ import (
 
 type migrationQueryCounter struct {
 	logger.Interface
-	total             int
-	currentDatabase   int
-	informationSchema int
+	total                int
+	postgresLockAttempts int
+	currentDatabase      int
+	informationSchema    int
 }
 
 func (counter *migrationQueryCounter) LogMode(logger.LogLevel) logger.Interface { return counter }
@@ -27,12 +28,20 @@ func (counter *migrationQueryCounter) Trace(_ context.Context, _ time.Time, quer
 	sql, _ := query()
 	sql = strings.ToLower(sql)
 	counter.total++
+	if sql == "select pg_try_advisory_lock(hashtext('"+migrationLockName+"'))" {
+		counter.postgresLockAttempts++
+	}
 	if strings.Contains(sql, "select database()") {
 		counter.currentDatabase++
 	}
 	if strings.Contains(sql, "information_schema") {
 		counter.informationSchema++
 	}
+}
+
+// 每轮 AutoMigrate 获取一次迁移锁；并行测试持锁期间的重复轮询单独记录。
+func (counter *migrationQueryCounter) queriesExcludingLockRetries() int {
+	return counter.total - max(0, counter.postgresLockAttempts-1)
 }
 
 func TestExternalMigrationValidationLimitsMetadataQueries(t *testing.T) {
@@ -54,22 +63,22 @@ func verifyMigrationValidationQueryLimits(t *testing.T, db *gorm.DB) {
 	if err := AutoMigrate(db.Session(&gorm.Session{Logger: initialize})); err != nil {
 		t.Fatalf("initialize schema: %v", err)
 	}
-	t.Logf("driver=%s phase=initialize total=%d current_database=%d information_schema=%d", db.Dialector.Name(), initialize.total, initialize.currentDatabase, initialize.informationSchema)
+	t.Logf("driver=%s phase=initialize total=%d postgres_lock_attempts=%d current_database=%d information_schema=%d", db.Dialector.Name(), initialize.total, initialize.postgresLockAttempts, initialize.currentDatabase, initialize.informationSchema)
 	initialLimit := 1000
 	if db.Dialector.Name() == "mysql" {
 		initialLimit = 1800
 	}
-	if initialize.total > initialLimit {
-		t.Errorf("initialization executed %d SQL statements, want at most %d", initialize.total, initialLimit)
+	if queries := initialize.queriesExcludingLockRetries(); queries > initialLimit {
+		t.Errorf("initialization executed %d SQL statements excluding lock retries, want at most %d", queries, initialLimit)
 	}
 
 	counter := &migrationQueryCounter{Interface: logger.Discard}
 	if err := AutoMigrate(db.Session(&gorm.Session{Logger: counter})); err != nil {
 		t.Fatalf("validate completed schema: %v", err)
 	}
-	t.Logf("driver=%s phase=restart total=%d current_database=%d information_schema=%d", db.Dialector.Name(), counter.total, counter.currentDatabase, counter.informationSchema)
-	if counter.total > 400 {
-		t.Errorf("repeat startup executed %d SQL statements, want at most 400", counter.total)
+	t.Logf("driver=%s phase=restart total=%d postgres_lock_attempts=%d current_database=%d information_schema=%d", db.Dialector.Name(), counter.total, counter.postgresLockAttempts, counter.currentDatabase, counter.informationSchema)
+	if queries := counter.queriesExcludingLockRetries(); queries > 400 {
+		t.Errorf("repeat startup executed %d SQL statements excluding lock retries, want at most 400", queries)
 	}
 	// 0031 首次校验 model_prices 的列类型，多出一次 GORM schema 查询；每表仍只读取一次。
 	if db.Dialector.Name() == "mysql" && counter.currentDatabase > 11 {
