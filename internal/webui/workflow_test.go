@@ -15,7 +15,7 @@ import (
 
 const (
 	checkoutActionRef         = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-	setupGoActionRef          = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+	setupGoActionRef          = "actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5"
 	setupNodeActionRef        = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
 	pnpmSetupActionRef        = "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
 	uploadArtifactActionRef   = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
