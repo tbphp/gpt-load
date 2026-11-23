@@ -453,7 +453,6 @@ export default {
         save: '適用',
       },
       priority: '優先度',
-      priorityBadge: 'P{priority}',
       priorityTooltip:
         '認証情報の優先度 {priority}。同じグループ優先度内では、利用可能な認証情報のうち最も高い優先度のみがスケジュールされます。',
       editPriority: '優先度を編集',

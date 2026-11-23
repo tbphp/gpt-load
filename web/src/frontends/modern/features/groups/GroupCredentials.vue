@@ -129,6 +129,7 @@ const search = ref(filters.value.q)
 const composing = ref(false)
 const selected = ref(new Set<number>())
 const nameDrafts = ref(new Set<number>())
+const priorityDrafts = ref(new Set<number>())
 const cardRevision = ref(0)
 const credentialView = useURLState(
   ['credential', 'credential_view'],
@@ -362,8 +363,9 @@ watch(
   () => {
     clearTimeout(searchTimer)
     search.value = filters.value.q
-    if (nameDrafts.value.size) {
+    if (nameDrafts.value.size || priorityDrafts.value.size) {
       nameDrafts.value.clear()
+      priorityDrafts.value.clear()
       cardRevision.value++
     }
     selected.value = new Set()
@@ -783,6 +785,33 @@ function saved(row: CredentialRow): void {
 function nameDirty(id: number, dirty: boolean): void {
   if (dirty) nameDrafts.value.add(id)
   else nameDrafts.value.delete(id)
+}
+function priorityDirty(id: number, dirty: boolean): void {
+  if (dirty) priorityDrafts.value.add(id)
+  else priorityDrafts.value.delete(id)
+}
+// 卡片内联修改优先级：与详情面板共用更新接口和缓存刷新，失败时提示并保留输入。
+async function savePriority(row: CredentialRow, priority: number): Promise<void> {
+  if (busy.value || syncPending(row.id)) throw new Error('CREDENTIAL_BUSY')
+  mutating.value = row.id
+  pendingAction.value = 'priority'
+  cardErrors.value.delete(row.id)
+  try {
+    const result = await updateCredential(
+      client,
+      props.group.id,
+      row.id,
+      { priority },
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    saved(result)
+  } catch (cause) {
+    if (!controller.signal.aborted) cardErrors.value.set(row.id, t('groups.edit.saveFailed'))
+    throw cause
+  } finally {
+    mutating.value = undefined
+  }
 }
 async function saveName(row: CredentialRow, name: string): Promise<void> {
   if (busy.value || syncPending(row.id)) throw new Error('CREDENTIAL_BUSY')
@@ -1262,7 +1291,9 @@ defineExpose({ refresh })
             :disabled="busy || syncPending(row.id)"
             :error="cardErrors.get(row.id)"
             :save-name="(name) => saveName(row, name)"
+            :save-priority="(value) => savePriority(row, value)"
             @name-dirty="nameDirty(row.id, $event)"
+            @priority-dirty="priorityDirty(row.id, $event)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1277,7 +1308,9 @@ defineExpose({ refresh })
             :error="cardErrors.get(row.id)"
             :resolve-secret="copySecret(row.id)"
             :save-name="(name) => saveName(row, name)"
+            :save-priority="(value) => savePriority(row, value)"
             @name-dirty="nameDirty(row.id, $event)"
+            @priority-dirty="priorityDirty(row.id, $event)"
             @select="select(row.id, $event)"
             @toggle="toggle(row, $event)"
             @action="action(row, $event)"
@@ -1375,7 +1408,7 @@ defineExpose({ refresh })
     @start="startBatchTest"
   />
   <AppDraftGuard
-    :dirty="nameDrafts.size > 0"
+    :dirty="nameDrafts.size > 0 || priorityDrafts.size > 0"
     :pending="mutating !== undefined || accountBatchPending || syncing.size > 0"
     :query-scope="filterKeys"
   />

@@ -30,12 +30,14 @@ const props = defineProps<{
   error?: string
   resolveSecret: () => Promise<string>
   saveName: (name: string) => Promise<void>
+  savePriority?: (value: number) => Promise<void>
 }>()
 defineEmits<{
   select: [value: boolean]
   toggle: [value: boolean]
   action: [value: string]
   nameDirty: [value: boolean]
+  priorityDirty: [value: boolean]
 }>()
 const { t, n, locale } = useI18n()
 const now = useClock()
@@ -154,7 +156,16 @@ const issues = computed(() =>
       </div>
       <div>
         <dt>{{ t('credentialCards.weight') }}</dt>
-        <dd>{{ n(row.weight) }}<CredentialRoutingMeta :row="row" :weight="false" /></dd>
+        <dd>
+          {{ n(row.weight)
+          }}<CredentialRoutingMeta
+            :row="row"
+            :weight="false"
+            :disabled="disabled"
+            :save-priority="savePriority"
+            @dirty="$emit('priorityDirty', $event)"
+          />
+        </dd>
       </div>
       <AppTooltip v-if="row.rpmPeakHour !== undefined" :label="t('rpm.hourPeak')">
         <div tabindex="0">

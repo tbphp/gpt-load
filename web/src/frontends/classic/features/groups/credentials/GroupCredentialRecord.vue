@@ -11,7 +11,7 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isValidGroupPriority } from '@shared/group-priority'
 
@@ -67,6 +67,15 @@ const priorityValid = computed(() => isValidGroupPriority(draftPriority.value))
 const priorityTooltip = computed(() =>
   t('group.credentials.priorityTooltip', { priority: n(props.item.priority) }),
 )
+const priorityLabel = computed(() => `${t('group.credentials.priority')} ${n(props.item.priority)}`)
+const priorityInput = ref<HTMLInputElement | null>(null)
+// 编辑器出现且折叠区已展开后聚焦输入框，列表上的优先级入口无需再次点击。
+watch([priorityInput, () => props.expanded], async ([input, expanded]) => {
+  if (!input || !expanded) return
+  await nextTick()
+  input.focus()
+  input.select()
+})
 const isProblem = computed(
   () =>
     props.item.effective_status === 'cooldown' ||
@@ -154,6 +163,13 @@ function savePriority(): void {
   if (props.busy || !priorityValid.value) return
   emit('priority', { item: props.item, value: String(Number(draftPriority.value)) })
   priorityEditing.value = false
+}
+
+// 优先级标签可点：展开该行并直接进入优先级编辑。
+function openPriorityFromColumn(): void {
+  if (props.busy) return
+  if (!props.expanded) emit('update:expanded', true)
+  editPriority()
 }
 
 function saveWeight(): void {
@@ -248,10 +264,17 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
             {{ weightLabel }}
           </button>
         </AppTooltip>
-        <AppTooltip v-if="item.priority !== 0" :content="priorityTooltip">
-          <span class="group-credential-record__priority-badge">{{
-            t('group.credentials.priorityBadge', { priority: n(item.priority) })
-          }}</span>
+        <AppTooltip :content="priorityTooltip">
+          <button
+            type="button"
+            class="group-credential-record__priority-badge"
+            :disabled="busy"
+            :aria-label="`${priorityLabel} · ${t('group.credentials.editPriority')}`"
+            :aria-controls="detailId"
+            @click="openPriorityFromColumn"
+          >
+            {{ priorityLabel }}
+          </button>
         </AppTooltip>
       </div>
 
@@ -443,12 +466,14 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                   </label>
                   <input
                     :id="priorityInputId"
+                    ref="priorityInput"
                     v-model="draftPriority"
                     type="number"
                     step="1"
                     inputmode="numeric"
                     :disabled="busy"
                     :aria-invalid="!priorityValid || undefined"
+                    @keydown.esc.stop.prevent="priorityEditing = false"
                   />
                   <div class="setting-panel__actions">
                     <AppButton variant="ghost" size="compact" @click="priorityEditing = false">
@@ -682,6 +707,7 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   display: inline-flex;
   align-items: center;
   margin-left: 4px;
+  border: 0;
   border-radius: var(--radius-tag);
   background: var(--color-info-bg);
   color: var(--color-info);
@@ -689,6 +715,20 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   font-size: var(--text-sm);
   font-weight: 650;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.group-credential-record__priority-badge:hover:not(:disabled) {
+  background: var(--color-interactive-hover);
+}
+
+.group-credential-record__priority-badge:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.group-credential-record__priority-badge:disabled {
+  cursor: not-allowed;
 }
 
 .group-credential-record__weight-value {

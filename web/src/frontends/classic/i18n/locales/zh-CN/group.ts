@@ -436,7 +436,6 @@ export default {
         save: '应用',
       },
       priority: '优先级',
-      priorityBadge: 'P{priority}',
       priorityTooltip:
         '凭据优先级 {priority}。同一分组优先级内，只调度可用凭据中优先级最高的一档。',
       editPriority: '编辑优先级',

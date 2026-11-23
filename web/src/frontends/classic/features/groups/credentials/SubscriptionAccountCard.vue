@@ -2,6 +2,7 @@
 import CredentialDisplay from '@/components/CredentialDisplay.vue'
 import CredentialNameEditor from './CredentialNameEditor.vue'
 import {
+  ArrowUpNarrowWide,
   Check,
   CircleCheck,
   CircleOff,
@@ -91,6 +92,13 @@ const priorityValid = computed(() => isValidGroupPriority(draftPriority.value))
 const priorityTooltip = computed(() =>
   t('group.credentials.priorityTooltip', { priority: n(props.item.priority) }),
 )
+const priorityLabel = computed(() => `${t('group.credentials.priority')} ${n(props.item.priority)}`)
+const priorityInput = ref<HTMLInputElement | null>(null)
+// 编辑器出现时直接聚焦输入框，卡片上的优先级入口无需再次点击。
+watch(priorityInput, (input) => {
+  input?.focus()
+  input?.select()
+})
 
 function editPriority(): void {
   if (props.busy) return
@@ -824,15 +832,16 @@ function runMenuAction(
                 <b>{{ n(item.weight as number) }}</b>
               </button>
             </AppTooltip>
-            <AppTooltip v-if="item.priority !== 0" :content="priorityTooltip">
+            <AppTooltip :content="priorityTooltip">
               <button
                 class="subscription-account__weight-chip"
                 type="button"
                 :disabled="busy"
-                :aria-label="priorityTooltip"
+                :aria-label="`${priorityLabel} · ${t('group.credentials.editPriority')}`"
                 @click="editPriority"
               >
-                <b>{{ t('group.credentials.priorityBadge', { priority: n(item.priority) }) }}</b>
+                <ArrowUpNarrowWide :size="12" aria-hidden="true" />
+                <b>{{ priorityLabel }}</b>
               </button>
             </AppTooltip>
             <ProxyScopeIndicator
@@ -1481,6 +1490,7 @@ function runMenuAction(
               </label>
               <input
                 :id="priorityInputId"
+                ref="priorityInput"
                 v-model="draftPriority"
                 class="subscription-account__weight-input"
                 type="number"
@@ -1488,6 +1498,7 @@ function runMenuAction(
                 inputmode="numeric"
                 :disabled="busy"
                 :aria-invalid="!priorityValid || undefined"
+                @keydown.esc.stop.prevent="priorityEditing = false"
               />
               <div class="setting-panel__actions">
                 <AppButton variant="ghost" size="compact" @click="priorityEditing = false">

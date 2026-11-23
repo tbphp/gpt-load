@@ -452,7 +452,6 @@ export default {
         save: 'Apply',
       },
       priority: 'Priority',
-      priorityBadge: 'P{priority}',
       priorityTooltip:
         'Credential priority {priority}. Within the same Group priority, only available credentials at the highest priority are scheduled.',
       editPriority: 'Edit priority',
