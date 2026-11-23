@@ -7,11 +7,11 @@ Thanks for helping improve GPT-Load. This document covers what a human contribut
 ## 开始之前 / Before you start
 
 - **安全漏洞不要提 issue**，请使用 [私有漏洞报告](https://github.com/tbphp/gpt-load/security/advisories/new)，详见 [SECURITY.md](SECURITY.md)。
-- 使用类问题请先查阅[官方文档](https://www.gpt-load.com/docs)或到 [Telegram 群](https://t.me/+GHpy5SwEllg3MTUx)交流，不要开 issue。
+- 使用类问题请先查阅[官方文档](https://gpt-load.com/docs)或到 [Telegram 群](https://t.me/+GHpy5SwEllg3MTUx)交流，不要开 issue。
 - 较大的改动请先开 issue 讨论方向，避免完成后才发现方案不合适。
 
 - **Never open a public issue for a vulnerability** — use [private vulnerability reporting](https://github.com/tbphp/gpt-load/security/advisories/new); see [SECURITY.md](SECURITY.md).
-- For usage questions, check the [official docs](https://www.gpt-load.com/docs) or the [Telegram group](https://t.me/+GHpy5SwEllg3MTUx) first.
+- For usage questions, check the [official docs](https://gpt-load.com/docs) or the [Telegram group](https://t.me/+GHpy5SwEllg3MTUx) first.
 - For substantial changes, open an issue to discuss the approach before writing code.
 
 ## 版本线 / Release lines

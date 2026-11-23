@@ -8,7 +8,7 @@
 
 API keys, subscription accounts, traffic scheduling, failure handling, request logs, and usage accounting — behind a single entry point.
 
-English · [中文](README_CN.md) · [日本語](README_JP.md) | [Official Website](https://www.gpt-load.com)
+English · [中文](README_CN.md) · [日本語](README_JP.md) | [Official Website](https://gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
@@ -248,7 +248,7 @@ Environment proxies apply only when no proxy is specified on the credential, gro
 > [!WARNING]
 > GPT-Load 2.0 is a complete rewrite. It **cannot** open, import, or migrate 1.x data in place.
 
-Deploy 2.0 with its own database, `DATA_DIR`, port, and Docker volume. Cut traffic over only after verification, and keep the original 1.x deployment until the rollback window closes. Documentation for the 1.4.x maintenance line is at the [official docs](https://www.gpt-load.com/docs).
+Deploy 2.0 with its own database, `DATA_DIR`, port, and Docker volume. Cut traffic over only after verification, and keep the original 1.x deployment until the rollback window closes. Documentation for the 1.4.x maintenance line is at the [official docs](https://gpt-load.com/en/v1/docs).
 
 ## Open-source dependencies
 
