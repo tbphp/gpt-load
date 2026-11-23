@@ -2,6 +2,7 @@
 package scheduler
 
 import (
+	"cmp"
 	"errors"
 	"slices"
 	"strings"
@@ -46,6 +47,8 @@ type Selection struct {
 	UpstreamModelID          *string
 	Group                    state.GroupView
 	ResponsesStoreDowngraded bool
+	// CredentialPriority 是选中凭据的次级档位，供重试降档使用。
+	CredentialPriority int32
 }
 
 type candidateTarget struct {
@@ -62,8 +65,23 @@ type weightedCredential struct {
 type candidatePool struct {
 	targetsByGroup map[uint][]candidateTarget
 	groupIDsByMode map[channel.RouteMode][]uint
-	priorityLimit  *int32
+	priorityLimit  *priorityTier
 	lowerPriority  bool
+}
+
+// priorityTier 先比较分组优先级，再比较凭据优先级。凭据优先级跨同一分组优先级档内
+// 的全部分组比较，因此一个含 3、2、1 档凭据的分组与三个 3、2、1 档分组的选择和重试
+// 降档行为一致；分组优先级始终优先于凭据优先级。
+type priorityTier struct {
+	group      int32
+	credential int32
+}
+
+func (tier priorityTier) compare(other priorityTier) int {
+	if order := cmp.Compare(tier.group, other.group); order != 0 {
+		return order
+	}
+	return cmp.Compare(tier.credential, other.credential)
 }
 
 type Iterator struct {
@@ -225,8 +243,8 @@ func (iterator *Iterator) AdvancePriority(selection Selection) {
 	if selection.ResponsesStoreDowngraded {
 		pool = &iterator.storeDowngraded
 	}
-	priority := selection.Group.Priority
-	pool.priorityLimit, pool.lowerPriority = &priority, true
+	tier := priorityTier{group: selection.Group.Priority, credential: selection.CredentialPriority}
+	pool.priorityLimit, pool.lowerPriority = &tier, true
 }
 
 func (iterator *Iterator) weightedPoolForMode(
@@ -332,8 +350,8 @@ func (iterator *Iterator) Next() (Selection, error) {
 		}
 		iterator.tried[selected.ID] = struct{}{}
 		if pool.priorityLimit != nil {
-			priority := target.group.Priority
-			pool.priorityLimit, pool.lowerPriority = &priority, false
+			tier := priorityTier{group: target.group.Priority, credential: selected.Priority}
+			pool.priorityLimit, pool.lowerPriority = &tier, false
 		}
 		return newSelection(selected, target), nil
 	}
@@ -341,19 +359,20 @@ func (iterator *Iterator) Next() (Selection, error) {
 }
 
 // priorityCandidates 跨原生与转换选档；失败后降至下一可用档，最低档保留未试候选。
+// 档位为（分组优先级，凭据优先级），亲和与防饥饿替补只在选中的档内生效。
 func (iterator *Iterator) priorityCandidates(pool *candidatePool, candidates []weightedCredential) []weightedCredential {
-	var priority, lower int32
+	var priority, lower priorityTier
 	var found, lowerFound bool
 	for _, candidate := range candidates {
-		value := iterator.snapshot.Groups[candidate.meta.GroupID].Priority
-		if pool.priorityLimit != nil && value > *pool.priorityLimit {
+		value := iterator.candidateTier(candidate)
+		if pool.priorityLimit != nil && value.compare(*pool.priorityLimit) > 0 {
 			continue
 		}
-		if !found || value > priority {
+		if !found || value.compare(priority) > 0 {
 			priority, found = value, true
 		}
-		if pool.lowerPriority && pool.priorityLimit != nil && value < *pool.priorityLimit &&
-			(!lowerFound || value > lower) {
+		if pool.lowerPriority && pool.priorityLimit != nil && value.compare(*pool.priorityLimit) < 0 &&
+			(!lowerFound || value.compare(lower) > 0) {
 			lower, lowerFound = value, true
 		}
 	}
@@ -365,11 +384,18 @@ func (iterator *Iterator) priorityCandidates(pool *candidatePool, candidates []w
 	}
 	eligible := candidates[:0]
 	for _, candidate := range candidates {
-		if iterator.snapshot.Groups[candidate.meta.GroupID].Priority == priority {
+		if iterator.candidateTier(candidate) == priority {
 			eligible = append(eligible, candidate)
 		}
 	}
 	return eligible
+}
+
+func (iterator *Iterator) candidateTier(candidate weightedCredential) priorityTier {
+	return priorityTier{
+		group:      iterator.snapshot.Groups[candidate.meta.GroupID].Priority,
+		credential: candidate.meta.Priority,
+	}
 }
 
 func (iterator *Iterator) targetAvailable(target candidateTarget, credential state.CredentialMeta, modes []channel.RouteMode, now time.Time) bool {
@@ -482,6 +508,7 @@ func newSelection(credential state.CredentialMeta, target candidateTarget) Selec
 		UpstreamModelID:          upstreamModelID,
 		Group:                    cloneGroupView(target.group),
 		ResponsesStoreDowngraded: target.responsesStoreDowngraded,
+		CredentialPriority:       credential.Priority,
 	}
 }
 

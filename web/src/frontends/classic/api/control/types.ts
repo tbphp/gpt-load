@@ -317,6 +317,8 @@ export interface CredentialItemDto {
   configured_status: CredentialConfiguredStatus
   effective_status: CredentialStatus
   weight: number
+  /** 同一分组优先级内的凭据档位，越大越优先；默认 0。 */
+  priority: number
   recent_success_count: number
   recent_failure_count: number
   consecutive_failure_count: number

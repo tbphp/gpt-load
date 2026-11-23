@@ -35,8 +35,10 @@ type CredentialEntry struct {
 	IdentityGeneration uint64
 	Fingerprint        string
 	WeightManual       *int
-	Status             CredentialStatus
-	AuthState          CredentialAuthState
+	// Priority 是分组优先级之下的次级档位：同一分组优先级档内只调度可用凭据中的最高档。
+	Priority  int32
+	Status    CredentialStatus
+	AuthState CredentialAuthState
 	// 原字段保留其他原因和未分类的历史冷却，额度恢复不猜测历史原因。
 	CooldownUntil           time.Time
 	ModelCooldowns          map[string]time.Time
@@ -61,6 +63,7 @@ type CredentialMeta struct {
 	Version            uint64
 	IdentityGeneration uint64
 	WeightManual       *int
+	Priority           int32
 	ModelCooldowns     map[string]time.Time
 }
 
@@ -358,6 +361,7 @@ func samePersistedCredentialConfig(left, right CredentialEntry) bool {
 		left.IdentityGeneration != right.IdentityGeneration ||
 		left.Fingerprint != right.Fingerprint ||
 		left.Status != right.Status ||
+		left.Priority != right.Priority ||
 		left.EncryptedValue != right.EncryptedValue ||
 		left.EncryptedProxy != right.EncryptedProxy ||
 		left.ProxyFingerprint != right.ProxyFingerprint {
@@ -501,6 +505,7 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	credentialID uint,
 	status CredentialStatus,
 	weightManual *int,
+	priority int32,
 ) error {
 	if status != CredentialStatusActive && status != CredentialStatusDisabled {
 		return fmt.Errorf("invalid credential status %q", status)
@@ -517,6 +522,7 @@ func (r *CredentialRegistry) UpdateCredentialConfig(
 	}
 	entry.Status = status
 	entry.WeightManual = clonedWeight
+	entry.Priority = priority
 	r.scheduling.SyncCredential(runtimeView(entry))
 	return nil
 }
@@ -738,6 +744,7 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 				ID: view.ID, GroupID: view.GroupID,
 				Version: view.Version, IdentityGeneration: view.IdentityGeneration,
 				WeightManual:   cloneWeight(view.WeightManual),
+				Priority:       view.Priority,
 				ModelCooldowns: view.ModelCooldowns,
 			}
 			metas = append(metas, meta)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Network, Scale, Unplug } from '@lucide/vue'
+import { ArrowUpNarrowWide, Network, Scale, Unplug } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CredentialRow } from '@modern/api/group-detail'
@@ -29,9 +29,17 @@ const proxyLabel = computed(() =>
 
 <template>
   <span
-    v-if="(weight && row.weightManual != null) || ownProxy"
+    v-if="(weight && row.weightManual != null) || row.priority !== 0 || ownProxy"
     class="modern-credential-routing-meta"
   >
+    <AppTooltip
+      v-if="row.priority !== 0"
+      :label="t('credentialCards.credentialPriority', { value: n(row.priority) })"
+    >
+      <span class="modern-credential-routing-item" tabindex="0">
+        <AppIcon :icon="ArrowUpNarrowWide" size="xs" />{{ n(row.priority) }}
+      </span>
+    </AppTooltip>
     <AppTooltip
       v-if="weight && row.weightManual != null"
       :label="t('credentialCards.manualWeight', { value: n(row.weightManual) })"

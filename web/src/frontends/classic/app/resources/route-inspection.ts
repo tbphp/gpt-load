@@ -6,6 +6,7 @@ import {
   type AccessProtocol,
   type RouteStrategy,
 } from '@/api/control/types'
+import { readGroupPriority } from '@shared/group-priority'
 import { InvalidResponseError } from '@shared/http/errors'
 
 import {
@@ -85,6 +86,8 @@ export interface RouteInspectCredentialDto {
   available: boolean
   reason_code: RouteInspectReasonCode | null
   weight: number
+  /** 同一分组优先级内只调度可用凭据中最高的凭据优先级。 */
+  priority: number
   effective_weight: number
   cooldown_until_ms: number | null
 }
@@ -207,6 +210,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     'available',
     'reason_code',
     'weight',
+    'priority',
     'effective_weight',
     'cooldown_until_ms',
   ])
@@ -216,6 +220,7 @@ function projectRouteCredential(value: unknown): RouteInspectCredentialDto {
     available: projectBoolean(record.available),
     reason_code: projectReason(record.reason_code),
     weight: projectSafeInteger(record.weight, { minimum: 0, maximum: 100 }),
+    priority: readGroupPriority(record.priority),
     effective_weight: projectSafeInteger(record.effective_weight, { minimum: 0 }),
     cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
   }

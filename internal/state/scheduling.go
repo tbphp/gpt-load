@@ -45,6 +45,7 @@ type SchedulingMember struct {
 	Pending            bool
 	suspended          bool
 	cooldownUntil      time.Time
+	priority           int32
 }
 
 func (m *SchedulingMember) Admit(baseline SchedulingProgress) {
@@ -100,7 +101,13 @@ func (s *SchedulingState) syncCredentialLocked(view CredentialRuntimeView) {
 		if d.LastMember == view.ID {
 			d.LastMember, d.Consecutive = 0, 0
 		}
+	} else if m.priority != view.Priority {
+		// 凭据优先级改变候选档构成，与分组优先级一致地重新校准全部成员。
+		for _, member := range d.Members {
+			member.Pending = true
+		}
 	}
+	m.priority = view.Priority
 	authUnavailable := view.AuthState != CredentialAuthStateReady &&
 		view.AuthState != "" && view.AuthState != CredentialAuthStateRefreshing
 	suspended := view.Status != CredentialStatusActive || view.Blacklisted || authUnavailable ||

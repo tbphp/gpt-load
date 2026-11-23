@@ -452,6 +452,18 @@ export default {
         cancel: 'キャンセル',
         save: '適用',
       },
+      priority: '優先度',
+      priorityBadge: 'P{priority}',
+      priorityTooltip:
+        '認証情報の優先度 {priority}。同じグループ優先度内では、利用可能な認証情報のうち最も高い優先度のみがスケジュールされます。',
+      editPriority: '優先度を編集',
+      priorityEditor: {
+        value: '優先度',
+        help: '値が大きいほど先に使用され、低い優先度はフォールバックになります。既定値は 0 です。',
+        invalid: '-2147483648～2147483647 の整数を入力してください',
+        cancel: 'キャンセル',
+        save: '適用',
+      },
       recent: '成功 {success} · 失敗 {failure}',
       recentSuccessOnly: '成功 {success}',
       details: '最近の失敗と回復',

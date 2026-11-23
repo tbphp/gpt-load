@@ -73,6 +73,7 @@ type CredentialInspection struct {
 	Available       bool
 	Reason          ReasonCode
 	WeightManual    *int
+	Priority        int32
 	EffectiveWeight int64
 	CooldownUntil   time.Time
 }
@@ -303,6 +304,7 @@ func inspectCredential(
 	result := CredentialInspection{
 		CredentialID: credential.ID,
 		WeightManual: cloneWeight(credential.WeightManual),
+		Priority:     credential.Priority,
 	}
 	if group.WeightManual != nil && *group.WeightManual == 0 {
 		result.Reason = ReasonGroupWeightZero

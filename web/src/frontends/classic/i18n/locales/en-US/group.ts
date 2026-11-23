@@ -451,6 +451,18 @@ export default {
         cancel: 'Cancel',
         save: 'Apply',
       },
+      priority: 'Priority',
+      priorityBadge: 'P{priority}',
+      priorityTooltip:
+        'Credential priority {priority}. Within the same Group priority, only available credentials at the highest priority are scheduled.',
+      editPriority: 'Edit priority',
+      priorityEditor: {
+        value: 'Priority',
+        help: 'Higher values are used first; lower priorities serve as fallback. Default 0.',
+        invalid: 'Enter an integer from -2147483648 to 2147483647',
+        cancel: 'Cancel',
+        save: 'Apply',
+      },
       recent: '{success} success · {failure} failure',
       recentSuccessOnly: '{success} success',
       details: 'Recent failure and recovery',

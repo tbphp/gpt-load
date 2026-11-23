@@ -5,6 +5,7 @@ import { Info } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import { useMessageSource } from '@modern/app/messages'
+import { isValidGroupPriority } from '@shared/group-priority'
 import { useI18n } from 'vue-i18n'
 import {
   credentialDetailKey,
@@ -53,6 +54,7 @@ const saved = ref<CredentialRow>()
 const nameDirty = ref(false)
 const namePending = ref(false)
 const weight = ref('')
+const priority = ref('0')
 const proxyMode = ref('inherit')
 const proxyID = ref('')
 const saving = ref(false)
@@ -66,6 +68,7 @@ const dirty = computed(
     Boolean(saved.value) &&
     (nameDirty.value ||
       weight.value !== String(saved.value!.weightManual ?? '') ||
+      priority.value.trim() !== String(saved.value!.priority) ||
       proxyMode.value !== saved.value!.proxy.mode ||
       (Boolean(proxyID.value) && Number(proxyID.value) !== saved.value?.proxy.id)),
 )
@@ -75,6 +78,7 @@ watch(
     if (!value || dirty.value || saving.value) return
     saved.value = value
     weight.value = String(value.weightManual ?? '')
+    priority.value = String(value.priority)
     proxyMode.value = value.proxy.mode
     proxyID.value = ''
   },
@@ -87,6 +91,7 @@ const weightInvalid = computed(
       (Number(weight.value) < 1 && Number(weight.value) !== saved.value?.weight) ||
       Number(weight.value) > 100),
 )
+const priorityInvalid = computed(() => !isValidGroupPriority(priority.value))
 const proxyChanged = computed(
   () =>
     proxyMode.value !== saved.value?.proxy.mode ||
@@ -114,7 +119,7 @@ function failure(): string {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
-  if (weightInvalid.value || proxyInvalid.value) {
+  if (weightInvalid.value || priorityInvalid.value || proxyInvalid.value) {
     if (isMobile.value) {
       mobileSection.value = 'settings'
       await nextTick()
@@ -127,6 +132,7 @@ async function save(): Promise<void> {
   const patch: Parameters<typeof updateCredential>[3] = {}
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
+  if (Number(priority.value) !== saved.value.priority) patch.priority = Number(priority.value)
   if (proxyChanged.value)
     patch.proxy =
       proxyMode.value === 'inherit'
@@ -351,6 +357,15 @@ useMessageSource(() =>
           inputmode="numeric"
           :disabled="saving"
           :error="attempted && weightInvalid ? t('groups.edit.weightError') : undefined"
+        />
+        <AppTextField
+          v-model="priority"
+          :label="t('credentialCards.priority')"
+          :hint="t('credentialCards.priorityHelp')"
+          size="sm"
+          inputmode="numeric"
+          :disabled="saving"
+          :error="attempted && priorityInvalid ? t('groups.edit.priorityError') : undefined"
         />
         <AppFormSection v-if="channel?.proxy" compact :title="t('groupCreate.proxy')">
           <template #actions>

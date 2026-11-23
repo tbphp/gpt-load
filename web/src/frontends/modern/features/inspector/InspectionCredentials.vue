@@ -14,6 +14,7 @@ import {
   AppIconButton,
   AppOverflowText,
   AppPagination,
+  AppTooltip,
 } from '@modern/components/ui'
 import { credentialTime } from '@modern/features/groups/credential-presentation'
 import { groupWeight, reasonLabel } from './inspection-display'
@@ -139,7 +140,15 @@ function setPageSize(value: number): void {
               {{ row.available ? t('inspector.available') : reasonLabel(row.reason, t) }}
             </AppBadge>
           </div>
-          <span role="cell" :data-label="t('inspector.weight')">{{ n(row.weight) }}</span>
+          <span role="cell" :data-label="t('inspector.weight')">
+            {{ n(row.weight) }}
+            <AppTooltip
+              v-if="row.priority !== 0"
+              :label="t('inspector.credentialPriority') + ' ' + n(row.priority)"
+            >
+              <small tabindex="0">· P{{ n(row.priority) }}</small>
+            </AppTooltip>
+          </span>
           <span role="cell" :data-label="t('inspector.effectiveWeight')">{{
             n(row.effectiveWeight)
           }}</span>

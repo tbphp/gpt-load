@@ -70,6 +70,9 @@ export const zhCN = {
   testShort: '测试',
   noTestProtocol: '当前渠道没有可用的测试协议。',
   manualWeight: '手动权重 {value}',
+  credentialPriority: '凭据优先级 {value}：同一分组优先级内只调度可用凭据中优先级最高的一档',
+  priority: '优先级',
+  priorityHelp: '数值越大越先使用，较低优先级作为兜底；默认 0。',
   proxyOverride: '独立出站设置：{mode}',
   refreshToken: '刷新授权凭据',
   export: '导出凭据',
@@ -219,6 +222,10 @@ export const enUS: typeof zhCN = {
   testShort: 'Test',
   noTestProtocol: 'This channel has no supported test protocol.',
   manualWeight: 'Manual weight {value}',
+  credentialPriority:
+    'Credential priority {value}: within the same Group priority, only available credentials at the highest priority are scheduled',
+  priority: 'Priority',
+  priorityHelp: 'Higher values are used first; lower priorities serve as fallback. Default 0.',
   proxyOverride: 'Credential outbound setting: {mode}',
   refreshToken: 'Refresh authorization',
   export: 'Export credentials',
@@ -374,6 +381,11 @@ export const jaJP: typeof zhCN = {
   testShort: 'テスト',
   noTestProtocol: 'このチャネルには利用可能なテストプロトコルがありません。',
   manualWeight: '手動の重み {value}',
+  credentialPriority:
+    '認証情報の優先度 {value}：同じグループ優先度内では、利用可能な認証情報のうち最も高い優先度のみがスケジュールされます',
+  priority: '優先度',
+  priorityHelp:
+    '値が大きいほど先に使用され、低い優先度はフォールバックになります。既定値は 0 です。',
   proxyOverride: '個別の出力設定：{mode}',
   refreshToken: '認証を更新',
   export: '認証情報をエクスポート',

@@ -35,6 +35,7 @@ type CredentialUpdateRequest struct {
 	Name         optionalField[string]                 `json:"name"`
 	Status       optionalField[state.CredentialStatus] `json:"status"`
 	WeightManual optionalField[int]                    `json:"weight_manual"`
+	Priority     optionalField[int32]                  `json:"priority"`
 	Proxy        optionalField[outboundproxy.Config]   `json:"proxy"`
 }
 
@@ -92,6 +93,7 @@ type CredentialItemResponse struct {
 	EffectiveStatus         string                         `json:"effective_status"`
 	Weight                  int                            `json:"weight"`
 	WeightManual            *int                           `json:"-"` // 仅新版展示投影使用，经典接口不增加字段。
+	Priority                int32                          `json:"priority"`
 	RecentSuccessCount      uint64                         `json:"recent_success_count"`
 	RecentFailureCount      uint64                         `json:"recent_failure_count"`
 	ConsecutiveFailureCount uint64                         `json:"consecutive_failure_count"`
@@ -347,6 +349,9 @@ func validateCredentialCapture(capture credentialCapture) (credentialObservation
 		}
 		if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
+		}
+		if view.Priority != row.Priority {
+			return credentialObservation{}, dbRegistryMismatch(mismatchPriority, groupID, row.ID)
 		}
 		if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 			view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, capture.group) {
