@@ -8,7 +8,7 @@
 
 把 API Key、订阅账号、流量调度、故障处理、请求日志与用量统计，收进同一个入口。
 
-[English](README.md) · 中文 · [日本語](README_JP.md) | [官方网站](https://www.gpt-load.com)
+[English](README.md) · 中文 · [日本語](README_JP.md) | [官方网站](https://gpt-load.com)
 
 [![Release](https://img.shields.io/github/v/tag/tbphp/gpt-load?filter=v2.*)](https://github.com/tbphp/gpt-load/releases)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io%2Ftbphp%2Fgpt--load%3A2-2496ED?logo=docker&logoColor=white)](https://github.com/tbphp/gpt-load/pkgs/container/gpt-load)
@@ -248,7 +248,7 @@ Windows 普通用户可改为下载 `gpt-load-windows-setup.exe`。双击并确�
 > [!WARNING]
 > GPT-Load 2.0 是完整重写的新版本，**不能**打开、导入或原地迁移 1.x 数据。
 
-部署 2.0 时请使用独立的数据库、`DATA_DIR`、端口和 Docker 卷，验证完成后再切换业务流量，并在回滚窗口关闭前保留原 1.x 部署。1.4.x 维护线文档见[官方文档](https://www.gpt-load.com/docs?lang=zh)。
+部署 2.0 时请使用独立的数据库、`DATA_DIR`、端口和 Docker 卷，验证完成后再切换业务流量，并在回滚窗口关闭前保留原 1.x 部署。1.4.x 维护线文档见[官方文档](https://gpt-load.com/zh/v1/docs)。
 
 ## 开源依赖
 

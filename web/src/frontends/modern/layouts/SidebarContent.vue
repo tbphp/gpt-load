@@ -25,8 +25,8 @@ const sections = computed(() =>
   navigationSections.filter((section) => navigation.value.some((item) => item.section === section)),
 )
 const footerLinks = computed(() => [
-  { label: t('shell.documentation'), href: 'https://www.gpt-load.com/docs', icon: BookOpen },
-  { label: t('shell.sponsor'), href: 'https://www.gpt-load.com/sponsor', icon: Heart },
+  { label: t('shell.documentation'), href: 'https://gpt-load.com/docs', icon: BookOpen },
+  { label: t('shell.sponsor'), href: 'https://gpt-load.com/sponsor', icon: Heart },
   { label: 'GitHub', href: 'https://github.com/tbphp/gpt-load', icon: GitHubIcon },
   { label: 'Telegram', href: 'https://t.me/+GHpy5SwEllg3MTUx', icon: Send },
 ])

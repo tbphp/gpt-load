@@ -219,7 +219,7 @@ async function submit(): Promise<void> {
             }}
           </p>
           <p>{{ t('auth.help.docker') }}<code>docker exec -it gpt-load sh</code></p>
-          <AppExternalLink href="https://www.gpt-load.com/docs">{{
+          <AppExternalLink href="https://gpt-load.com/docs">{{
             t('shell.documentation')
           }}</AppExternalLink>
         </div>

@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: 部署与配置文档 / Documentation
-    url: https://www.gpt-load.com/docs
+    url: https://gpt-load.com/docs
     about: 部署、配置和常见问题请先查阅官方文档。/ Check the official docs for deployment, configuration, and FAQs first.
   - name: 使用交流 / Community chat
     url: https://t.me/+GHpy5SwEllg3MTUx
