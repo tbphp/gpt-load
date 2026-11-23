@@ -17,6 +17,14 @@ func finishConvertedPreparation(spec execution.AttemptSpec, providerKind channel
 		(spec.Operation != execution.OperationChatCompletion && spec.Operation != execution.OperationResponsesCreate) {
 		return prepared, nil
 	}
+	if openAICompatibleBase(providerKind) && prepared.responsesRequest != nil {
+		request, err := prepareCompatibleResponsesTools(prepared.responsesRequest)
+		if err != nil {
+			failure := convertedUnaryErrorResult(err, nil, prepared.secrets)
+			return preparedAttempt{}, &failure
+		}
+		prepared.responsesRequest = request
+	}
 	var toolConstraintsValid bool
 	var needsToolHistoryCheck bool
 	prepared, needsToolHistoryCheck, toolConstraintsValid = prepareConvertedToolConstraints(spec.ClientProtocol, providerKind, spec.UpstreamModel, prepared)

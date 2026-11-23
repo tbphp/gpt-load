@@ -382,8 +382,8 @@ func TestConvertedToolCompatibilityPreservesHistoryAndIsolation(t *testing.T) {
 		}
 	})
 
-	t.Run("unsupported custom history", func(t *testing.T) {
-		input := `[{"role":"user","content":"start"},{"type":"custom_tool_call","call_id":"call_1","name":"custom","input":"synthetic"},{"role":"user","content":"continue"}]`
+	t.Run("unsupported web search history", func(t *testing.T) {
+		input := `[{"role":"user","content":"start"},{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"synthetic"}},{"role":"user","content":"continue"}]`
 		spec, request := convertedResponsesAllowedToolsRequest(t, schemas.OpenAI, "compatible-model", "required", input)
 		_, failure := finishConvertedPreparation(spec, channel.ProviderOpenAICompatible, preparedAttempt{responsesRequest: request})
 		if failure == nil || failure.DispatchState != execution.DispatchNotSent || failure.Error == nil ||
@@ -434,8 +434,8 @@ func TestConvertedToolCompatibilityPreservesHistoryAndIsolation(t *testing.T) {
 	}
 
 	for _, choice := range []string{`"none"`, `{"type":"function","name":"lookup"}`} {
-		t.Run("newly allowed branch rejects custom history "+choice, func(t *testing.T) {
-			body := []byte(fmt.Sprintf(`{"model":"client-model","input":[{"role":"user","content":"start"},{"type":"custom_tool_call","call_id":"call_1","name":"custom","input":"synthetic"}],"store":false,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}},{"type":"custom","name":"custom","format":{"type":"text"}}],"tool_choice":%s}`, choice))
+		t.Run("newly allowed branch rejects web search history "+choice, func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"model":"client-model","input":[{"role":"user","content":"start"},{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"synthetic"}}],"store":false,"tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}},{"type":"web_search"}],"tool_choice":%s}`, choice))
 			spec := execution.AttemptSpec{ClientProtocol: protocol.OpenAIResponses, RouteMode: execution.RouteConverted, Operation: execution.OperationResponsesCreate, ClientModel: "client-model", UpstreamModel: "compatible-model", Body: body}
 			request, err := buildConvertedResponsesRequest(spec, schemas.OpenAI)
 			if err != nil {
@@ -444,7 +444,7 @@ func TestConvertedToolCompatibilityPreservesHistoryAndIsolation(t *testing.T) {
 			_, failure := finishConvertedPreparation(spec, channel.ProviderOpenAICompatible, preparedAttempt{responsesRequest: request})
 			if failure == nil || failure.DispatchState != execution.DispatchNotSent || failure.Error == nil ||
 				failure.Error.Code != execution.ErrorCodeCriticalSemanticLoss {
-				t.Fatalf("unsupported custom history was not rejected: %+v", failure)
+				t.Fatalf("unsupported web search history was not rejected: %+v", failure)
 			}
 		})
 	}
