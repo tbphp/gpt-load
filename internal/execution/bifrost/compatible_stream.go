@@ -14,10 +14,7 @@ import (
 // #665：从完整 Chat chunk 转换，保留原 Responses 执行器的生命周期和客户端编码。
 // SDK 修复后应连同专用入口删除；终态/用量/晚到错误的回归继续保留。
 func (r *Runtime) compatibleResponsesStream(ctx *schemas.BifrostContext, request *schemas.BifrostResponsesRequest) (chan *schemas.BifrostStreamChunk, *schemas.BifrostError) {
-	chat, aliases, err := prepareCompatibleChatRequest(ctx, request)
-	if err != nil {
-		return nil, err
-	}
+	chat := prepareCompatibleChatRequest(ctx, request)
 	// Chat SDK 会合成零用量尾块；原始事件用于区分“未返回用量”和“明确返回零”。
 	ctx.SetValue(schemas.BifrostContextKeyAllowPerRequestRawOverride, true)
 	ctx.SetValue(schemas.BifrostContextKeySendBackRawResponse, true)
@@ -46,9 +43,23 @@ func (r *Runtime) compatibleResponsesStream(ctx *schemas.BifrostContext, request
 				return false
 			}
 		}
-		emit := func(response *schemas.BifrostResponsesStreamResponse) bool {
-			providerUtils.RestoreResponsesNamespaceToolCalls(aliases, &schemas.BifrostResponse{ResponsesStreamResponse: response})
-			return send(&schemas.BifrostStreamChunk{BifrostResponsesStreamResponse: response})
+		restore := providerUtils.WrapResponsesToolRestorePostHookRunner(func(_ *schemas.BifrostContext, response *schemas.BifrostResponse, err *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError) {
+			return response, err
+		}, request)
+		nextSequence := 0
+		emit := func(event *schemas.BifrostResponsesStreamResponse) bool {
+			response, err := restore(ctx, &schemas.BifrostResponse{ResponsesStreamResponse: event}, nil)
+			if providerUtils.HandleStreamControlSkip(err) {
+				return true
+			}
+			if err != nil {
+				send(&schemas.BifrostStreamChunk{BifrostError: err})
+				return false
+			}
+			// SDK 会跳过包装后的函数参数分片，按实际发送顺序分配事件序号。
+			response.ResponsesStreamResponse.SequenceNumber = nextSequence
+			nextSequence++
+			return send(&schemas.BifrostStreamChunk{BifrostResponsesStreamResponse: response.ResponsesStreamResponse})
 		}
 		for {
 			select {
@@ -136,13 +147,9 @@ func orderCompatibleToolCompletions(events []*schemas.BifrostResponsesStreamResp
 			end++
 		}
 		group := events[start:end]
-		sequence := group[0].SequenceNumber
 		sort.SliceStable(group, func(i, j int) bool {
 			return *group[i].OutputIndex < *group[j].OutputIndex
 		})
-		for index, event := range group {
-			event.SequenceNumber = sequence + index
-		}
 		start = end
 	}
 }

@@ -15,50 +15,39 @@ func (r *Runtime) usesCompatibleChat(spec execution.AttemptSpec) bool {
 }
 
 func (r *Runtime) compatibleResponsesRequest(ctx *schemas.BifrostContext, request *schemas.BifrostResponsesRequest) (*schemas.BifrostResponsesResponse, *schemas.BifrostError) {
-	chat, aliases, err := prepareCompatibleChatRequest(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-	response, err := r.core.ChatCompletionRequest(ctx, chat)
+	response, err := r.core.ChatCompletionRequest(ctx, prepareCompatibleChatRequest(ctx, request))
 	if err != nil || response == nil {
 		return nil, err
 	}
 	converted := response.ToBifrostResponsesResponse()
 	converted.BackfillParams(request)
-	providerUtils.RestoreResponsesNamespaceToolCalls(aliases, &schemas.BifrostResponse{ResponsesResponse: converted})
+	providerUtils.RestoreResponsesToolCalls(request, converted)
 	return converted, nil
 }
 
-// 对齐锁定 SDK core/v1.13.1 的 prepareResponsesRequest 中适用于 Compatible 的准备。
-// 该渠道没有 SDK 自动缓存注入或 Anthropic 私有计费头元数据；转换入口恢复后可删除此衔接。
-func prepareCompatibleChatRequest(ctx *schemas.BifrostContext, request *schemas.BifrostResponsesRequest) (*schemas.BifrostChatRequest, map[string]schemas.NamespaceToolAlias, *schemas.BifrostError) {
-	ctx.SetValue(schemas.BifrostContextKeyBaseProviderType, schemas.OpenAI)
-	// 工具 schema 统一由 SDK 的 Chat 调度入口规范化，覆盖解包及提升后的工具。
-	var err *schemas.BifrostError
-	supported := providerUtils.ResponsesNamespaceToolsSupported(ctx, schemas.OpenAI, request.Model)
-	if !supported {
-		request, err = hoistCompatibleAdditionalTools(request)
-		if err != nil {
-			return nil, nil, err
-		}
+// SDK 的 Responses → Chat 转换只接收 function。先展开工具，再校验选择与历史，保留 SDK 的还原映射。
+func prepareCompatibleResponsesTools(request *schemas.BifrostResponsesRequest) (*schemas.BifrostResponsesRequest, *schemas.BifrostError) {
+	request, err := hoistCompatibleAdditionalTools(request)
+	if err != nil {
+		return nil, err
 	}
 	request, err = providerUtils.UnwrapDefaultNamespaceTools(request)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	if !supported {
-		request, err = providerUtils.FlattenResponsesNamespaceTools(ctx, request)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
+	request = providerUtils.RewriteResponsesCustomTools(nil, schemas.OpenAI, request)
+	return providerUtils.FlattenResponsesNamespaceTools(nil, request)
+}
+
+func prepareCompatibleChatRequest(ctx *schemas.BifrostContext, request *schemas.BifrostResponsesRequest) *schemas.BifrostChatRequest {
+	ctx.SetValue(schemas.BifrostContextKeyBaseProviderType, schemas.OpenAI)
 	chat := request.ToChatRequest()
 	chat.Input = mergeCompatibleToolTurns(chat.Input)
 	preserveCompatibleToolTurnReasoning(chat.Input)
-	return chat, request.NamespaceToolAliases, nil
+	return chat
 }
 
-// SDK 的同名准备步骤未导出；在能力判断一致时提升 additional_tools，保持请求隔离。
+// SDK 的提升函数未导出。把 additional_tools 合入本次请求的工具列表。
 func hoistCompatibleAdditionalTools(request *schemas.BifrostResponsesRequest) (*schemas.BifrostResponsesRequest, *schemas.BifrostError) {
 	var tools []schemas.ResponsesTool
 	found := false

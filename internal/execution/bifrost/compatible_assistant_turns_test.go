@@ -130,10 +130,7 @@ func TestCompatibleAssistantToolTurnPreservesBlocksAndReasoningDetails(t *testin
 			sdkMessages := request.ToChatRequest().Input
 			ctx := schemas.NewBifrostContext(t.Context(), schemas.NoDeadline)
 			defer ctx.Cancel()
-			chat, _, failure := prepareCompatibleChatRequest(ctx, request)
-			if failure != nil {
-				t.Fatal(failure)
-			}
+			chat := prepareCompatibleChatRequest(ctx, request)
 			if len(chat.Input) != 1 {
 				t.Fatalf("assistant turn has %d messages, want 1", len(chat.Input))
 			}

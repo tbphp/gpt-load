@@ -10,15 +10,15 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.20.4
-	github.com/maximhq/bifrost/core v1.15.2
+	github.com/maximhq/bifrost/core v1.16.0
 	github.com/nicksnyder/go-i18n/v2 v2.7.0
 	github.com/pion/ice/v4 v4.4.9
 	github.com/pion/interceptor v0.1.51
 	github.com/pion/rtp v1.10.6
 	github.com/pion/sdp/v3 v3.0.20
 	github.com/pion/stun/v3 v3.1.7
-	github.com/pion/webrtc/v4 v4.2.26
-	github.com/router-for-me/CLIProxyAPI/v8 v8.0.77
+	github.com/pion/webrtc/v4 v4.2.27
+	github.com/router-for-me/CLIProxyAPI/v8 v8.1.1
 	github.com/router-for-me/CLIProxyAPI/v8/gptload-embedded v0.0.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/tidwall/gjson v1.20.4
@@ -26,7 +26,7 @@ require (
 	github.com/tink-crypto/tink-go/v2 v2.9.0
 	go.uber.org/dig v1.19.0
 	golang.org/x/crypto v0.59.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
 	google.golang.org/protobuf v1.36.12
@@ -43,7 +43,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
-	github.com/MoeForge/moego v0.1.0-alpha.4 // indirect
+	github.com/MoeForge/moego v0.1.0-alpha.5 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.42.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.32.14 // indirect
@@ -81,8 +81,9 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
+	github.com/gofrs/flock v0.13.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -103,17 +104,17 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3-0.20260624044523-35f78d5908f1 // indirect
 	github.com/pierrec/xxHash v0.1.5 // indirect
-	github.com/pion/datachannel v1.6.3 // indirect
-	github.com/pion/dtls/v3 v3.1.15 // indirect
+	github.com/pion/datachannel v1.6.4 // indirect
+	github.com/pion/dtls/v3 v3.1.16 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.2.2 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.20 // indirect
-	github.com/pion/sctp v1.12.0 // indirect
+	github.com/pion/sctp v1.12.1 // indirect
 	github.com/pion/srtp/v3 v3.1.3 // indirect
 	github.com/pion/stun/v4 v4.0.1 // indirect
 	github.com/pion/transport/v4 v4.1.0 // indirect
-	github.com/pion/transport/v5 v5.1.4 // indirect
+	github.com/pion/transport/v5 v5.1.5 // indirect
 	github.com/pion/turn/v5 v5.1.3 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
@@ -128,7 +129,7 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.3.0 // indirect
-	github.com/tiktoken-go/tokenizer v0.8.1 // indirect
+	github.com/tiktoken-go/tokenizer v0.10.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

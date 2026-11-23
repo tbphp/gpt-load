@@ -41,8 +41,8 @@ the existing HTTP executor remains separate.
 ## Codex request identity
 
 Codex HTTP inference (including streaming and images) and WebSocket handshakes
-use a pinned `codex-tui/0.159.2` User-Agent with CPA's existing platform signature.
-`Version` is fixed to `CodexClientVersion`, currently `0.159.2`. Downstream and GPT-Load group
+use a pinned `codex-tui/0.171.0` User-Agent with CPA's existing platform signature.
+`Version` is fixed to `CodexClientVersion`, currently `0.171.0`. Downstream and GPT-Load group
 header rules cannot override, clear, or remove these two identity headers.
 This restriction applies only to Codex; other providers retain their header rules.
 HTTP continues to honor explicit `Originator` rules, including empty values and
@@ -50,9 +50,9 @@ removal. WebSocket retains the fixed `codex-tui` originator.
 
 Model and account observation requests use the same version for their User-Agent,
 Version header, and models `client_version` query parameter. The embedded model
-JSON is copied from OpenAI Codex `rust-v0.159.2`,
-`codex-rs/models-manager/models.json`, with its SHA-256 checked by tests.
-CPA `v8.0.8`, the Codex identity, and this model snapshot form one tested version set.
+JSON is copied from the [OpenAI Codex `rust-v0.171.0` model catalog](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/models-manager/models.json).
+The snapshot test verifies its SHA-256.
+CPA `v8.1.1`, the Codex identity, and this model snapshot form one tested version set.
 The bridge pins execution identity because CPA's built-in UA still uses an older version.
 HTTP, image, WebSocket, and observation tests check these outgoing values.
 
@@ -120,7 +120,7 @@ capability to GPT-Load callers. The existing `NewExecutor` remains HTTP-only.
   use updated timeout settings. `Done` closes when the Session is invalidated.
   Request and forwarded-event limits default to 10 MiB each. All three are configurable when creating the Session.
   The facade buffers no conversation history or output queue. Event checks occur
-  **after SDK reading**: CPA v8.0.8 has no exposed raw-frame size limit and has
+  **after SDK reading**: CPA v8.1.1 has no exposed raw-frame size limit and has
   its own internal buffers. These checks do not bound all SDK memory. CPA also
   retains its upstream read-idle timeout; idle connection loss invalidates the
   Session and is not transparently recovered.
@@ -150,8 +150,8 @@ sent only in the first. `CPA_LIVE_CODEX_WS_PROXY_URL` defaults to `direct`;
 
 ## Grok request identity
 
-`grokClientVersion` is the single identity pin for execution, model discovery, and
-billing, currently `1.0.44` with CPA `v8.0.8`. Each path retains its own User-Agent
+`GrokClientVersion` is the single identity pin for execution, model discovery, and
+billing, currently `1.0.92` with CPA `v8.1.1`. Each path retains its own User-Agent
 format. CPA's version constant is not exported, and its default CLI identity only
 applies to the official chat-proxy endpoint; the bridge therefore keeps its
 explicit headers for custom upstreams too. Upgrading CPA does not replace this pin.
@@ -164,10 +164,10 @@ validation; Grok has no CLI-version-bound model template snapshot to update.
 ## Pinned upstream
 
 - Module: `github.com/router-for-me/CLIProxyAPI/v8`
-- Version: `v8.0.8`
+- Version: `v8.1.1`
 
 The bridge keeps Codex's fixed Version, execution and observation identity, and
-model snapshot aligned at `0.159.2`. CPA includes Antigravity reasoning tokens in unary
+model snapshot aligned at `0.171.0`. CPA includes Antigravity reasoning tokens in unary
 OpenAI Chat and OpenAI Responses output totals; the bridge only adds them for OpenAI
 Chat streaming, and retains Anthropic's unary cache-input normalization.
 Antigravity Responses web search is not enabled by this dependency update.
@@ -258,7 +258,7 @@ CPA_LIVE_GROK_MODEL=optional-grok-model-id \
 ## Shared Codex capabilities
 
 `modelcatalog/codex.json` contains the union of Codex records from
-`router-for-me/models` commit `690c37fdbe62dc05f609f3a3e609d07ea4d16bf1`.
+[`router-for-me/models` at `b298b240`](https://github.com/router-for-me/models/blob/b298b240d5962e91e4a948b780916de253209bb2/models.json).
 Records are selected in pro, plus, team, free order, keeping the first record
 for each ID, as execution previously used the pro catalog. This describes
 capabilities, not account model availability. Actual model discovery still
@@ -268,11 +268,10 @@ The client model list and CPA registry consume the same update capability.
 The unchanged official client template snapshot also lives in `modelcatalog`.
 For matching models, CPA's reasoning-level validation uses the exact levels from
 that template, including `ultra`, instead of the narrower CPA snapshot list.
-Models absent from the official template keep their CPA level metadata. The raw
-CPA snapshot stays unchanged and retains its original provenance and digest.
+Models absent from the official template keep their CPA level metadata. The digest
+in `modelcatalog/catalog.go` verifies the raw CPA snapshot.
 Unknown models and virtual fallback models do not advertise effort updates.
-Client templates remain pinned to Codex 0.159.2, with CPA v8.0.8; verify all
-version pins and both model snapshots together when updating this set.
+Verify both model snapshots when updating the Codex `0.171.0` and CPA `v8.1.1` version set.
 
 HTTP and WebSocket preserve supported `configuration_update` items. WebSocket
 logs inherit effort only from the immediately known completed parent response
