@@ -987,6 +987,18 @@ func newExecutionAttemptSpec(input ForwardInput) (execution.AttemptSpec, error) 
 	for _, name := range input.Group.HeaderRules.Remove {
 		headers.Del(name)
 	}
+	for name, value := range input.Group.HeaderRules.Default {
+		hasValue := false
+		for _, existing := range headers.Values(name) {
+			if strings.TrimSpace(existing) != "" {
+				hasValue = true
+				break
+			}
+		}
+		if !hasValue {
+			headers.Set(name, strings.ReplaceAll(value, "${API_KEY}", input.APIKey))
+		}
+	}
 	sanitizeUpstreamRequestHeaders(headers)
 	headers.Set("Accept-Encoding", "identity")
 	spec := execution.NewAttemptSpec(execution.AttemptSpec{

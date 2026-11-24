@@ -136,6 +136,7 @@ export default {
       add: '添加规则',
       action: '操作',
       set: '设置',
+      default: '兜底',
       remove: '移除',
       name: 'Header 名称',
       value: 'Header 值',

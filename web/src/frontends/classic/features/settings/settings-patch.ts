@@ -54,7 +54,11 @@ const browserAccessKeys: RuntimeSettingKey[] = ['cors', 'response_header_rules']
 const modelPriceKeys: RuntimeSettingKey[] = ['models_dev_auto_sync_enabled']
 
 function cloneHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
-  return { set: { ...value.set }, remove: [...value.remove] }
+  return {
+    set: { ...value.set },
+    remove: [...value.remove],
+    ...(value.default ? { default: { ...value.default } } : {}),
+  }
 }
 
 function cloneCORSConfig(value: CORSConfigDto): CORSConfigDto {
@@ -169,7 +173,17 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
     Object.entries(value.set).sort(([left], [right]) => left.localeCompare(right)),
   )
   const remove = [...value.remove].sort((a, b) => a.localeCompare(b))
-  return { set, remove }
+  return {
+    set,
+    remove,
+    ...(value.default
+      ? {
+          default: Object.fromEntries(
+            Object.entries(value.default).sort(([a], [b]) => a.localeCompare(b)),
+          ),
+        }
+      : {}),
+  }
 }
 
 function normalizedWireValue(
@@ -213,7 +227,19 @@ function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
   const remove = value.remove
     .map((name) => asciiLower(name))
     .sort((left, right) => left.localeCompare(right))
-  return { set, remove }
+  return {
+    set,
+    remove,
+    ...(value.default
+      ? {
+          default: Object.fromEntries(
+            Object.entries(value.default)
+              .map(([name, value]) => [asciiLower(name), value] as const)
+              .sort(([a], [b]) => a.localeCompare(b)),
+          ),
+        }
+      : {}),
+  }
 }
 
 function normalizedIdentityValue(

@@ -50,6 +50,7 @@ export const runtimeSwitches = [
 export type RuntimeNumber = (typeof runtimeNumbers)[number]
 export type RuntimeSwitch = (typeof runtimeSwitches)[number]
 export interface HeaderRules {
+  default?: Record<string, string>
   set: Record<string, string>
   remove: string[]
 }
@@ -104,7 +105,11 @@ function readRuntime(value: unknown): RuntimeSettings {
     result.codex_live_mode = oneOf(raw.codex_live_mode, codexLiveModes)
   if (raw.header_rules !== undefined) {
     const headers = record(raw.header_rules)
-    result.header_rules = { set: stringMap(headers.set), remove: list(headers.remove).map(text) }
+    result.header_rules = {
+      set: stringMap(headers.set),
+      remove: list(headers.remove).map(text),
+      ...(headers.default === undefined ? {} : { default: stringMap(headers.default) }),
+    }
   }
   if (raw.parameter_overrides !== undefined) {
     result.parameter_overrides = list(raw.parameter_overrides).map((value) => {

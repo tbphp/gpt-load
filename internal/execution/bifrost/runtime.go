@@ -30,7 +30,6 @@ var errKeyPoolDisabled = errors.New("Bifrost key pool is disabled; DirectKey is 
 
 // Runtime owns one long-lived Bifrost Core and executes attempts with explicit credentials.
 type Runtime struct {
-	userAgentFallback         string
 	core                      *core.Bifrost
 	account                   *directAccount
 	registry                  *channel.Registry
@@ -72,7 +71,6 @@ func newConfiguredRuntime(
 }
 
 type runtimeOptions struct {
-	userAgentFallback         string
 	allowPrivateNetwork       bool
 	maxUnaryResponseBodyBytes int64
 	logger                    schemas.Logger
@@ -100,8 +98,8 @@ func NewRuntime(ctx context.Context, registry *channel.Registry) (*RuntimeManage
 
 // NewManagedRuntime creates an unstarted production runtime manager. The
 // application lifecycle must call Start before accepting requests.
-func NewManagedRuntime(registry *channel.Registry, userAgentFallback string) (*RuntimeManager, error) {
-	return newRuntimeManager(runtimeOptions{allowPrivateNetwork: true, userAgentFallback: userAgentFallback}, registry)
+func NewManagedRuntime(registry *channel.Registry) (*RuntimeManager, error) {
+	return newRuntimeManager(runtimeOptions{allowPrivateNetwork: true}, registry)
 }
 
 func newRuntimeShell(options runtimeOptions, registry *channel.Registry) (*Runtime, error) {
@@ -110,7 +108,6 @@ func newRuntimeShell(options runtimeOptions, registry *channel.Registry) (*Runti
 		return nil, fmt.Errorf("initialize execution runtime: channel registry is required")
 	}
 	return &Runtime{
-		userAgentFallback:         options.userAgentFallback,
 		account:                   newDirectAccount(),
 		registry:                  registry,
 		allowPrivate:              options.allowPrivateNetwork,

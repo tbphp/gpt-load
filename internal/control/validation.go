@@ -449,6 +449,18 @@ func computeGroupValidationSignature(
 	}
 
 	var signature groupValidationSignature
+	defaultParts := make([]headerSetPart, 0, len(group.HeaderRules.Default))
+	for name, value := range group.HeaderRules.Default {
+		defaultParts = append(defaultParts, headerSetPart{name: normalizeValidationHeaderName(name), value: value})
+	}
+	sort.Slice(defaultParts, func(i, j int) bool { return defaultParts[i].name < defaultParts[j].name })
+	if len(defaultParts) > 0 {
+		writeValidationSignatureUint64(hasher, uint64(len(defaultParts)))
+	}
+	for _, part := range defaultParts {
+		writeValidationSignaturePart(hasher, []byte(part.name))
+		writeValidationSignaturePart(hasher, []byte(part.value))
+	}
 	copy(signature[:], hasher.Sum(nil))
 	return signature
 }

@@ -80,6 +80,13 @@ func effectiveGroupConfig(
 		return GroupEffectiveConfigResponse{}, err
 	}
 	set := make(map[string]string, len(resolved.HeaderRules.Set))
+	var defaults map[string]string
+	if len(resolved.HeaderRules.Default) > 0 {
+		defaults = make(map[string]string, len(resolved.HeaderRules.Default))
+		for name, value := range resolved.HeaderRules.Default {
+			defaults[name] = value
+		}
+	}
 	for name, value := range resolved.HeaderRules.Set {
 		set[name] = value
 	}
@@ -89,8 +96,9 @@ func effectiveGroupConfig(
 		RequestTimeout:    durationSeconds(resolved.Timeouts.Request),
 		StreamIdleTimeout: durationSeconds(resolved.Timeouts.StreamIdle),
 		HeaderRules: HeaderRulesResponse{
-			Set:    set,
-			Remove: append([]string{}, resolved.HeaderRules.Remove...),
+			Set:     set,
+			Default: defaults,
+			Remove:  append([]string{}, resolved.HeaderRules.Remove...),
 		},
 		BlacklistThreshold:        resolved.BlacklistThreshold,
 		AffinityEnabled:           resolved.AffinityEnabled,
