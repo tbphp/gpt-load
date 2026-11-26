@@ -32,10 +32,11 @@ type CredentialImportResult struct {
 }
 
 type CredentialUpdateRequest struct {
-	Name         optionalField[string]                 `json:"name"`
-	Status       optionalField[state.CredentialStatus] `json:"status"`
-	WeightManual optionalField[int]                    `json:"weight_manual"`
-	Proxy        optionalField[outboundproxy.Config]   `json:"proxy"`
+	QuotaReservePercent optionalField[int]                    `json:"quota_reserve_percent"`
+	Name                optionalField[string]                 `json:"name"`
+	Status              optionalField[state.CredentialStatus] `json:"status"`
+	WeightManual        optionalField[int]                    `json:"weight_manual"`
+	Proxy               optionalField[outboundproxy.Config]   `json:"proxy"`
 }
 
 type CredentialRevealResult struct {
@@ -77,6 +78,8 @@ type CredentialAccountResponse struct {
 }
 
 type CredentialItemResponse struct {
+	QuotaReservePercent     int                            `json:"quota_reserve_percent"`
+	QuotaProtected          bool                           `json:"quota_protected"`
 	Name                    string                         `json:"name"`
 	RPMPeakHour             *int64                         `json:"-"`
 	ModelCooldowns          []ModelCooldownResponse        `json:"model_cooldowns"`
@@ -347,6 +350,9 @@ func validateCredentialCapture(capture credentialCapture) (credentialObservation
 		}
 		if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 			return credentialObservation{}, dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
+		}
+		if view.QuotaReservePercent != row.QuotaReservePercent {
+			return credentialObservation{}, dbRegistryMismatch(mismatchQuotaReserve, groupID, row.ID)
 		}
 		if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 			view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, capture.group) {

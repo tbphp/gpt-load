@@ -225,6 +225,7 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 			WeightManual: &zero, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "key-zero",
 		},
 		{ID: 21, GroupID: 2, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "disabled-group"},
+		{ID: 17, GroupID: 1, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "protected", QuotaReservePercent: 20},
 		{ID: 31, GroupID: 3, Status: state.CredentialStatusActive, Version: 1, IdentityGeneration: 1, Fingerprint: "test-fingerprint", EncryptedValue: "zero-group"},
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -233,6 +234,7 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 		ClientProtocol: protocol.OpenAICompletions, Operation: execution.OperationChatCompletion, ExternalModel: modelPointer("public"),
 		AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}
+	registry.SetCredentialQuotaObservation(17, new(0.1), now.Add(time.Hour))
 	inspection, err := Inspect(snapshot, registry.Snapshot(), query, now)
 	if err != nil {
 		t.Fatalf("Inspect() error = %v", err)

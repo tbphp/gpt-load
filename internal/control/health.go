@@ -156,6 +156,8 @@ func classifyHealthKey(
 		return healthBucketDisabled
 	}
 	switch key.RuntimeState(now) {
+	case state.CredentialRuntimeDisabled:
+		return healthBucketDisabled
 	case state.CredentialRuntimeBlacklisted:
 		return healthBucketBlacklisted
 	case state.CredentialRuntimeCooldown:
@@ -328,7 +330,7 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		}
 		addHealthCount(&result.Counts, bucket)
 		addHealthCount(&result.Groups[index].Counts.healthCountsResponse, bucket)
-		// 额度只用于管理面展示，不参与健康分桶或调度；低额度凭据在这里单列提示。
+		// 未触发保护的低额度凭据在这里单列提示。
 		if bucket == healthBucketAvailable || bucket == healthBucketCooldown {
 			if remaining := key.ObservedQuotaRemaining(); remaining != nil &&
 				*remaining <= healthLowQuotaRemainingRatio {

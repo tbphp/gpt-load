@@ -1,4 +1,10 @@
 export const zhCN = {
+  quotaReserve: '最低保留额度（%）',
+  quotaReserveOff: '0 或留空关闭',
+  quotaReserveHelp:
+    '任一账号额度窗口的剩余比例不高于阈值或额度未知时暂停新请求；先同步额度，确认恢复后重新分流。观测延迟和在途请求可能使实际保留额度更低。',
+  quotaReserveError: '请输入 0 到 100 的整数',
+  quotaProtected: '额度保护已暂停分流',
   name: '名称',
   namePlaceholder: '可选，用于识别此凭据',
   nameSaveFailed: '名称保存失败，请重试',
@@ -148,6 +154,12 @@ export const zhCN = {
   },
 }
 export const enUS: typeof zhCN = {
+  quotaReserve: 'Minimum quota reserve (%)',
+  quotaReserveOff: '0 or empty to disable',
+  quotaReserveHelp:
+    'Pause new requests when any account quota window is at or below the reserve, or quota is unknown. Sync quota first; refresh to confirm recovery. Observation delays and in-flight requests can reduce the actual reserve.',
+  quotaReserveError: 'Enter an integer from 0 to 100',
+  quotaProtected: 'Paused by quota protection',
   name: 'Name',
   namePlaceholder: 'Optional credential alias',
   nameSaveFailed: 'Could not save the name. Try again.',
@@ -303,6 +315,12 @@ export const enUS: typeof zhCN = {
   },
 }
 export const jaJP: typeof zhCN = {
+  quotaReserve: '最低残量（%）',
+  quotaReserveOff: '0 または空欄で無効',
+  quotaReserveHelp:
+    'アカウントのいずれかの残量がしきい値以下、または不明な場合に新規リクエストを停止します。最初に残量を同期し、更新で回復を確認すると再開します。観測の遅延や処理中のリクエストにより、実際の残量が下回る場合があります。',
+  quotaReserveError: '0 から 100 の整数を入力してください',
+  quotaProtected: '残量保護により配信を停止中',
   name: '名前',
   namePlaceholder: '認証情報の表示名（任意）',
   nameSaveFailed: '名前を保存できませんでした。再試行してください。',

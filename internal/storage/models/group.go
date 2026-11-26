@@ -59,6 +59,7 @@ const (
 
 // Credential is encrypted channel credential data that belongs to one group.
 type Credential struct {
+	QuotaReservePercent int                 `gorm:"type:integer;not null;default:0"`
 	Name                string              `gorm:"type:varchar(255);not null;default:''"`
 	ID                  uint                `gorm:"primaryKey;autoIncrement"`
 	GroupID             uint                `gorm:"not null;uniqueIndex:idx_credentials_group_fingerprint,priority:1;uniqueIndex:idx_credentials_group_identity,priority:1"`

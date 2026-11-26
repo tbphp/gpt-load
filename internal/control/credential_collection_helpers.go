@@ -137,6 +137,8 @@ func mapCredentialRuntimeItem(
 	observedAt time.Time,
 ) (CredentialItemResponse, error) {
 	item := CredentialItemResponse{
+		QuotaReservePercent:     view.QuotaReservePercent,
+		QuotaProtected:          view.QuotaProtected(),
 		CredentialID:            credentialID,
 		Mask:                    mask,
 		ConfiguredStatus:        string(view.Status),

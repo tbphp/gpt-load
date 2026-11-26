@@ -93,6 +93,11 @@ func preserveModelCooldowns(next *CredentialEntry, previous *CredentialEntry) {
 	next.ModelCooldownGeneration = previous.ModelCooldownGeneration
 	next.QuotaCooldownGeneration = previous.QuotaCooldownGeneration
 	if next.ID == previous.ID && next.GroupID == previous.GroupID && next.IdentityGeneration == previous.IdentityGeneration {
+		if next.QuotaReservePercent > 0 {
+			next.quotaRemaining = cloneFloat(previous.quotaRemaining)
+			next.quotaResetAt = previous.quotaResetAt
+			next.quotaIncomplete = previous.quotaIncomplete
+		}
 		next.ModelCooldowns = cloneModelCooldowns(previous.ModelCooldowns)
 		next.QuotaModelCooldowns = cloneModelCooldowns(previous.QuotaModelCooldowns)
 		next.QuotaCooldownUntil = previous.QuotaCooldownUntil

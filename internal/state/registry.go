@@ -52,7 +52,10 @@ type CredentialEntry struct {
 	ProxyFingerprint        string
 	quotaRemaining          *float64
 	quotaResetAt            time.Time
+	quotaIncomplete         bool
 	lastQuotaRejectedAt     time.Time
+
+	QuotaReservePercent int // 0 关闭额度保护，其他值为最低保留百分比。
 }
 
 type CredentialMeta struct {
@@ -111,6 +114,9 @@ func ValidateCredentialEntries(entries []CredentialEntry) error {
 		}
 		if err := validateManualWeight(fmt.Sprintf("credential %d", entry.ID), entry.WeightManual); err != nil {
 			return err
+		}
+		if entry.QuotaReservePercent < 0 || entry.QuotaReservePercent > 100 {
+			return fmt.Errorf("credential %d quota reserve must be between 0 and 100", entry.ID)
 		}
 		if entry.EncryptedValue == "" {
 			return fmt.Errorf("credential %d encrypted value is required", entry.ID)
@@ -353,6 +359,7 @@ func (r *CredentialRegistry) matchesGroupLocked(groupID uint, entries []Credenti
 
 func samePersistedCredentialConfig(left, right CredentialEntry) bool {
 	if left.ID != right.ID ||
+		left.QuotaReservePercent != right.QuotaReservePercent ||
 		left.GroupID != right.GroupID ||
 		left.Version != right.Version ||
 		left.IdentityGeneration != right.IdentityGeneration ||
@@ -556,11 +563,11 @@ func (r *CredentialRegistry) SetCredentialAuthState(credentialID uint, authState
 		return false
 	}
 	entry.AuthState = authState.normalize()
-	r.scheduling.SyncCredential(runtimeView(entry))
 	if entry.AuthState != CredentialAuthStateReady {
 		entry.quotaRemaining = nil
 		entry.quotaResetAt = time.Time{}
 	}
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
 
@@ -747,12 +754,16 @@ func (r *CredentialRegistry) collectCredentialCandidatesLocked(groupIDs []uint, 
 }
 
 // SetCredentialQuotaObservation publishes an ephemeral provider observation for
-// management-plane health display. Passing nil clears the observation.
+// management-plane health display and opt-in quota protection.
 func (r *CredentialRegistry) SetCredentialQuotaObservation(
 	credentialID uint,
 	remaining *float64,
 	resetAt time.Time,
 ) bool {
+	return r.setCredentialQuotaObservation(credentialID, remaining, resetAt, false)
+}
+
+func (r *CredentialRegistry) setCredentialQuotaObservation(credentialID uint, remaining *float64, resetAt time.Time, incomplete bool) bool {
 	if credentialID == 0 {
 		return false
 	}
@@ -767,11 +778,12 @@ func (r *CredentialRegistry) SetCredentialQuotaObservation(
 		return false
 	}
 	entry.quotaRemaining = cloneFloat(remaining)
+	entry.quotaResetAt = resetAt
+	entry.quotaIncomplete = incomplete
 	if remaining == nil {
 		entry.quotaResetAt = time.Time{}
-		return true
 	}
-	entry.quotaResetAt = resetAt
+	r.scheduling.SyncCredential(runtimeView(entry))
 	return true
 }
 
@@ -786,12 +798,14 @@ func (r *CredentialRegistry) ApplyQuotaWindows(credentialID uint, windows []prov
 	}
 	var remaining *float64
 	var resetAtMS int64
+	var incomplete bool
 	for _, window := range windows {
-		if window.Scope != "account" || window.ResetAtMS == nil {
+		if window.Scope != "account" {
 			continue
 		}
 		value, known := quotaWindowRemainingRatio(window)
-		if !known {
+		if !known || window.ResetAtMS == nil {
+			incomplete = true
 			continue
 		}
 		if remaining == nil || value < *remaining {
@@ -806,7 +820,7 @@ func (r *CredentialRegistry) ApplyQuotaWindows(credentialID uint, windows []prov
 	if remaining == nil || resetAtMS == 0 {
 		return r.SetCredentialQuotaObservation(credentialID, nil, time.Time{})
 	}
-	return r.SetCredentialQuotaObservation(credentialID, remaining, time.UnixMilli(resetAtMS).UTC())
+	return r.setCredentialQuotaObservation(credentialID, remaining, time.UnixMilli(resetAtMS).UTC(), incomplete)
 }
 
 func quotaWindowRemainingRatio(window providerobservation.QuotaWindow) (float64, bool) {

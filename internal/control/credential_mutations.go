@@ -26,8 +26,12 @@ func normalizeCredentialUpdate(
 	request CredentialUpdateRequest,
 	encryptionService encryption.Service,
 ) (status *state.CredentialStatus, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
-	if !request.Name.Set && !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
+	if !request.Name.Set && !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set && !request.QuotaReservePercent.Set {
 		return nil, nil, false, nil, false, app_errors.ErrBadRequest
+	}
+	if request.QuotaReservePercent.Set && !request.QuotaReservePercent.Null &&
+		(request.QuotaReservePercent.Value < 0 || request.QuotaReservePercent.Value > 100) {
+		return nil, nil, false, nil, false, app_errors.ErrValidation
 	}
 	if request.Name.Set && (request.Name.Null || utf8.RuneCountInString(strings.TrimSpace(request.Name.Value)) > 255 || strings.ContainsFunc(strings.TrimSpace(request.Name.Value), unicode.IsControl)) {
 		return nil, nil, false, nil, false, app_errors.ErrValidation
@@ -164,6 +168,10 @@ func (s *Service) UpdateGroupCredential(
 			return app_errors.ErrValidation
 		}
 		committedGroup = group
+		if request.QuotaReservePercent.Set && !request.QuotaReservePercent.Null && request.QuotaReservePercent.Value > 0 &&
+			group.ChannelID != string(channel.Codex) {
+			return app_errors.ErrValidation
+		}
 		if err := tx.Where("id = ? AND group_id = ?", credentialID, groupID).Take(&committed).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return credentialNotFoundError()
@@ -179,6 +187,13 @@ func (s *Service) UpdateGroupCredential(
 			return app_errors.ErrInternalServer
 		}
 		updates := map[string]any{"updated_at_ms": updatedAtMS}
+		if request.QuotaReservePercent.Set {
+			committed.QuotaReservePercent = 0
+			if !request.QuotaReservePercent.Null {
+				committed.QuotaReservePercent = request.QuotaReservePercent.Value
+			}
+			updates["quota_reserve_percent"] = committed.QuotaReservePercent
+		}
 		if request.Name.Set {
 			committed.Name = strings.TrimSpace(request.Name.Value)
 			updates["name"] = committed.Name
@@ -211,7 +226,7 @@ func (s *Service) UpdateGroupCredential(
 		return nil
 	}, func() error {
 		committedProxyUpdate = proxySet
-		if request.Name.Set && !request.Status.Set && !weightSet && !proxySet {
+		if request.Name.Set && !request.Status.Set && !weightSet && !proxySet && !request.QuotaReservePercent.Set {
 			if !s.registry.UpdateCredentialName(groupID, credentialID, committed.Name) {
 				return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 			}
@@ -225,6 +240,7 @@ func (s *Service) UpdateGroupCredential(
 		entry.Name = committed.Name
 		entry.Status = state.CredentialStatus(committed.Status)
 		entry.WeightManual = cloneInt(committed.WeightManual)
+		entry.QuotaReservePercent = committed.QuotaReservePercent
 		entry.Version = groupCollectionCredentialVersion(committed.SecretVersion)
 		entry.IdentityGeneration = groupCollectionCredentialIdentity(
 			committed.IdentityFingerprint,
@@ -445,6 +461,9 @@ func validateCredentialRuntimeRow(
 	}
 	if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 		return dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
+	}
+	if view.QuotaReservePercent != row.QuotaReservePercent {
+		return dbRegistryMismatch(mismatchQuotaReserve, groupID, row.ID)
 	}
 	if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 		view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, group) {

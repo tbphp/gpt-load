@@ -65,6 +65,7 @@ Your application only needs one base URL and one AccessKey. Providers, accounts,
 - **One gateway, native protocols** — Manage official APIs, cloud platforms, model services, and compatible relays together while clients keep their OpenAI, Anthropic, or Gemini native interfaces.
 - **One mechanism for API keys and subscriptions** — Codex, Claude, Antigravity, Grok, and API-key channels share credential management, scheduling, and health handling.
 - **Scheduling and failure isolation built in** — Multi-credential scheduling, configurable weights, retries, cooldown, blacklisting, and session affinity reduce the impact of overloaded or failing credentials.
+- Codex accounts support an optional minimum quota reserve percentage in Modern account details (disabled by default). New requests pause when any account quota window is at or below the threshold or quota is unknown; sync quota first and refresh to confirm recovery; in-flight requests and observation delays can reduce the actual reserve below the threshold.
 - **Observable, self-hosted, and simple to deploy** — Inspect health, routes, logs, usage, and cost estimates in an embedded UI backed by SQLite, MySQL, or PostgreSQL with local credential encryption.
 
 ## Online demo
