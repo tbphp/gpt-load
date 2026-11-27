@@ -101,6 +101,12 @@ func embeddingTypedTarget(
 			return "", fmt.Errorf("compatible Embeddings target is required")
 		}
 		resourcePath = "/embeddings"
+	case channel.ProviderAzureOpenAI:
+		// Azure 地址由 Bifrost 按 endpoint 拼接 /openai/v1/embeddings，不做 URL 覆盖。
+		if rawQuery != "" {
+			return "", fmt.Errorf("provider-specific query is not supported")
+		}
+		return "", nil
 	default:
 		return "", fmt.Errorf("unsupported Embeddings provider")
 	}
