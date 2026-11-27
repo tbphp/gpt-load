@@ -97,6 +97,8 @@ const credentialSummaryFields = [
   'disabled',
 ] as const
 const credentialItemFields = [
+  'quota_reserve_percent',
+  'quota_protected',
   'name',
   'model_cooldowns',
   'credential_id',

@@ -274,6 +274,8 @@ export interface CredentialRow {
   enabled: boolean
   weight: number
   weightManual?: number | null
+  quotaReservePercent?: number
+  quotaProtected?: boolean
   successes: number
   failures: number
   failuresInRow: number
@@ -331,6 +333,8 @@ export function readCredential(value: unknown): CredentialRow {
     state: oneOf(row.effective_status, credentialStates),
     enabled: oneOf(row.configured_status, ['active', 'disabled']) === 'active',
     weight: integer(row.weight),
+    quotaReservePercent: integer(row.quota_reserve_percent ?? 0),
+    quotaProtected: boolean(row.quota_protected ?? false),
     weightManual:
       row.weight_manual === undefined
         ? undefined

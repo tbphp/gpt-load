@@ -314,7 +314,7 @@ func inspectCredential(
 			return result
 		}
 	}
-	if credential.Status != state.CredentialStatusActive {
+	if credential.Status != state.CredentialStatusActive || credential.QuotaProtected() {
 		result.Reason = ReasonCredentialDisabled
 		return result
 	}

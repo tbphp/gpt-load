@@ -32,6 +32,7 @@ import (
 	"gpt-load/internal/requestredact"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
+	providerobservation "gpt-load/internal/subscription/providers/observation"
 
 	"github.com/sirupsen/logrus"
 )
@@ -178,6 +179,20 @@ func (l *Loader) Load(ctx context.Context) error {
 	}).Info("config snapshot published")
 	if err := l.registry.ReplaceCredentials(entries); err != nil {
 		return fmt.Errorf("replace credential registry: %w", err)
+	}
+	var observations []models.CredentialObservation
+	if err := l.db.WithContext(ctx).Model(&models.CredentialObservation{}).
+		Select("credential_observations.*").
+		Joins("JOIN credentials ON credentials.id = credential_observations.credential_id AND credentials.identity_fingerprint = credential_observations.identity_fingerprint").
+		Where("credentials.quota_reserve_percent > 0 AND credential_observations.state = ?", models.CredentialObservationFresh).Find(&observations).Error; err != nil {
+		return fmt.Errorf("restore quota protection observations: %w", err)
+	}
+	for _, observation := range observations {
+		var snapshot providerobservation.Snapshot
+		if err := json.Unmarshal(observation.SnapshotJSON, &snapshot); err != nil {
+			continue // 无法读取的缓存保持额度未知，保护账号等待手动同步。
+		}
+		l.registry.ApplyQuotaWindows(observation.CredentialID, snapshot.QuotaWindows)
 	}
 	logrus.WithFields(logrus.Fields{
 		"event":       "startup.credential_registry_load",
@@ -956,6 +971,8 @@ func mapCredentials(rows []models.Credential, groups []models.Group) []state.Cre
 			),
 			Fingerprint: row.Fingerprint, WeightManual: cloneWeight(row.WeightManual),
 			Status: state.CredentialStatus(row.Status), AuthState: state.CredentialAuthState(row.AuthState), EncryptedValue: row.Data,
+
+			QuotaReservePercent: row.QuotaReservePercent,
 		})
 	}
 	return result

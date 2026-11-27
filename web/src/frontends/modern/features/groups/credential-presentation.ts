@@ -16,6 +16,8 @@ export function credentialStatus(row: CredentialRow): { key: string; tone: Seman
     blacklisted: 'danger',
     disabled: 'neutral',
   }
+  if (row.quotaProtected && row.state === 'disabled')
+    return { key: 'credentialCards.quotaProtected', tone: 'warning' }
   return { key: 'groups.credentials.' + row.state, tone: tones[row.state] }
 }
 export function credentialTime(value: number | null | undefined, locale: string): string {

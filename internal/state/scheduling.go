@@ -103,7 +103,7 @@ func (s *SchedulingState) syncCredentialLocked(view CredentialRuntimeView) {
 	}
 	authUnavailable := view.AuthState != CredentialAuthStateReady &&
 		view.AuthState != "" && view.AuthState != CredentialAuthStateRefreshing
-	suspended := view.Status != CredentialStatusActive || view.Blacklisted || authUnavailable ||
+	suspended := view.Status != CredentialStatusActive || view.Blacklisted || authUnavailable || view.QuotaProtected() ||
 		view.WeightManual != nil && *view.WeightManual <= 0 || view.CooldownUntil.After(time.Now())
 	// 记录冷却事件本身，避免到期与下一次选择之间没有管理更新而丢失恢复边界。
 	if suspended || m.suspended || !view.CooldownUntil.IsZero() && !view.CooldownUntil.Equal(m.cooldownUntil) {

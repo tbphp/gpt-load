@@ -53,6 +53,7 @@ const saved = ref<CredentialRow>()
 const nameDirty = ref(false)
 const namePending = ref(false)
 const weight = ref('')
+const quotaReserve = ref('')
 const proxyMode = ref('inherit')
 const proxyID = ref('')
 const saving = ref(false)
@@ -66,6 +67,7 @@ const dirty = computed(
     Boolean(saved.value) &&
     (nameDirty.value ||
       weight.value !== String(saved.value!.weightManual ?? '') ||
+      Number(quotaReserve.value) !== (saved.value!.quotaReservePercent ?? 0) ||
       proxyMode.value !== saved.value!.proxy.mode ||
       (Boolean(proxyID.value) && Number(proxyID.value) !== saved.value?.proxy.id)),
 )
@@ -75,6 +77,7 @@ watch(
     if (!value || dirty.value || saving.value) return
     saved.value = value
     weight.value = String(value.weightManual ?? '')
+    quotaReserve.value = value.quotaReservePercent ? String(value.quotaReservePercent) : ''
     proxyMode.value = value.proxy.mode
     proxyID.value = ''
   },
@@ -91,6 +94,11 @@ const proxyChanged = computed(
   () =>
     proxyMode.value !== saved.value?.proxy.mode ||
     (Boolean(proxyID.value) && Number(proxyID.value) !== saved.value?.proxy.id),
+)
+const quotaReserveInvalid = computed(
+  () =>
+    Boolean(quotaReserve.value) &&
+    (!/^\d+$/u.test(quotaReserve.value) || Number(quotaReserve.value) > 100),
 )
 const proxyInvalid = computed(
   () =>
@@ -114,7 +122,7 @@ function failure(): string {
 async function save(): Promise<void> {
   if (!saved.value || !dirty.value || saving.value) return
   attempted.value = true
-  if (weightInvalid.value || proxyInvalid.value) {
+  if (weightInvalid.value || proxyInvalid.value || quotaReserveInvalid.value) {
     if (isMobile.value) {
       mobileSection.value = 'settings'
       await nextTick()
@@ -125,6 +133,8 @@ async function save(): Promise<void> {
     return
   }
   const patch: Parameters<typeof updateCredential>[3] = {}
+  if (Number(quotaReserve.value) !== (saved.value.quotaReservePercent ?? 0))
+    patch.quota_reserve_percent = Number(quotaReserve.value)
   if (weight.value !== String(saved.value.weightManual ?? ''))
     patch.weight_manual = weight.value ? Number(weight.value) : null
   if (proxyChanged.value)
@@ -351,6 +361,19 @@ useMessageSource(() =>
           inputmode="numeric"
           :disabled="saving"
           :error="attempted && weightInvalid ? t('groups.edit.weightError') : undefined"
+        />
+        <AppTextField
+          v-if="group.channelID === 'codex'"
+          v-model="quotaReserve"
+          :label="t('credentialCards.quotaReserve')"
+          :placeholder="t('credentialCards.quotaReserveOff')"
+          :hint="t('credentialCards.quotaReserveHelp')"
+          size="sm"
+          inputmode="numeric"
+          :disabled="saving"
+          :error="
+            attempted && quotaReserveInvalid ? t('credentialCards.quotaReserveError') : undefined
+          "
         />
         <AppFormSection v-if="channel?.proxy" compact :title="t('groupCreate.proxy')">
           <template #actions>

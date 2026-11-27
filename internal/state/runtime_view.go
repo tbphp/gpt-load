@@ -19,6 +19,9 @@ type CredentialRuntimeView struct {
 	FailureCount       int
 	QuotaRemaining     *float64
 	QuotaResetAt       time.Time
+	QuotaIncomplete    bool
+
+	QuotaReservePercent int
 }
 
 func (view CredentialRuntimeView) AuthReady() bool {
@@ -27,6 +30,12 @@ func (view CredentialRuntimeView) AuthReady() bool {
 
 func (view CredentialRuntimeView) ObservedQuotaRemaining() *float64 {
 	return cloneFloat(view.QuotaRemaining)
+}
+
+func (view CredentialRuntimeView) QuotaProtected() bool {
+	// 利用率转换为剩余比例时会有浮点误差，阈值相等仍应触发保护。
+	return view.QuotaReservePercent > 0 && (view.QuotaRemaining == nil || view.QuotaIncomplete ||
+		*view.QuotaRemaining <= float64(view.QuotaReservePercent)/100+1e-9)
 }
 
 // RuntimeView 合并不同原因的冷却，供管理面使用同一份健康投影。
@@ -53,6 +62,9 @@ func (view CredentialRuntimeView) RuntimeState(now time.Time) CredentialRuntimeS
 	if view.CooldownUntil.After(now) {
 		return CredentialRuntimeCooldown
 	}
+	if view.QuotaProtected() {
+		return CredentialRuntimeDisabled
+	}
 	return CredentialRuntimeAvailable
 }
 
@@ -71,6 +83,9 @@ func runtimeView(entry *CredentialEntry) CredentialRuntimeView {
 		FailureCount:       entry.FailureCount,
 		QuotaRemaining:     cloneFloat(entry.quotaRemaining),
 		QuotaResetAt:       entry.quotaResetAt,
+		QuotaIncomplete:    entry.quotaIncomplete,
+
+		QuotaReservePercent: entry.QuotaReservePercent,
 	}
 }
 
