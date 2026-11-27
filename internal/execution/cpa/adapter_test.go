@@ -604,8 +604,8 @@ func TestAdapterExecutesCodexImagesMultipartAndStream(t *testing.T) {
 	t.Run("stream generation", func(t *testing.T) {
 		adapter, _, _, keyService, row := newAdapterFixture(t, credentialJSON("access", "refresh", time.Now().Add(time.Hour)))
 		chunks := make(chan codex.ExecuteStreamChunk, 2)
-		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AA==\"}\n")}
-		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"b64_json\":\"BB==\"}\n")}
+		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"AA==\"}\n\n")}
+		chunks <- codex.ExecuteStreamChunk{Payload: []byte("event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"b64_json\":\"BB==\"}\n\n")}
 		close(chunks)
 		fake := &fakeExecutor{stream: &codex.ExecuteStreamResponse{
 			Chunks:              chunks,

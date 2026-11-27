@@ -398,6 +398,11 @@ func (a *Adapter) ExecuteStream(
 	geminiTerminal := false
 	incomplete := false
 	var nativeResponsesAssembler *nativeResponsesSSEAssembler
+	var codexImagesAssembler *codexImagesSSEAssembler
+	if spec.ClientProtocol == protocol.OpenAIImages && upstreamProtocol == protocol.OpenAIImages &&
+		provider.ProviderKind() == channel.ProviderCodex {
+		codexImagesAssembler = &codexImagesSSEAssembler{}
+	}
 	var codexBootstrap *codexBootstrapBuffer
 	if spec.ClientProtocol == protocol.OpenAIResponses && spec.RouteMode == execution.RouteNative {
 		nativeResponsesAssembler = &nativeResponsesSSEAssembler{}
@@ -407,7 +412,10 @@ func (a *Adapter) ExecuteStream(
 	}
 	emitPayloads := func(payloads [][]byte) *execution.StreamResult {
 		for _, unframed := range payloads {
-			payload := frameSSE(spec.ClientProtocol, unframed)
+			payload := unframed
+			if codexImagesAssembler == nil {
+				payload = frameSSE(spec.ClientProtocol, unframed)
+			}
 			if spec.ClientProtocol == protocol.Anthropic && spec.RouteMode == execution.RouteConverted {
 				payload, err = normalizeConvertedAnthropicStartUsage(payload)
 				if err != nil {
@@ -465,6 +473,15 @@ func (a *Adapter) ExecuteStream(
 				payloads, finishErr := nativeResponsesAssembler.finish()
 				if finishErr != nil {
 					return streamInternalError(upstreamProtocol, headers, applied, "invalid subscription SSE stream", ready)
+				}
+				if failure := emitPayloads(payloads); failure != nil {
+					return *failure
+				}
+			}
+			if codexImagesAssembler != nil {
+				payloads, finishErr := codexImagesAssembler.push(nil, true)
+				if finishErr != nil {
+					return streamInternalError(upstreamProtocol, headers, applied, "invalid Codex Images SSE stream", upstreamStarted)
 				}
 				if failure := emitPayloads(payloads); failure != nil {
 					return *failure
@@ -528,6 +545,12 @@ func (a *Adapter) ExecuteStream(
 			payloads, err = nativeResponsesAssembler.push(chunk.Payload)
 			if err != nil {
 				return streamInternalError(upstreamProtocol, headers, applied, "invalid subscription SSE stream", ready)
+			}
+		}
+		if codexImagesAssembler != nil {
+			payloads, err = codexImagesAssembler.push(chunk.Payload, false)
+			if err != nil {
+				return streamInternalError(upstreamProtocol, headers, applied, "invalid Codex Images SSE stream", upstreamStarted)
 			}
 		}
 		if failure := emitPayloads(codexBootstrap.filter(payloads)); failure != nil {
