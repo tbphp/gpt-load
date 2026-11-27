@@ -135,7 +135,7 @@ func TestGeminiEmbeddingsConversionRouteCapability(t *testing.T) {
 		Operation:      execution.OperationEmbeddingsCreate,
 		RouteMode:      execution.RouteConverted,
 	}
-	for _, provider := range []channel.ProviderKind{channel.ProviderGemini, channel.ProviderGoogleVertex} {
+	for _, provider := range []channel.ProviderKind{channel.ProviderGemini, channel.ProviderGoogleVertex, channel.ProviderAzureOpenAI} {
 		if err := manager.ValidateRouteCapability(provider, route); err != nil {
 			t.Errorf("%s: %v", provider, err)
 		}

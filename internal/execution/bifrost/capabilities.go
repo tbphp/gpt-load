@@ -40,7 +40,9 @@ func convertedRouteImplemented(providerKind channel.ProviderKind, clientProtocol
 	case execution.OperationImagesGenerate:
 		return providerKind == channel.ProviderGemini && clientProtocol == protocol.OpenAIImages
 	case execution.OperationEmbeddingsCreate:
-		return (providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex) &&
+		// Azure 与其他路由一致经 Bifrost 云 provider 执行，请求体按 OpenAI Embeddings 原样转发。
+		return (providerKind == channel.ProviderGemini || providerKind == channel.ProviderGoogleVertex ||
+			providerKind == channel.ProviderAzureOpenAI) &&
 			clientProtocol == protocol.OpenAIEmbeddings
 	case execution.OperationListModels:
 		return clientProtocol != protocol.OpenAIResponses && clientProtocol != protocol.Rerank &&
