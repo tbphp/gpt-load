@@ -1,4 +1,5 @@
 import { credentialDisplayText } from '@shared/credential-display'
+import { readGroupPriority } from '@shared/group-priority'
 import { readErrorRules, type ErrorRule } from '@shared/error-rules'
 import { codexLiveModes, type CodexLiveMode } from '@shared/codex-live'
 import type { ApiClient } from '@shared/http/client'
@@ -274,6 +275,7 @@ export interface CredentialRow {
   enabled: boolean
   weight: number
   weightManual?: number | null
+  priority: number
   successes: number
   failures: number
   failuresInRow: number
@@ -337,6 +339,7 @@ export function readCredential(value: unknown): CredentialRow {
         : row.weight_manual === null
           ? null
           : integer(row.weight_manual),
+    priority: readGroupPriority(row.priority),
     successes: integer(row.recent_success_count),
     failures: integer(row.recent_failure_count),
     failuresInRow: integer(row.consecutive_failure_count),

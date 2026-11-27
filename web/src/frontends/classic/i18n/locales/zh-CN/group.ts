@@ -435,6 +435,17 @@ export default {
         cancel: '取消',
         save: '应用',
       },
+      priority: '优先级',
+      priorityTooltip:
+        '凭据优先级 {priority}。同一分组优先级内，只调度可用凭据中优先级最高的一档。',
+      editPriority: '编辑优先级',
+      priorityEditor: {
+        value: '优先级',
+        help: '数值越大越先使用，较低优先级作为兜底；默认 0。',
+        invalid: '请输入 -2147483648～2147483647 的整数',
+        cancel: '取消',
+        save: '应用',
+      },
       recent: '成功 {success} · 失败 {failure}',
       recentSuccessOnly: '成功 {success}',
       detailsFailure: '最近失败',

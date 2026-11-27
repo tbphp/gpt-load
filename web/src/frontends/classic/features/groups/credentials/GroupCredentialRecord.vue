@@ -11,8 +11,9 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isValidGroupPriority } from '@shared/group-priority'
 
 import type { CredentialItemDto, ProxyMutation } from '@/api/control/types'
 import type { CredentialBatchTestItem } from '@shared/credential-test-batch'
@@ -48,6 +49,7 @@ const emit = defineEmits<{
   'update:weightEditorOpen': [open: boolean]
   'open-weight': [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
+  priority: [payload: { item: CredentialItemDto; value: string }]
   toggle: [item: CredentialItemDto]
   test: [item: CredentialItemDto]
   restore: [item: CredentialItemDto]
@@ -58,6 +60,22 @@ const menuOpen = ref(false)
 const draftWeight = ref('50')
 const detailId = computed(() => `group-credential-details-${props.item.credential_id}`)
 const weightInputId = computed(() => `group-credential-weight-${props.item.credential_id}`)
+const priorityInputId = computed(() => `group-credential-priority-${props.item.credential_id}`)
+const priorityEditing = ref(false)
+const draftPriority = ref('0')
+const priorityValid = computed(() => isValidGroupPriority(draftPriority.value))
+const priorityTooltip = computed(() =>
+  t('group.credentials.priorityTooltip', { priority: n(props.item.priority) }),
+)
+const priorityLabel = computed(() => `${t('group.credentials.priority')} ${n(props.item.priority)}`)
+const priorityInput = ref<HTMLInputElement | null>(null)
+// 编辑器出现且折叠区已展开后聚焦输入框，列表上的优先级入口无需再次点击。
+watch([priorityInput, () => props.expanded], async ([input, expanded]) => {
+  if (!input || !expanded) return
+  await nextTick()
+  input.focus()
+  input.select()
+})
 const isProblem = computed(
   () =>
     props.item.effective_status === 'cooldown' ||
@@ -127,6 +145,32 @@ watch(
     draftWeight.value = String(props.item.weight)
   },
 )
+
+watch(
+  () => props.expanded,
+  (expanded) => {
+    if (!expanded) priorityEditing.value = false
+  },
+)
+
+function editPriority(): void {
+  if (props.busy) return
+  draftPriority.value = String(props.item.priority)
+  priorityEditing.value = true
+}
+
+function savePriority(): void {
+  if (props.busy || !priorityValid.value) return
+  emit('priority', { item: props.item, value: String(Number(draftPriority.value)) })
+  priorityEditing.value = false
+}
+
+// 优先级标签可点：展开该行并直接进入优先级编辑。
+function openPriorityFromColumn(): void {
+  if (props.busy) return
+  if (!props.expanded) emit('update:expanded', true)
+  editPriority()
+}
 
 function saveWeight(): void {
   if (props.busy || !weightValid.value) return
@@ -218,6 +262,18 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
             @click="openWeightFromColumn"
           >
             {{ weightLabel }}
+          </button>
+        </AppTooltip>
+        <AppTooltip :content="priorityTooltip">
+          <button
+            type="button"
+            class="group-credential-record__priority-badge"
+            :disabled="busy"
+            :aria-label="`${priorityLabel} · ${t('group.credentials.editPriority')}`"
+            :aria-controls="detailId"
+            @click="openPriorityFromColumn"
+          >
+            {{ priorityLabel }}
           </button>
         </AppTooltip>
       </div>
@@ -374,6 +430,61 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
                   </div>
                   <p v-if="!weightValid" class="setting-panel__error" role="alert">
                     {{ t('group.credentials.weightEditor.invalid') }}
+                  </p>
+                </form>
+              </div>
+            </div>
+
+            <div class="setting-panel">
+              <span class="setting-panel__title">
+                {{ t('group.credentials.priority') }}
+              </span>
+              <div class="setting-panel__body">
+                <template v-if="!priorityEditing">
+                  <span class="setting-panel__value">
+                    {{ n(item.priority) }}
+                  </span>
+                  <IconButton
+                    class="setting-panel__edit"
+                    variant="ghost"
+                    tone="action"
+                    size="xs"
+                    :label="t('group.credentials.editPriority')"
+                    :disabled="busy"
+                    @click="editPriority"
+                  >
+                    <PencilLine :size="12" aria-hidden="true" />
+                  </IconButton>
+                </template>
+                <form
+                  v-else
+                  class="setting-panel__form group-credential-record__weight-form"
+                  @submit.prevent="savePriority"
+                >
+                  <label class="sr-only" :for="priorityInputId">
+                    {{ t('group.credentials.priorityEditor.value') }}
+                  </label>
+                  <input
+                    :id="priorityInputId"
+                    ref="priorityInput"
+                    v-model="draftPriority"
+                    type="number"
+                    step="1"
+                    inputmode="numeric"
+                    :disabled="busy"
+                    :aria-invalid="!priorityValid || undefined"
+                    @keydown.esc.stop.prevent="priorityEditing = false"
+                  />
+                  <div class="setting-panel__actions">
+                    <AppButton variant="ghost" size="compact" @click="priorityEditing = false">
+                      {{ t('group.credentials.priorityEditor.cancel') }}
+                    </AppButton>
+                    <AppButton type="submit" size="compact" :disabled="busy || !priorityValid">
+                      {{ t('group.credentials.priorityEditor.save') }}
+                    </AppButton>
+                  </div>
+                  <p v-if="!priorityValid" class="setting-panel__error" role="alert">
+                    {{ t('group.credentials.priorityEditor.invalid') }}
                   </p>
                 </form>
               </div>
@@ -590,6 +701,34 @@ function runMenuAction(action: 'test' | 'toggle' | 'restore' | 'remove'): void {
   padding: 0 6px;
   font-family: var(--font-mono);
   font-size: var(--text-label-xs);
+}
+
+.group-credential-record__priority-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  border: 0;
+  border-radius: var(--radius-tag);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  padding: 1px 6px;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.group-credential-record__priority-badge:hover:not(:disabled) {
+  background: var(--color-interactive-hover);
+}
+
+.group-credential-record__priority-badge:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.group-credential-record__priority-badge:disabled {
+  cursor: not-allowed;
 }
 
 .group-credential-record__weight-value {

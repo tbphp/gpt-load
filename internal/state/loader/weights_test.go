@@ -87,3 +87,30 @@ func TestLoaderPreservesManualWeightBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestLoaderMapsCredentialPriority(t *testing.T) {
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name: "tiered", ChannelID: string(channel.OpenAI), Params: models.JSON(`{}`),
+		Models: models.JSON(`[{"id":"gpt-tiered"}]`), Overrides: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, db, &group)
+	credentials := []models.Credential{
+		{GroupID: group.ID, Data: "cipher-high", Fingerprint: "fingerprint-high", Status: models.CredentialStatusActive, Priority: 3},
+		{GroupID: group.ID, Data: "cipher-default", Fingerprint: "fingerprint-default", Status: models.CredentialStatusActive},
+	}
+	for index := range credentials {
+		mustCreate(t, db, &credentials[index])
+	}
+	registry := state.NewCredentialRegistry()
+	if err := loader.New(db, state.NewManager(), registry).Load(context.Background()); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	priorities := map[uint]int32{}
+	for _, candidate := range registry.CollectCredentialCandidates([]uint{group.ID}, nil, time.Time{}) {
+		priorities[candidate.ID] = candidate.Priority
+	}
+	if priorities[credentials[0].ID] != 3 || priorities[credentials[1].ID] != 0 || len(priorities) != 2 {
+		t.Fatalf("candidate priorities = %v", priorities)
+	}
+}

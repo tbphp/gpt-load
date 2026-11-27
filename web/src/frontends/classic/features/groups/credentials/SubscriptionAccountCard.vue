@@ -2,6 +2,7 @@
 import CredentialDisplay from '@/components/CredentialDisplay.vue'
 import CredentialNameEditor from './CredentialNameEditor.vue'
 import {
+  ArrowUpNarrowWide,
   Check,
   CircleCheck,
   CircleOff,
@@ -17,6 +18,7 @@ import {
 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isValidGroupPriority } from '@shared/group-priority'
 
 import type {
   CredentialItemDto,
@@ -74,6 +76,7 @@ const emit = defineEmits<{
   'refresh-credential': [item: CredentialItemDto]
   remove: [item: CredentialItemDto]
   weight: [payload: { item: CredentialItemDto; value: string }]
+  priority: [payload: { item: CredentialItemDto; value: string }]
 }>()
 const { locale, n, t, te } = useI18n()
 const menuOpen = ref(false)
@@ -82,6 +85,33 @@ const proxyEditor = ref<{ beginEdit: () => void } | null>(null)
 const weightEditing = ref(false)
 const draftWeight = ref('50')
 const weightInputId = computed(() => `subscription-account-weight-${props.item.credential_id}`)
+const priorityEditing = ref(false)
+const draftPriority = ref('0')
+const priorityInputId = computed(() => `subscription-account-priority-${props.item.credential_id}`)
+const priorityValid = computed(() => isValidGroupPriority(draftPriority.value))
+const priorityTooltip = computed(() =>
+  t('group.credentials.priorityTooltip', { priority: n(props.item.priority) }),
+)
+const priorityLabel = computed(() => `${t('group.credentials.priority')} ${n(props.item.priority)}`)
+const priorityInput = ref<HTMLInputElement | null>(null)
+// 编辑器出现时直接聚焦输入框，卡片上的优先级入口无需再次点击。
+watch(priorityInput, (input) => {
+  input?.focus()
+  input?.select()
+})
+
+function editPriority(): void {
+  if (props.busy) return
+  draftPriority.value = String(props.item.priority)
+  detailsExpanded.value = true
+  priorityEditing.value = true
+}
+
+function savePriority(): void {
+  if (props.busy || !priorityValid.value) return
+  emit('priority', { item: props.item, value: String(Number(draftPriority.value)) })
+  priorityEditing.value = false
+}
 
 // 默认权重保持简洁，非默认值显示快捷编辑入口。
 const showWeightChip = computed(() => props.item.weight !== 50)
@@ -129,7 +159,10 @@ watch(
   { immediate: true },
 )
 watch(detailsExpanded, (expanded) => {
-  if (!expanded) weightEditing.value = false
+  if (!expanded) {
+    weightEditing.value = false
+    priorityEditing.value = false
+  }
 })
 const nowMs = ref(Date.now())
 let clockTimer: number | undefined
@@ -799,6 +832,18 @@ function runMenuAction(
                 <b>{{ n(item.weight as number) }}</b>
               </button>
             </AppTooltip>
+            <AppTooltip :content="priorityTooltip">
+              <button
+                class="subscription-account__weight-chip"
+                type="button"
+                :disabled="busy"
+                :aria-label="`${priorityLabel} · ${t('group.credentials.editPriority')}`"
+                @click="editPriority"
+              >
+                <ArrowUpNarrowWide :size="12" aria-hidden="true" />
+                <b>{{ priorityLabel }}</b>
+              </button>
+            </AppTooltip>
             <ProxyScopeIndicator
               v-if="capabilities.outbound_proxy"
               :view="item.proxy"
@@ -1416,6 +1461,55 @@ function runMenuAction(
               </div>
               <p v-if="!weightValid" class="setting-panel__error" role="alert">
                 {{ t('group.credentials.weightEditor.invalid') }}
+              </p>
+            </form>
+          </div>
+        </div>
+        <div class="setting-panel">
+          <span class="setting-panel__title">{{ t('group.credentials.priority') }}</span>
+          <div class="setting-panel__body">
+            <template v-if="!priorityEditing">
+              <span class="setting-panel__value">
+                {{ n(item.priority) }}
+              </span>
+              <IconButton
+                class="setting-panel__edit"
+                variant="ghost"
+                tone="action"
+                size="xs"
+                :label="t('group.credentials.editPriority')"
+                :disabled="busy"
+                @click="editPriority"
+              >
+                <PencilLine :size="12" aria-hidden="true" />
+              </IconButton>
+            </template>
+            <form v-else class="setting-panel__form" @submit.prevent="savePriority">
+              <label class="sr-only" :for="priorityInputId">
+                {{ t('group.credentials.priorityEditor.value') }}
+              </label>
+              <input
+                :id="priorityInputId"
+                ref="priorityInput"
+                v-model="draftPriority"
+                class="subscription-account__weight-input"
+                type="number"
+                step="1"
+                inputmode="numeric"
+                :disabled="busy"
+                :aria-invalid="!priorityValid || undefined"
+                @keydown.esc.stop.prevent="priorityEditing = false"
+              />
+              <div class="setting-panel__actions">
+                <AppButton variant="ghost" size="compact" @click="priorityEditing = false">
+                  {{ t('group.credentials.priorityEditor.cancel') }}
+                </AppButton>
+                <AppButton type="submit" size="compact" :disabled="busy || !priorityValid">
+                  {{ t('group.credentials.priorityEditor.save') }}
+                </AppButton>
+              </div>
+              <p v-if="!priorityValid" class="setting-panel__error" role="alert">
+                {{ t('group.credentials.priorityEditor.invalid') }}
               </p>
             </form>
           </div>

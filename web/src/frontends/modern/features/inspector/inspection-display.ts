@@ -1,4 +1,4 @@
-import type { Inspection, InspectionGroup } from '@modern/api/inspector'
+import type { Inspection, InspectionCredential, InspectionGroup } from '@modern/api/inspector'
 
 export function groupWeight(group: InspectionGroup): number {
   return group.credentials.reduce(
@@ -6,21 +6,40 @@ export function groupWeight(group: InspectionGroup): number {
     0,
   )
 }
-// 同组多个模型目标共享凭据，每份凭据权重只累计一次。
+const schedulable = (credential: InspectionCredential) =>
+  credential.available && credential.effectiveWeight > 0
+// 同组多个模型目标共享凭据，每份凭据权重只累计一次；只计入当前凭据优先级档。
 export function groupsWeight(groups: readonly InspectionGroup[]): number {
+  const tier = credentialTier(groups)
   const weights = new Map<number, number>()
   for (const group of groups) {
     for (const credential of group.credentials) {
-      if (credential.available) weights.set(credential.id, credential.effectiveWeight)
+      if (schedulable(credential) && credential.priority === tier) {
+        weights.set(credential.id, credential.effectiveWeight)
+      }
     }
   }
   return [...weights.values()].reduce((total, weight) => total + weight, 0)
+}
+// 与调度一致：同一分组优先级内只调度可用凭据中最高的凭据优先级。
+function credentialTier(groups: readonly InspectionGroup[]): number {
+  return Math.max(
+    ...groups.flatMap((group) =>
+      group.credentials.filter(schedulable).map((credential) => credential.priority),
+    ),
+  )
 }
 export function activeGroups(result: Inspection): InspectionGroup[] {
   if (!result.routable) return []
   const available = result.groups.filter((group) => group.included && group.routable)
   const priority = Math.max(...available.map((group) => group.priority))
-  const tier = available.filter((group) => group.priority === priority)
+  const groupTier = available.filter((group) => group.priority === priority)
+  const credentialPriority = credentialTier(groupTier)
+  const tier = groupTier.filter((group) =>
+    group.credentials.some(
+      (credential) => schedulable(credential) && credential.priority === credentialPriority,
+    ),
+  )
   if (result.strategy === 'weighted_mix') return tier
   const mode = tier.some((group) => group.mode === 'native') ? 'native' : 'converted'
   return tier.filter((group) => group.mode === mode)

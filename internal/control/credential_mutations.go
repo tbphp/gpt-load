@@ -26,8 +26,12 @@ func normalizeCredentialUpdate(
 	request CredentialUpdateRequest,
 	encryptionService encryption.Service,
 ) (status *state.CredentialStatus, weight *int, weightSet bool, proxy *string, proxySet bool, err error) {
-	if !request.Name.Set && !request.Status.Set && !request.WeightManual.Set && !request.Proxy.Set {
+	if !request.Name.Set && !request.Status.Set && !request.WeightManual.Set && !request.Priority.Set && !request.Proxy.Set {
 		return nil, nil, false, nil, false, app_errors.ErrBadRequest
+	}
+	// 与分组优先级一致：任意 int32，不允许 null。
+	if request.Priority.Set && request.Priority.Null {
+		return nil, nil, false, nil, false, app_errors.ErrValidation
 	}
 	if request.Name.Set && (request.Name.Null || utf8.RuneCountInString(strings.TrimSpace(request.Name.Value)) > 255 || strings.ContainsFunc(strings.TrimSpace(request.Name.Value), unicode.IsControl)) {
 		return nil, nil, false, nil, false, app_errors.ErrValidation
@@ -191,6 +195,10 @@ func (s *Service) UpdateGroupCredential(
 			committed.WeightManual = cloneInt(weight)
 			updates["weight_manual"] = committed.WeightManual
 		}
+		if request.Priority.Set {
+			committed.Priority = request.Priority.Value
+			updates["priority"] = committed.Priority
+		}
 		if proxySet {
 			proxy, err = s.managedProxyOverride(ctx, tx, proxy)
 			if err != nil {
@@ -211,7 +219,7 @@ func (s *Service) UpdateGroupCredential(
 		return nil
 	}, func() error {
 		committedProxyUpdate = proxySet
-		if request.Name.Set && !request.Status.Set && !weightSet && !proxySet {
+		if request.Name.Set && !request.Status.Set && !weightSet && !request.Priority.Set && !proxySet {
 			if !s.registry.UpdateCredentialName(groupID, credentialID, committed.Name) {
 				return dbRegistryMismatch(mismatchMissingRegistry, groupID, credentialID)
 			}
@@ -225,6 +233,7 @@ func (s *Service) UpdateGroupCredential(
 		entry.Name = committed.Name
 		entry.Status = state.CredentialStatus(committed.Status)
 		entry.WeightManual = cloneInt(committed.WeightManual)
+		entry.Priority = committed.Priority
 		entry.Version = groupCollectionCredentialVersion(committed.SecretVersion)
 		entry.IdentityGeneration = groupCollectionCredentialIdentity(
 			committed.IdentityFingerprint,
@@ -445,6 +454,9 @@ func validateCredentialRuntimeRow(
 	}
 	if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
 		return dbRegistryMismatch(mismatchWeightManual, groupID, row.ID)
+	}
+	if view.Priority != row.Priority {
+		return dbRegistryMismatch(mismatchPriority, groupID, row.ID)
 	}
 	if view.Version != groupCollectionCredentialVersion(row.SecretVersion) ||
 		view.IdentityGeneration != groupCollectionCredentialIdentity(row.IdentityFingerprint, group) {

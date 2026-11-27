@@ -20,6 +20,7 @@ const (
 	mismatchGroupID         = "group_id"
 	mismatchStatus          = "status"
 	mismatchWeightManual    = "weight_manual"
+	mismatchPriority        = "priority"
 	mismatchIdentity        = "identity"
 )
 

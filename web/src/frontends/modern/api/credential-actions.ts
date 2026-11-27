@@ -24,7 +24,12 @@ export async function updateCredential(
   client: ApiClient,
   group: number,
   id: number,
-  patch: { name?: string; weight_manual?: number | null; proxy?: ProxyOverride | null },
+  patch: {
+    name?: string
+    weight_manual?: number | null
+    priority?: number
+    proxy?: ProxyOverride | null
+  },
   signal: AbortSignal,
 ) {
   const row = readCredential(

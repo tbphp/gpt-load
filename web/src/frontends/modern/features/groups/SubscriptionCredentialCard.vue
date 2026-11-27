@@ -36,12 +36,14 @@ const props = defineProps<{
   syncSucceeded?: boolean
   error?: string
   saveName: (name: string) => Promise<void>
+  savePriority?: (value: number) => Promise<void>
 }>()
 defineEmits<{
   select: [value: boolean]
   toggle: [value: boolean]
   action: [value: string]
   nameDirty: [value: boolean]
+  priorityDirty: [value: boolean]
 }>()
 const { t, n, locale } = useI18n()
 const state = computed(() => credentialStatus(props.row))
@@ -212,7 +214,12 @@ useLoadingActivity(() => Boolean(props.pending))
           <span v-if="creditBalanceLabel" class="modern-subscription-card-credit-balance"
             >{{ t('credentialCards.creditBalance') }} {{ creditBalanceLabel }}</span
           >
-          <CredentialRoutingMeta :row="row" />
+          <CredentialRoutingMeta
+            :row="row"
+            :disabled="disabled"
+            :save-priority="savePriority"
+            @dirty="$emit('priorityDirty', $event)"
+          />
         </div>
       </div>
     </header>

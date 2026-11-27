@@ -14,6 +14,7 @@ export interface InspectionCredential {
   available: boolean
   reason: string | null
   weight: number
+  priority: number
   effectiveWeight: number
   cooldownUntil: number | null
 }
@@ -92,6 +93,7 @@ export async function inspectRoute(
             available: boolean(credential.available),
             reason: optionalText(credential.reason_code),
             weight: integer(credential.weight),
+            priority: readGroupPriority(credential.priority),
             effectiveWeight: integer(credential.effective_weight),
             cooldownUntil: optionalNumber(credential.cooldown_until_ms),
           }

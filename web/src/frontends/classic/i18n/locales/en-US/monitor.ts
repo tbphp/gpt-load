@@ -74,6 +74,8 @@ export default {
         limited: 'Limited capacity',
         available: 'Available',
         tableLabel: 'Group health list',
+        priority: 'P{value}',
+        priorityLabel: 'Credential priority {value}',
         columns: {
           group: 'Group: {name}',
           status: 'Scheduling',

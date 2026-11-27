@@ -73,6 +73,8 @@ export default {
         limited: '容量受限',
         available: '可用',
         tableLabel: '分组健康列表',
+        priority: 'P{value}',
+        priorityLabel: '凭据优先级 {value}',
         columns: {
           group: '分组：{name}',
           status: '调度状态',

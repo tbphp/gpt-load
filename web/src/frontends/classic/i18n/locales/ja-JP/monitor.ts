@@ -74,6 +74,8 @@ export default {
         limited: '容量制限',
         available: '利用可能',
         tableLabel: 'グループヘルス一覧',
+        priority: 'P{value}',
+        priorityLabel: '認証情報の優先度 {value}',
         columns: {
           group: 'グループ：{name}',
           status: 'スケジュール',

@@ -69,6 +69,7 @@ type Credential struct {
 	AuthState           CredentialAuthState `gorm:"type:varchar(32);not null;default:'ready';check:chk_credential_auth_state,auth_state IN ('ready','refreshing','reauthorization_required','outcome_unknown')"`
 	AuthErrorCode       string              `gorm:"type:varchar(64);not null;default:''"`
 	Status              CredentialStatus    `gorm:"type:varchar(32);not null;default:'active';check:chk_credential_status,status IN ('active','disabled')"`
+	Priority            int32               `gorm:"type:integer;not null;default:0"`
 	WeightManual        *int
 	ProxyConfig         *string `gorm:"column:proxy_config;type:text"`
 	Group               *Group  `gorm:"foreignKey:GroupID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`

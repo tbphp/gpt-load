@@ -178,7 +178,7 @@ func (s *Service) readGroupCollectionRows(
 		}
 		var credentials []models.Credential
 		if err := tx.Model(&models.Credential{}).
-			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual").
+			Select("id", "group_id", "fingerprint", "identity_fingerprint", "secret_version", "status", "weight_manual", "priority").
 			Order("group_id ASC, id ASC").Find(&credentials).Error; err != nil {
 			return err
 		}
@@ -327,7 +327,8 @@ func mapGroupCollectionRecords(
 				persistedCredential.IdentityFingerprint,
 				persistedGroups[persistedCredential.GroupID],
 			) ||
-			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) {
+			!equalGroupCollectionWeight(runtimeCredential.WeightManual, persistedCredential.WeightManual) ||
+			runtimeCredential.Priority != persistedCredential.Priority {
 			return nil, groupCollectionDataError(
 				"persisted credential %d differs from runtime registry",
 				credentialID,

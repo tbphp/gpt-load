@@ -1,4 +1,5 @@
 import { credentialDisplayText } from '@shared/credential-display'
+import { isValidGroupPriority, readGroupPriority } from '@shared/group-priority'
 import {
   keepPreviousData,
   queryOptions,
@@ -73,6 +74,7 @@ export interface CredentialPatch {
   name?: string
   status?: CredentialConfiguredStatus
   weight_manual?: number | null
+  priority?: number
   proxy?: ProxyMutation
 }
 
@@ -110,6 +112,7 @@ const credentialItemFields = [
   'configured_status',
   'effective_status',
   'weight',
+  'priority',
   'recent_success_count',
   'recent_failure_count',
   'consecutive_failure_count',
@@ -630,6 +633,7 @@ export function projectCredentialItem(value: unknown): CredentialItemDto {
     configured_status: configuredStatus,
     effective_status: effectiveStatus,
     weight,
+    priority: readGroupPriority(record.priority),
     recent_success_count: projectSafeInteger(record.recent_success_count, { minimum: 0 }),
     recent_failure_count: projectSafeInteger(record.recent_failure_count, { minimum: 0 }),
     consecutive_failure_count: projectSafeInteger(record.consecutive_failure_count, { minimum: 0 }),
@@ -725,7 +729,12 @@ function normalizePatch(patch: CredentialPatch): CredentialPatch {
   if (
     keys.length === 0 ||
     keys.some(
-      (key) => key !== 'name' && key !== 'status' && key !== 'weight_manual' && key !== 'proxy',
+      (key) =>
+        key !== 'name' &&
+        key !== 'status' &&
+        key !== 'weight_manual' &&
+        key !== 'priority' &&
+        key !== 'proxy',
     )
   ) {
     throw new Error('INVALID_CREDENTIAL_PATCH')
@@ -745,6 +754,13 @@ function normalizePatch(patch: CredentialPatch): CredentialPatch {
       throw new Error('INVALID_CREDENTIAL_WEIGHT')
     }
     body.weight_manual = weight
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+    const priority = patch.priority
+    if (priority === undefined || !Number.isInteger(priority) || !isValidGroupPriority(priority)) {
+      throw new Error('INVALID_CREDENTIAL_PRIORITY')
+    }
+    body.priority = priority
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'proxy')) {
     const proxy = patch.proxy

@@ -204,11 +204,24 @@ const activePriority = computed(() =>
 const priorityGroups = computed(() =>
   includedGroups.value.filter((group) => group.priority === activePriority.value),
 )
+// 与调度一致：在最高分组优先级内，再只取可用凭据中的最高凭据优先级一档。
+const activeCredentialPriority = computed(() =>
+  Math.max(
+    ...priorityGroups.value
+      .filter((group) => group.routable)
+      .flatMap((group) =>
+        group.credentials.filter(credentialSchedulable).map((credential) => credential.priority),
+      ),
+  ),
+)
+const activeTierGroups = computed(() =>
+  priorityGroups.value.filter((group) => group.routable && hasActiveTierCredential(group)),
+)
 const activeRouteMode = computed<'native' | 'converted' | null>(() => {
-  if (priorityGroups.value.some((group) => group.routable && group.route_mode === 'native')) {
+  if (activeTierGroups.value.some((group) => group.route_mode === 'native')) {
     return 'native'
   }
-  if (priorityGroups.value.some((group) => group.routable && group.route_mode === 'converted')) {
+  if (activeTierGroups.value.some((group) => group.route_mode === 'converted')) {
     return 'converted'
   }
   return null
@@ -451,10 +464,23 @@ function routeModePriority(group: RouteInspectGroupDto): number {
   return weightedMix.value || group.route_mode === 'native' ? 0 : 1
 }
 
+function credentialSchedulable(credential: RouteInspectCredentialDto): boolean {
+  return credential.available && credential.effective_weight > 0
+}
+
+function inActiveCredentialTier(credential: RouteInspectCredentialDto): boolean {
+  return credentialSchedulable(credential) && credential.priority === activeCredentialPriority.value
+}
+
+function hasActiveTierCredential(group: RouteInspectGroupDto): boolean {
+  return group.credentials.some(inActiveCredentialTier)
+}
+
 function isActiveCandidate(group: RouteInspectGroupDto): boolean {
   return (
     group.routable &&
     group.priority === activePriority.value &&
+    hasActiveTierCredential(group) &&
     (weightedMix.value || group.route_mode === activeRouteMode.value)
   )
 }
@@ -507,7 +533,9 @@ function groupsEffectiveWeight(groups: readonly RouteInspectGroupDto[]): number 
   const weights = new Map<number, number>()
   for (const group of groups) {
     for (const credential of group.credentials) {
-      if (credential.available) weights.set(credential.credential_id, credential.effective_weight)
+      if (inActiveCredentialTier(credential)) {
+        weights.set(credential.credential_id, credential.effective_weight)
+      }
     }
   }
   return [...weights.values()].reduce((total, weight) => total + weight, 0)
@@ -954,6 +982,19 @@ onBeforeUnmount(() => {
                         t('monitor.inspector.credentials.columns.weight')
                       }}</span>
                       <span>{{ formattedInteger(credential.weight) }}</span>
+                      <code
+                        v-if="credential.priority !== 0"
+                        :title="
+                          t('monitor.inspector.credentials.priorityLabel', {
+                            value: formattedInteger(credential.priority),
+                          })
+                        "
+                        >{{
+                          t('monitor.inspector.credentials.priority', {
+                            value: formattedInteger(credential.priority),
+                          })
+                        }}</code
+                      >
                     </div>
                     <div
                       class="ledger-record-list__cell route-credential-record__weight"
